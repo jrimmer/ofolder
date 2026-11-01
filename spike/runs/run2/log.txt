@@ -1,4 +1,4 @@
-75.83 out dir <scratch>/scratchpad/spike/run2
+75.83 out dir <scratch>/spike/run2
 75.88 spawned picker pid=1000569 folder=/home/user
 76.28 picker window found 0x5593b69e42c0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
 76.29 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'

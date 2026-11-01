@@ -1,4 +1,4 @@
-55.64 out dir <scratch>/scratchpad/spike/h6
+55.64 out dir <scratch>/spike/h6
 55.67 spawned picker pid=1219863 folder=/home/user
 56.07 picker window found at=[1611, 289] size=[875, 600]
 56.08 rule on -> ok

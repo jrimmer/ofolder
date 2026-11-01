@@ -1,17 +1,17 @@
-465.03 out dir <scratch>/scratchpad/spike/run5
+465.03 out dir <scratch>/spike/run5
 465.07 spawned picker pid=1087828 folder=/home/user
 465.48 picker window found 0x5593b7a01de0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
 465.48 hyprctl eval hl.window_rule({ name = "spike-strip", enabled = true, match = { class = "^spike\\.strip$" }, float = true, size = "230 600", move = "2492 289" }) -> ok
 465.48 rule on -> ok
 469.25 shot 1-docked geom=1611,289 1111x600 title='Spike save'
 470.20 killed picker
-470.20 spawned picker pid=1088996 folder=<scratch>/scratchpad/spike/run5/playground
-474.24 CHECK after respawn          want=<scratch>/scratchpad/spike/run5/playground got=<scratch>/scratchpad/spike/run5/playground OK
-478.24 CHECK after in-picker nav    want=<scratch>/scratchpad/spike/run5/playground/sub got=<scratch>/scratchpad/spike/run5/playground MISMATCH
-479.24 mkdir <scratch>/scratchpad/spike/run5/playground/spike-folder-1793564479
-479.32 new_folder created <scratch>/scratchpad/spike/run5/playground/spike-folder-1793564479 (parent matches read folder: True)
+470.20 spawned picker pid=1088996 folder=<scratch>/spike/run5/playground
+474.24 CHECK after respawn          want=<scratch>/spike/run5/playground got=<scratch>/spike/run5/playground OK
+478.24 CHECK after in-picker nav    want=<scratch>/spike/run5/playground/sub got=<scratch>/spike/run5/playground MISMATCH
+479.24 mkdir <scratch>/spike/run5/playground/spike-folder-1793564479
+479.32 new_folder created <scratch>/spike/run5/playground/spike-folder-1793564479 (parent matches read folder: True)
 482.68 shot 2-new-folder-entered skipped: picker=False strip=True
-483.24 final folder read: <scratch>/scratchpad/spike/run5/playground
+483.24 final folder read: <scratch>/spike/run5/playground
 485.68 FOLLOW picker.at=None strip.at=[2492, 289] MISMATCH
 486.18 shot 3-after-drag skipped: picker=False strip=True
 487.18 sent Escape

@@ -1,16 +1,16 @@
-759.19 out dir <scratch>/scratchpad/spike/h1
+759.19 out dir <scratch>/spike/h1
 759.22 spawned picker pid=1148692 folder=/home/user
 759.63 picker window found at=[1611, 289] size=[875, 600]
 759.64 rule on -> ok
 759.72 FOLDER -> /home/user
 763.79 killed picker
-763.79 spawned picker pid=1149832 folder=<scratch>/scratchpad/spike/h1/playground
+763.79 spawned picker pid=1149832 folder=<scratch>/spike/h1/playground
 764.03 picker window found at=[1611, 289] size=[875, 600]
-764.16 FOLDER -> <scratch>/scratchpad/spike/h1/playground
+764.16 FOLDER -> <scratch>/spike/h1/playground
 768.57 REFUSED goto '<scratch>/scratch': picker not alive or not focusable
 769.74 PASS guard refuses when picker not focused sent=False before=True after=True
-769.90 mkdir <scratch>/scratchpad/spike/h1/playground/New folder
-770.04 mkdir <scratch>/scratchpad/spike/h1/playground/New folder 2
+769.90 mkdir <scratch>/spike/h1/playground/New folder
+770.04 mkdir <scratch>/spike/h1/playground/New folder 2
 770.04 PASS new folder names never collide New folder New folder 2
 770.28 REFUSED new folder: picker folder unknown or ambiguous: ['/tmp', '/var']
 770.28 PASS new folder refuses on ambiguous folder 

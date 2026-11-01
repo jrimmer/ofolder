@@ -1,4 +1,4 @@
-107.62 out dir <scratch>/scratchpad/spike/life-TERM
+107.62 out dir <scratch>/spike/life-TERM
 107.65 spawned picker pid=1233115 folder=/home/user
 108.05 picker window found at=[1611, 289] size=[875, 600]
 108.06 rule on -> ok

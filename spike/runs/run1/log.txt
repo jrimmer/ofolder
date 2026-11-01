@@ -1,4 +1,4 @@
-40.51 out dir <scratch>/scratchpad/spike/run1
+40.51 out dir <scratch>/spike/run1
 40.61 spawned picker pid=992255 folder=/home/user
 41.43 picker window found 0x5593b79c7380 at=[1611, 289] size=[875, 600] float=True title='Spike save'
 45.16 shot 1-docked geom=1611,289 2473x851 title='Spike save'

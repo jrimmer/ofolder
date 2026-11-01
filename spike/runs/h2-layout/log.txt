@@ -1,4 +1,4 @@
-801.82 out dir <scratch>/scratchpad/spike/h2-layout
+801.82 out dir <scratch>/spike/h2-layout
 801.85 spawned picker pid=1158786 folder=/home/user
 802.05 picker window found at=[1611, 289] size=[875, 600]
 802.07 rule on -> ok

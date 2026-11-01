@@ -1,4 +1,4 @@
-122.21 out dir <scratch>/scratchpad/spike/run3
+122.21 out dir <scratch>/spike/run3
 122.27 spawned picker pid=1011424 folder=/home/user
 122.67 picker window found 0x5593b6c98ed0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
 122.68 hyprctl dispatch hl.dsp.window.float({ action = "on", window = "address:0x5593b7a01de0" }) -> ok
@@ -10,7 +10,7 @@
 131.38 shot 2-respawn-work skipped: picker=False strip=True
 135.38 shot 3-wtype-documents skipped: picker=False strip=True
 136.39 sent Escape
-176.93 out dir <scratch>/scratchpad/spike/run3
+176.93 out dir <scratch>/spike/run3
 176.97 spawned picker pid=1023158 folder=/home/user
 177.38 picker window found 0x5593b7a01de0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
 177.39 hyprctl dispatch hl.dsp.window.float({ action = "on", window = "address:0x5593b6c98ed0" }) -> ok

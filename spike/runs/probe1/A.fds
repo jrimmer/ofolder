@@ -1,9 +1,9 @@
-== 1074140 cwd=<scratch>/scratchpad/spike
+== 1074140 cwd=<scratch>/spike
 1 -> <scratch>/tasks/bqd78mubl.output
 2 -> <scratch>/tasks/bqd78mubl.output
-== 1074158 cwd=<scratch>/scratchpad/spike
-1 -> <scratch>/scratchpad/spike/probe1/flea.out
-2 -> <scratch>/scratchpad/spike/probe1/flea.out
+== 1074158 cwd=<scratch>/spike
+1 -> <scratch>/spike/probe1/flea.out
+2 -> <scratch>/spike/probe1/flea.out
 21 -> anon_inode:inotify
 28 -> anon_inode:inotify
 30 -> anon_inode:inotify
@@ -27,11 +27,11 @@
    inotify wd:1 ino:406c sdev:1e mask:cc6 ignored_mask:0 fhandle-bytes:14 fhandle-type:4d f_handle:6c40000000000000010100000000000015000000
    inotify wd:2 ino:1a002c sdev:1e mask:7c4 ignored_mask:0 fhandle-bytes:14 fhandle-type:4d f_handle:2c001a00000000000001000000000000fae80100
    inotify wd:1 ino:1a0030 sdev:1e mask:cc6 ignored_mask:0 fhandle-bytes:14 fhandle-type:4d f_handle:30001a00000000000001000000000000fae80100
-== 1074402 cwd=<scratch>/scratchpad/spike
+== 1074402 cwd=<scratch>/spike
 3 -> anon_inode:inotify
 4 -> anon_inode:inotify
 6 -> /home/user
-== 1075114 cwd=<scratch>/scratchpad/spike
+== 1075114 cwd=<scratch>/spike
 3 -> anon_inode:inotify
 4 -> anon_inode:inotify
    inotify wd:1 ino:101 sdev:1e mask:bcc ignored_mask:0 fhandle-bytes:14 fhandle-type:4d f_handle:010100000000000001010000000000000c000000

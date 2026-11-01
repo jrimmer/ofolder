@@ -1,4 +1,4 @@
-132.93 out dir <scratch>/scratchpad/spike/life-pickerkill
+132.93 out dir <scratch>/spike/life-pickerkill
 132.97 spawned picker pid=1238734 folder=/home/user
 133.37 picker window found at=[1611, 289] size=[875, 600]
 133.37 rule on -> ok

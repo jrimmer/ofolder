@@ -1,5 +1,5 @@
 Traceback (most recent call last):
-  File "<scratch>/scratchpad/spike/gtk_call.py", line 8, in <module>
+  File "<scratch>/spike/gtk_call.py", line 8, in <module>
     args = GLib.Variant("(osssa{sv})", ("/org/freedesktop/portal/desktop/request/spike/gtk1", "spike", "", "GTK spike save", opts))
   File "/usr/lib/python3.14/site-packages/gi/overrides/GLib.py", line 239, in __new__
     v = creator._create(format_string, value)
