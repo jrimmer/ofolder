@@ -85,6 +85,35 @@ pub fn discover(dirs: &[PathBuf]) -> Vec<PortalFile> {
     found
 }
 
+/// The backend ofolder should forward to: the first entry after `own` in the
+/// file-chooser preference list of a portal configuration file that has an
+/// adapter. A `*` entry cannot be resolved here and is skipped.
+pub fn backend_after(portals_conf: &str, own: &str) -> Option<&'static str> {
+    let mut in_preferred = false;
+    for line in portals_conf.lines().map(str::trim) {
+        if let Some(section) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_preferred = section == "preferred";
+        } else if in_preferred
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == FILE_CHOOSER
+        {
+            let entries: Vec<&str> = value
+                .split(';')
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .collect();
+            let at = entries.iter().position(|e| *e == own)?;
+            return entries[at + 1..].iter().find_map(|e| match *e {
+                "flea" => Some("flea"),
+                "gtk" => Some("gtk"),
+                "strata" => Some("strata"),
+                _ => None,
+            });
+        }
+    }
+    None
+}
+
 /// The D-Bus name of the backend an adapter drives: the inverse of
 /// [`adapter_id`].
 pub fn dbus_name_for(adapter_id: &str) -> Option<&'static str> {
@@ -155,6 +184,55 @@ mod tests {
             assert_eq!(adapter_id(name), Some(id));
         }
         assert_eq!(dbus_name_for("kde"), None);
+    }
+
+    const CONF: &str = "[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n";
+
+    #[test]
+    fn the_backend_to_forward_to_is_the_next_one_after_ofolder_in_the_preference_list() {
+        assert_eq!(backend_after(CONF, "ofolder"), Some("flea"));
+    }
+
+    #[test]
+    fn a_wildcard_or_an_unknown_backend_after_ofolder_is_skipped_to_the_next_known_one() {
+        let conf = "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;*;kde;strata\n";
+        assert_eq!(backend_after(conf, "ofolder"), Some("strata"));
+    }
+
+    #[test]
+    fn when_ofolder_is_not_in_the_list_or_nothing_follows_it_there_is_no_backend() {
+        assert_eq!(
+            backend_after(
+                "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n",
+                "ofolder"
+            ),
+            None
+        );
+        assert_eq!(
+            backend_after(
+                "[preferred]\norg.freedesktop.impl.portal.FileChooser=gtk;ofolder\n",
+                "ofolder"
+            ),
+            None
+        );
+        assert_eq!(backend_after("", "ofolder"), None);
+    }
+
+    #[test]
+    fn a_file_chooser_line_outside_the_preferred_section_does_not_count() {
+        let conf = "[other]\norg.freedesktop.impl.portal.FileChooser=ofolder;flea\n";
+        assert_eq!(backend_after(conf, "ofolder"), None);
+    }
+
+    #[test]
+    fn the_packaged_portal_file_is_a_file_chooser_backend_with_the_name_the_proxy_answers_on() {
+        let f = parse_portal(
+            Path::new("ofolder.portal"),
+            include_str!("../../../packaging/ofolder.portal"),
+        )
+        .expect("parses");
+        assert!(f.provides_file_chooser());
+        assert_eq!(f.dbus_name, "org.freedesktop.impl.portal.desktop.ofolder");
     }
 
     #[test]

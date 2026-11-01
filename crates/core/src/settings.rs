@@ -1,0 +1,417 @@
+//! The user's settings file.
+//!
+//! A settings file is edited by hand, so a mistake in it must never stop a
+//! dialog from working. Every setting is read on its own: a value of the wrong
+//! type, or out of range, is reported and ignored while the rest still apply,
+//! and a file that cannot be parsed at all gives the defaults and one warning.
+//! The file is read again for each dialog, so a change applies to the next one.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use toml::{Table, Value};
+
+pub const MAX_RECENTS_LIMIT: usize = 500;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// The command that opens a folder in a file manager. `None` means detect it.
+    pub file_manager: Option<String>,
+    /// The command that opens a terminal in a folder. `None` means detect it.
+    pub terminal: Option<String>,
+    /// Whether the strip stays open after "open in file manager".
+    pub keep_dialog_after_file_manager: bool,
+    pub recents_enabled: bool,
+    pub recents_max: usize,
+    /// Folders, and everything below them, that are never recorded as recent.
+    pub recents_excluded: Vec<PathBuf>,
+    /// Applications by id for which the strip is not shown.
+    pub excluded_apps: Vec<String>,
+    /// The folder a dialog starts in, by application id, when the app gave none.
+    pub start_folders: BTreeMap<String, PathBuf>,
+    /// While set, nothing is shown, recorded or moved.
+    pub paused: bool,
+    /// Put the places panel on the right and the controls on the left.
+    pub swap_sides: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            file_manager: None,
+            terminal: None,
+            keep_dialog_after_file_manager: true,
+            recents_enabled: true,
+            recents_max: 20,
+            recents_excluded: Vec::new(),
+            excluded_apps: Vec::new(),
+            start_folders: BTreeMap::new(),
+            paused: false,
+            swap_sides: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Loaded {
+    pub settings: Settings,
+    /// One line for everything that was ignored, in the order found.
+    pub warnings: Vec<String>,
+}
+
+const KNOWN: [&str; 10] = [
+    "file_manager",
+    "terminal",
+    "keep_dialog_after_file_manager",
+    "recents_enabled",
+    "recents_max",
+    "recents_excluded",
+    "excluded_apps",
+    "start_folders",
+    "paused",
+    "swap_sides",
+];
+
+/// `~` and `~/...` mean the home folder. Anything else must already be absolute.
+fn folder(text: &str, home: &Path) -> Option<PathBuf> {
+    let path = if text == "~" {
+        home.to_path_buf()
+    } else if let Some(rest) = text.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(text)
+    };
+    path.is_absolute().then_some(path)
+}
+
+struct Reader<'a> {
+    table: &'a Table,
+    warnings: Vec<String>,
+}
+
+impl Reader<'_> {
+    fn warn(&mut self, key: &str, why: &str) {
+        self.warnings
+            .push(format!("setting `{key}` ignored: {why}"));
+    }
+
+    fn boolean(&mut self, key: &str, into: &mut bool) {
+        match self.table.get(key) {
+            None => {}
+            Some(Value::Boolean(b)) => *into = *b,
+            Some(_) => self.warn(key, "expected true or false"),
+        }
+    }
+
+    fn command(&mut self, key: &str, into: &mut Option<String>) {
+        match self.table.get(key) {
+            None => {}
+            Some(Value::String(s)) if !s.trim().is_empty() => *into = Some(s.trim().to_owned()),
+            Some(Value::String(_)) => self.warn(key, "it is empty"),
+            Some(_) => self.warn(key, "expected a command as text"),
+        }
+    }
+
+    fn strings(&mut self, key: &str) -> Option<Vec<String>> {
+        match self.table.get(key)? {
+            Value::Array(items) => {
+                let texts: Option<Vec<String>> = items
+                    .iter()
+                    .map(|v| v.as_str().map(str::to_owned))
+                    .collect();
+                if texts.is_none() {
+                    self.warn(key, "every entry must be text");
+                }
+                texts
+            }
+            _ => {
+                self.warn(key, "expected a list of text");
+                None
+            }
+        }
+    }
+}
+
+pub fn parse(text: &str, home: &Path) -> Loaded {
+    let mut out = Settings::default();
+    let table: Table = match text.parse() {
+        Ok(t) => t,
+        Err(error) => {
+            let first_line = error.to_string().lines().next().unwrap_or("").to_owned();
+            return Loaded {
+                settings: out,
+                warnings: vec![format!(
+                    "settings file could not be read, defaults used: {first_line}"
+                )],
+            };
+        }
+    };
+    let mut r = Reader {
+        table: &table,
+        warnings: Vec::new(),
+    };
+
+    r.command("file_manager", &mut out.file_manager);
+    r.command("terminal", &mut out.terminal);
+    r.boolean(
+        "keep_dialog_after_file_manager",
+        &mut out.keep_dialog_after_file_manager,
+    );
+    r.boolean("recents_enabled", &mut out.recents_enabled);
+    r.boolean("paused", &mut out.paused);
+    r.boolean("swap_sides", &mut out.swap_sides);
+
+    match table.get("recents_max") {
+        None => {}
+        Some(Value::Integer(n)) if (1..=MAX_RECENTS_LIMIT as i64).contains(n) => {
+            out.recents_max = usize::try_from(*n).unwrap_or(out.recents_max);
+        }
+        Some(Value::Integer(_)) => r.warn(
+            "recents_max",
+            &format!("it must be between 1 and {MAX_RECENTS_LIMIT}"),
+        ),
+        Some(_) => r.warn("recents_max", "expected a whole number"),
+    }
+
+    if let Some(items) = r.strings("recents_excluded") {
+        for item in items {
+            match folder(&item, home) {
+                Some(path) => out.recents_excluded.push(path),
+                None => r.warn(
+                    "recents_excluded",
+                    &format!("{item:?} is not an absolute folder"),
+                ),
+            }
+        }
+    }
+    if let Some(items) = r.strings("excluded_apps") {
+        out.excluded_apps = items.into_iter().filter(|a| !a.trim().is_empty()).collect();
+    }
+
+    match table.get("start_folders") {
+        None => {}
+        Some(Value::Table(map)) => {
+            for (app, value) in map {
+                match value.as_str().and_then(|s| folder(s, home)) {
+                    Some(path) => {
+                        out.start_folders.insert(app.clone(), path);
+                    }
+                    None => r.warn(
+                        "start_folders",
+                        &format!("the folder for {app:?} is not an absolute folder"),
+                    ),
+                }
+            }
+        }
+        Some(_) => r.warn(
+            "start_folders",
+            "expected a table of application id to folder",
+        ),
+    }
+
+    for key in table.keys().filter(|k| !KNOWN.contains(&k.as_str())) {
+        r.warnings
+            .push(format!("setting `{key}` is not known and was ignored"));
+    }
+    Loaded {
+        settings: out,
+        warnings: r.warnings,
+    }
+}
+
+/// Reads the settings file. A missing file is normal and gives the defaults
+/// with no warning; one that cannot be read gives the defaults and a warning.
+pub fn load(path: &Path, home: &Path) -> Loaded {
+    match fs::read_to_string(path) {
+        Ok(text) => parse(&text, home),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Loaded {
+            settings: Settings::default(),
+            warnings: Vec::new(),
+        },
+        Err(e) => Loaded {
+            settings: Settings::default(),
+            warnings: vec![format!(
+                "settings file could not be read, defaults used: {e}"
+            )],
+        },
+    }
+}
+
+/// Where the settings file lives: an override, else the user's config folder.
+pub fn settings_path(
+    override_path: Option<PathBuf>,
+    xdg_config: Option<PathBuf>,
+    home: &Path,
+) -> PathBuf {
+    override_path.unwrap_or_else(|| {
+        xdg_config
+            .unwrap_or_else(|| home.join(".config"))
+            .join("ofolder/settings.toml")
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOME: &str = "/home/j";
+
+    fn parse_ok(text: &str) -> Loaded {
+        parse(text, Path::new(HOME))
+    }
+
+    #[test]
+    fn an_empty_file_gives_the_defaults_and_no_warnings() {
+        let l = parse_ok("");
+        assert_eq!(l.settings, Settings::default());
+        assert!(l.warnings.is_empty());
+    }
+
+    #[test]
+    fn every_setting_can_be_given() {
+        let l = parse_ok(
+            r#"
+            file_manager = "flea"
+            terminal = "ghostty --working-directory"
+            keep_dialog_after_file_manager = false
+            recents_enabled = false
+            recents_max = 50
+            recents_excluded = ["~/Private", "/mnt/secret"]
+            excluded_apps = ["org.example.Kiosk"]
+            paused = true
+            swap_sides = true
+            [start_folders]
+            "org.example.Editor" = "~/Work"
+            "#,
+        );
+        assert!(l.warnings.is_empty(), "{:?}", l.warnings);
+        let s = l.settings;
+        assert_eq!(s.file_manager.as_deref(), Some("flea"));
+        assert_eq!(s.terminal.as_deref(), Some("ghostty --working-directory"));
+        assert!(
+            !s.keep_dialog_after_file_manager && !s.recents_enabled && s.paused && s.swap_sides
+        );
+        assert_eq!(s.recents_max, 50);
+        assert_eq!(
+            s.recents_excluded,
+            [
+                PathBuf::from("/home/j/Private"),
+                PathBuf::from("/mnt/secret")
+            ]
+        );
+        assert_eq!(s.excluded_apps, ["org.example.Kiosk"]);
+        assert_eq!(
+            s.start_folders["org.example.Editor"],
+            PathBuf::from("/home/j/Work")
+        );
+    }
+
+    #[test]
+    fn a_value_of_the_wrong_type_is_reported_and_the_rest_still_apply() {
+        let l = parse_ok(
+            "recents_max = \"lots\"\nswap_sides = true\npaused = 3\nrecents_enabled = false",
+        );
+        assert!(l.settings.swap_sides && !l.settings.recents_enabled);
+        assert_eq!(l.settings.recents_max, 20, "the default stays");
+        assert!(!l.settings.paused);
+        assert_eq!(l.warnings.len(), 2, "{:?}", l.warnings);
+        assert!(l.warnings.iter().any(|w| w.contains("recents_max")));
+        assert!(l.warnings.iter().any(|w| w.contains("paused")));
+    }
+
+    #[test]
+    fn a_recents_limit_out_of_range_is_ignored() {
+        for text in [
+            "recents_max = 0",
+            "recents_max = -4",
+            "recents_max = 100000",
+        ] {
+            let l = parse_ok(text);
+            assert_eq!(l.settings.recents_max, 20, "{text}");
+            assert_eq!(l.warnings.len(), 1, "{text}");
+        }
+        assert_eq!(parse_ok("recents_max = 500").settings.recents_max, 500);
+        assert_eq!(parse_ok("recents_max = 1").settings.recents_max, 1);
+    }
+
+    #[test]
+    fn a_relative_folder_is_refused_and_a_good_one_beside_it_is_kept() {
+        let l = parse_ok("recents_excluded = [\"relative/dir\", \"/ok\"]");
+        assert_eq!(l.settings.recents_excluded, [PathBuf::from("/ok")]);
+        assert_eq!(l.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_start_folder_that_is_not_absolute_is_ignored_on_its_own() {
+        let l = parse_ok("[start_folders]\na = \"nope\"\nb = \"/ok\"\nc = 4");
+        assert_eq!(l.settings.start_folders.len(), 1);
+        assert_eq!(l.settings.start_folders["b"], PathBuf::from("/ok"));
+        assert_eq!(l.warnings.len(), 2);
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_not_silently_dropped() {
+        let l = parse_ok("colour = \"blue\"");
+        assert_eq!(l.settings, Settings::default());
+        assert_eq!(l.warnings.len(), 1);
+        assert!(l.warnings[0].contains("colour"));
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_never_stops_the_dialogs() {
+        let l = parse_ok("this is = = not toml [");
+        assert_eq!(l.settings, Settings::default());
+        assert_eq!(l.warnings.len(), 1);
+        assert!(l.warnings[0].contains("defaults used"));
+    }
+
+    #[test]
+    fn an_empty_command_is_ignored() {
+        let l = parse_ok("terminal = \"  \"");
+        assert_eq!(l.settings.terminal, None);
+        assert_eq!(l.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_missing_file_is_normal_and_a_directory_in_its_place_is_a_warning() {
+        let dir = std::env::temp_dir().join(format!("ofolder-settings-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let missing = load(&dir.join("settings.toml"), Path::new(HOME));
+        assert!(missing.warnings.is_empty());
+        assert_eq!(missing.settings, Settings::default());
+        let unreadable = load(&dir, Path::new(HOME));
+        assert_eq!(unreadable.warnings.len(), 1);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_change_to_the_file_applies_the_next_time_it_is_read() {
+        let dir =
+            std::env::temp_dir().join(format!("ofolder-settings-reload-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("settings.toml");
+        fs::write(&file, "paused = false").expect("write");
+        assert!(!load(&file, Path::new(HOME)).settings.paused);
+        fs::write(&file, "paused = true").expect("write");
+        assert!(load(&file, Path::new(HOME)).settings.paused);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_settings_file_lives_in_the_config_folder_unless_overridden() {
+        let home = Path::new(HOME);
+        assert_eq!(
+            settings_path(None, None, home),
+            PathBuf::from("/home/j/.config/ofolder/settings.toml")
+        );
+        assert_eq!(
+            settings_path(None, Some(PathBuf::from("/xdg")), home),
+            PathBuf::from("/xdg/ofolder/settings.toml")
+        );
+        assert_eq!(
+            settings_path(Some(PathBuf::from("/x.toml")), None, home),
+            PathBuf::from("/x.toml")
+        );
+    }
+}

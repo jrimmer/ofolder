@@ -5,10 +5,20 @@
 //! that decides what is safe to do can be tested without opening a window.
 
 pub mod adapter;
+pub mod browse;
+pub mod dialog_memory;
+pub mod fuzzy;
 pub mod geometry;
 pub mod hypr;
+pub mod identity;
+pub mod launch;
 pub mod naming;
 pub mod pathsafe;
+pub mod places;
 pub mod portal;
 pub mod readers;
+pub mod recents;
+pub mod search;
+pub mod settings;
 pub mod system;
+pub mod theme;
