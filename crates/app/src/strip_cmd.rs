@@ -17,7 +17,10 @@ use ofolder_adapters::hyprctl::Hyprctl;
 use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
-use ofolder_core::geometry::{Panels, place_panels};
+use ofolder_core::dialog_memory;
+use ofolder_core::geometry::{Panels, Rect, place_panels};
+use ofolder_core::launch::{self, Command};
+use ofolder_core::settings;
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
     APP_ID_LEFT, APP_ID_RIGHT, LEFT_WIDTH, RIGHT_WIDTH, StripActions, StripOptions,
@@ -33,16 +36,19 @@ pub struct Args {
     pub title: String,
     /// Picker pids that were open before the request, so the new one can be told apart.
     pub known_pids: Vec<u32>,
+    /// Who asked for the dialog: a portal id, `class:<name>`, or empty when unknown.
+    pub app_key: String,
 }
 
 pub fn parse_args(args: &[String]) -> Result<Args, String> {
-    let (mut backend, mut title, mut known) = (None, None, Vec::new());
+    let (mut backend, mut title, mut known, mut app_key) = (None, None, Vec::new(), String::new());
     let mut it = args.iter();
     while let Some(flag) = it.next() {
         let value = it.next().ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
             "--backend" => backend = Some(value.clone()),
             "--title" => title = Some(value.clone()),
+            "--app-key" => app_key = value.clone(),
             "--known-pids" => {
                 known = value
                     .split(',')
@@ -57,6 +63,7 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
         backend: backend.ok_or("--backend is required")?,
         title: title.ok_or("--title is required")?,
         known_pids: known,
+        app_key,
     })
 }
 
@@ -106,6 +113,56 @@ pub fn favorites_path(
 
 struct Actions {
     adapter: Mutex<Box<dyn Adapter>>,
+    settings_path: PathBuf,
+    home: PathBuf,
+}
+
+/// Starts `command` on its own, with no input or output attached and in its own
+/// process group, so closing the dialog or the strip never takes it down.
+fn spawn_detached(command: &Command) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    let mut process = std::process::Command::new(&command.program);
+    process
+        .args(&command.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    if let Some(cwd) = &command.cwd {
+        process.current_dir(cwd);
+    }
+    let mut child = process
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", command.program))?;
+    // Reaped on a thread so a long-lived program never leaves a zombie behind.
+    std::thread::spawn(move || {
+        child.wait().ok();
+    });
+    Ok(())
+}
+
+/// The text of the desktop entry `id`, searched in the user's and the system's
+/// application folders in the order the desktop uses.
+fn read_desktop_entry(id: &str, home: &Path) -> Option<String> {
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"));
+    let data_dirs =
+        std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned());
+    std::iter::once(data_home)
+        .chain(
+            data_dirs
+                .split(':')
+                .filter(|d| !d.is_empty())
+                .map(PathBuf::from),
+        )
+        .find_map(|dir| std::fs::read_to_string(dir.join("applications").join(id)).ok())
+}
+
+fn in_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
 }
 
 impl Actions {
@@ -145,6 +202,35 @@ impl StripActions for Actions {
         goto_verified(&mut **adapter, &target, Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
         Ok(target)
+    }
+
+    fn open_in_file_manager(&self, folder: &Path) -> Result<(), String> {
+        let loaded = settings::load(&self.settings_path, &self.home);
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.home.join(".config"));
+        let mimeapps = std::fs::read_to_string(config.join("mimeapps.list")).unwrap_or_default();
+        let command = launch::file_manager_command(
+            &loaded.settings,
+            &mimeapps,
+            &|id| read_desktop_entry(id, &self.home),
+            folder,
+        )?;
+        spawn_detached(&command)?;
+        if !loaded.settings.keep_dialog_after_file_manager
+            && let Ok(mut adapter) = self.adapter.lock()
+        {
+            adapter.close().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn open_in_terminal(&self, folder: &Path) -> Result<(), String> {
+        let loaded = settings::load(&self.settings_path, &self.home);
+        let env_terminal = std::env::var("TERMINAL").ok();
+        let command =
+            launch::terminal_command(&loaded.settings, env_terminal.as_deref(), &in_path, folder)?;
+        spawn_detached(&command)
     }
 
     fn dialog_alive(&self) -> bool {
@@ -217,7 +303,11 @@ fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) 
 /// Keeps both panels around the dialog: on their own sides, packed to one
 /// side at a monitor edge, following moves, resizes and workspace changes.
 /// Runs until the process exits.
-fn dock_forever(actions: Arc<Actions>, compositor: Arc<dyn Compositor>) {
+fn dock_forever(
+    actions: Arc<Actions>,
+    compositor: Arc<dyn Compositor>,
+    last_seen: Arc<Mutex<Option<Rect>>>,
+) {
     let me = std::process::id();
     let mut checked_focus = false;
     loop {
@@ -231,6 +321,9 @@ fn dock_forever(actions: Arc<Actions>, compositor: Arc<dyn Compositor>) {
         let Some(dialog) = clients.iter().find(|c| c.address == window.address) else {
             continue;
         };
+        if let Ok(mut seen) = last_seen.lock() {
+            *seen = Some(dialog.rect());
+        }
         let left = clients
             .iter()
             .find(|c| c.class == APP_ID_LEFT && c.pid == me);
@@ -282,14 +375,56 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     let typist: Arc<dyn Typist> = Arc::new(Wtype);
     let adapter = build_adapter(&args, &compositor, &typist, &home)?;
     note("adapter attached");
+    let settings_path = settings::settings_path(
+        std::env::var_os("OFOLDER_SETTINGS").map(PathBuf::from),
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+        &home,
+    );
+    let recents_path = ofolder_core::recents::recents_path(
+        std::env::var_os("OFOLDER_RECENTS").map(PathBuf::from),
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        &home,
+    );
     let actions = Arc::new(Actions {
         adapter: Mutex::new(adapter),
+        settings_path: settings_path.clone(),
+        home: home.clone(),
     });
 
     let window = wait_for(Duration::from_secs(8), || actions.window()).context(
         "the dialog's window never appeared, or more than one dialog has the same title",
     )?;
     note(&format!("dialog window {} found", window.address));
+    let dialogs_path = dialog_memory::memory_path(
+        std::env::var_os("OFOLDER_DIALOGS").map(PathBuf::from),
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        &home,
+    );
+    // Put the dialog where this app last left it, if that place is still on a monitor,
+    // before the panels are positioned, so they are placed once, around its final place.
+    if !args.app_key.is_empty()
+        && let Some(dialog) = compositor
+            .clients()
+            .ok()
+            .and_then(|cs| cs.into_iter().find(|c| c.address == window.address))
+    {
+        let bounds = compositor
+            .monitors()
+            .ok()
+            .and_then(|ms| ms.into_iter().find(|m| m.id == dialog.monitor))
+            .map(|m| m.usable_bounds());
+        if let Some(wanted) = dialog_memory::load(&dialogs_path).recall(&args.app_key, bounds)
+            && wanted != dialog.rect()
+        {
+            compositor
+                .resize_window(&dialog.address, (wanted.w, wanted.h))
+                .ok();
+            compositor
+                .move_window(&dialog.address, (wanted.x, wanted.y))
+                .ok();
+            sleep(Duration::from_millis(120));
+        }
+    }
     // Position the panels before they open, so they never appear tiled and then jump.
     if let Some(dialog) = compositor
         .clients()
@@ -306,9 +441,11 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
                 .ok();
         }
     }
+    let last_seen: Arc<Mutex<Option<Rect>>> = Arc::new(Mutex::new(None));
     {
-        let (actions, compositor) = (actions.clone(), compositor.clone());
-        std::thread::spawn(move || dock_forever(actions, compositor));
+        let (actions, compositor, last_seen) =
+            (actions.clone(), compositor.clone(), last_seen.clone());
+        std::thread::spawn(move || dock_forever(actions, compositor, last_seen));
     }
     let favorites = favorites_path(
         std::env::var_os("OFOLDER_FAVORITES").map(PathBuf::from),
@@ -320,11 +457,34 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         StripOptions {
             label: args.backend.clone(),
             favorites_path: favorites,
+            app_key: args.app_key.clone(),
+            recents_path,
+            settings_path,
+            user_dirs_path: std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".config"))
+                .join("user-dirs.dirs"),
+            mountinfo_path: PathBuf::from("/proc/self/mountinfo"),
+            user: std::env::var("USER").unwrap_or_default(),
+            palette: ofolder_core::theme::load_current(
+                std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+                &home,
+            ),
             home,
         },
         actions,
     );
     note(&format!("strip window closed: {result:?}"));
+    // Remember where the dialog was when it closed, for the next time this app opens one.
+    let left_at = last_seen.lock().ok().and_then(|seen| *seen);
+    if let Some(rect) = left_at {
+        let mut memory = dialog_memory::load(&dialogs_path);
+        if memory.remember(&args.app_key, rect)
+            && let Err(e) = dialog_memory::save(&dialogs_path, &memory)
+        {
+            eprintln!("ofolder: {e}");
+        }
+    }
     compositor.remove_rule(RULE_LEFT).ok();
     compositor.remove_rule(RULE_RIGHT).ok();
     result
@@ -333,6 +493,38 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
+        Command {
+            program: program.to_owned(),
+            args: args.iter().map(|a| (*a).to_owned()).collect(),
+            cwd: cwd.map(Path::to_path_buf),
+        }
+    }
+
+    #[test]
+    fn a_program_that_does_not_exist_is_reported_by_name() {
+        let error = spawn_detached(&command("ofolder-no-such-program", &[], None)).unwrap_err();
+        assert!(error.contains("ofolder-no-such-program"), "{error}");
+    }
+
+    #[test]
+    fn a_launched_program_starts_in_the_folder_it_was_given() {
+        let scratch = std::env::temp_dir().join(format!("ofolder-spawn-{}", std::process::id()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let real = scratch.canonicalize().unwrap();
+        // The shell is only the test's way to observe the working directory.
+        spawn_detached(&command("sh", &["-c", "pwd > where.txt"], Some(&scratch))).unwrap();
+        let marker = scratch.join("where.txt");
+        let seen = wait_for(Duration::from_secs(5), || {
+            std::fs::read_to_string(&marker)
+                .ok()
+                .filter(|t| !t.is_empty())
+        });
+        std::fs::remove_dir_all(&scratch).ok();
+        let seen = seen.expect("the program ran");
+        assert_eq!(Path::new(seen.trim()), real);
+    }
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_owned()).collect()
@@ -347,6 +539,8 @@ mod tests {
             "Save as",
             "--known-pids",
             "10,20",
+            "--app-key",
+            "class:zen",
         ]))
         .expect("parses");
         assert_eq!(
@@ -354,7 +548,8 @@ mod tests {
             Args {
                 backend: "flea".into(),
                 title: "Save as".into(),
-                known_pids: vec![10, 20]
+                known_pids: vec![10, 20],
+                app_key: "class:zen".into(),
             }
         );
     }

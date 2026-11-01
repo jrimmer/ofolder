@@ -74,28 +74,21 @@ pub fn parse(colors_toml: &str) -> Palette {
     }
 }
 
-/// The folder name for a theme as `omarchy-theme-current` prints it
-/// (`Theme Liftoff` or just `Liftoff`): lower case, spaces as hyphens.
-pub fn theme_dir_name(printed: &str) -> Option<String> {
-    let name = printed.trim();
-    let name = name.strip_prefix("Theme ").unwrap_or(name).trim();
-    if name.is_empty() || name.contains('/') || name.contains("..") {
-        return None;
-    }
-    Some(name.to_lowercase().replace(' ', "-"))
+/// Where Omarchy keeps the colours of the theme that is active right now. The
+/// folder is replaced when the theme changes, so reading it per dialog follows
+/// a theme change on the next dialog.
+pub fn current_colors_path(xdg_state: Option<PathBuf>, home: &Path) -> PathBuf {
+    xdg_state
+        .unwrap_or_else(|| home.join(".local/state"))
+        .join("omarchy/current/theme/colors.toml")
 }
 
-/// The `colors.toml` for a theme: the user's own copy wins over the system's.
-pub fn locate(
-    name: &str,
-    user_themes: &Path,
-    system_themes: &Path,
-    exists: &dyn Fn(&Path) -> bool,
-) -> Option<PathBuf> {
-    [user_themes, system_themes]
-        .into_iter()
-        .map(|root| root.join(name).join("colors.toml"))
-        .find(|p| exists(p))
+/// The palette of the active theme. A missing or unreadable file gives the
+/// default palette, because a strip with default colours beats no strip.
+pub fn load_current(xdg_state: Option<PathBuf>, home: &Path) -> Palette {
+    std::fs::read_to_string(current_colors_path(xdg_state, home))
+        .map(|text| parse(&text))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -141,38 +134,31 @@ mod tests {
     }
 
     #[test]
-    fn the_theme_name_is_turned_into_its_folder_name() {
+    fn the_active_themes_colours_live_under_the_state_folder() {
         assert_eq!(
-            theme_dir_name("Theme Liftoff\n").as_deref(),
-            Some("liftoff")
+            current_colors_path(None, Path::new("/home/j")),
+            Path::new("/home/j/.local/state/omarchy/current/theme/colors.toml")
         );
         assert_eq!(
-            theme_dir_name("Catppuccin Latte").as_deref(),
-            Some("catppuccin-latte")
+            current_colors_path(Some("/state".into()), Path::new("/home/j")),
+            Path::new("/state/omarchy/current/theme/colors.toml")
         );
-        assert_eq!(theme_dir_name("   "), None);
     }
 
     #[test]
-    fn a_theme_name_that_could_leave_the_themes_folder_is_refused() {
-        assert_eq!(theme_dir_name("../../etc"), None);
-        assert_eq!(theme_dir_name("a/b"), None);
-    }
-
-    #[test]
-    fn the_users_own_copy_of_a_theme_wins_over_the_systems() {
-        let user = Path::new("/home/j/.config/omarchy/themes");
-        let system = Path::new("/usr/share/omarchy/themes");
-        let both = |p: &Path| p.ends_with("liftoff/colors.toml");
-        assert_eq!(
-            locate("liftoff", user, system, &both),
-            Some(user.join("liftoff/colors.toml"))
-        );
-        let only_system = |p: &Path| p.starts_with(system);
-        assert_eq!(
-            locate("liftoff", user, system, &only_system),
-            Some(system.join("liftoff/colors.toml"))
-        );
-        assert_eq!(locate("liftoff", user, system, &|_| false), None);
+    fn the_active_theme_is_read_and_a_missing_one_gives_the_default() {
+        let root = std::env::temp_dir().join(format!("ofolder-theme-{}", std::process::id()));
+        let dir = root.join("omarchy/current/theme");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("colors.toml"),
+            "accent = \"#89b4fa\"\nmode = \"light\"\n",
+        )
+        .unwrap();
+        let read = load_current(Some(root.clone()), Path::new("/nowhere"));
+        let missing = load_current(Some(root.join("absent")), Path::new("/nowhere"));
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!((read.accent, read.dark), (0x89b4fa, false));
+        assert_eq!(missing, Palette::default());
     }
 }

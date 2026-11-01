@@ -18,3 +18,6 @@ ofolder-adapters.workspace = true
 ofolder-portal.workspace = true
 ofolder-strip.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+zbus.workspace = true

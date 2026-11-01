@@ -1,18 +1,25 @@
 //! The right panel, "do something here": the unknown-folder notice, copy
-//! path, favorite, new folder, and the message area.
+//! path, favorite, new folder, launchers, find, and the message area.
 
 use gpui::{
     ClipboardItem, Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div,
     prelude::*, px, rgb,
 };
 
+use crate::colors::colors;
+use crate::expand::Section;
 use crate::field::{FieldEvent, TextField};
 use crate::model::{MessageKind, Mode};
-use crate::view::{ACCENT, AMBER, BG, MUTED, PANEL, RED, Shared, TEXT, button, tip};
+use crate::rows::render_lines;
+use crate::view::{Shared, button, tip};
+
+/// Characters of a label that fit this panel at the top level.
+const LABEL_CHARS: usize = 21;
 
 pub struct RightPanel {
     shared: Entity<Shared>,
     field: Entity<TextField>,
+    find: Entity<TextField>,
     label: String,
     _subscriptions: Vec<Subscription>,
 }
@@ -30,19 +37,44 @@ impl RightPanel {
                 s.vm.cancel();
                 cx.notify();
             }),
+            FieldEvent::Changed(_) | FieldEvent::Up | FieldEvent::Down => {}
+        });
+        let find = cx.new(TextField::new);
+        find.update(cx, |f, cx| f.reset("", "Find a folder", cx));
+        let find_handle = cx.subscribe(&find, |this, _, event: &FieldEvent, cx| {
+            this.shared.update(cx, |s, cx| {
+                match event {
+                    FieldEvent::Changed(text) => s.vm.find_set_query(text),
+                    FieldEvent::Submit(_) => {
+                        let job = s.vm.find_enter();
+                        s.start(job, cx);
+                    }
+                    FieldEvent::Cancel => s.vm.find_escape(),
+                    FieldEvent::Up => s.vm.find_move(-1),
+                    FieldEvent::Down => s.vm.find_move(1),
+                }
+                cx.notify();
+            });
+            // Escape empties the box the user sees as well as the query.
+            if matches!(event, FieldEvent::Cancel) {
+                let query = this.shared.read(cx).vm.find_query().to_owned();
+                this.find
+                    .update(cx, |f, cx| f.reset(&query, "Find a folder", cx));
+            }
         });
         RightPanel {
             shared,
             field,
+            find,
             label,
-            _subscriptions: vec![observe, handle],
+            _subscriptions: vec![observe, handle, find_handle],
         }
     }
 }
 
 impl Render for RightPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (known, busy, mode, favorite, full, message) = {
+        let (known, busy, mode, favorite, full, message, ranked, found, running, status, has_query) = {
             let s = self.shared.read(cx);
             (
                 s.vm.folder().is_some(),
@@ -51,6 +83,11 @@ impl Render for RightPanel {
                 s.vm.current_is_favorite(),
                 s.vm.folder_full(),
                 s.vm.message().cloned(),
+                s.vm.section_lines(Section::Ranked),
+                s.vm.section_lines(Section::Found),
+                s.vm.search_running(),
+                s.vm.search_status(),
+                !s.vm.find_query().trim().is_empty(),
             )
         };
 
@@ -64,7 +101,7 @@ impl Render for RightPanel {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(rgb(MUTED))
+                    .text_color(rgb(colors().muted))
                     .child(self.label.clone()),
             );
 
@@ -74,11 +111,11 @@ impl Render for RightPanel {
                 .px_2()
                 .py_1()
                 .rounded(px(4.))
-                .bg(rgb(PANEL))
+                .bg(rgb(colors().panel))
                 .border_l_2()
-                .border_color(rgb(AMBER))
+                .border_color(rgb(colors().amber))
                 .text_size(px(12.))
-                .text_color(rgb(AMBER))
+                .text_color(rgb(colors().amber))
                 .child("Folder unknown: the dialog's folder cannot be read")
         });
 
@@ -125,6 +162,16 @@ impl Render for RightPanel {
                 }))
             });
 
+        let launcher = |id: &'static str, label: &str, terminal: bool| {
+            button(id, label, known).when(known, |b| {
+                b.on_click(cx.listener(move |this, _, _, cx| {
+                    this.shared.update(cx, |s, cx| {
+                        let job = s.vm.open_current(terminal);
+                        s.start(job, cx);
+                    });
+                }))
+            })
+        };
         let actions = div()
             .flex_none()
             .flex()
@@ -132,12 +179,53 @@ impl Render for RightPanel {
             .gap_1()
             .child(copy)
             .child(favorite_button)
-            .child(new_folder);
+            .child(new_folder)
+            .child(launcher("open-fm", "File manager", false))
+            .child(launcher("open-term", "Terminal", true));
+
+        let search_button = if running {
+            button("search-stop", "Stop", true).on_click(cx.listener(|this, _, _, cx| {
+                this.shared.update(cx, |s, cx| s.stop_search(cx));
+            }))
+        } else {
+            button("search-go", "Search below this folder", known && has_query).when(
+                known && has_query,
+                |b| {
+                    b.on_click(cx.listener(|this, _, _, cx| {
+                        this.shared.update(cx, |s, cx| s.search(cx));
+                    }))
+                },
+            )
+        };
+        let find_box = div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .px_1()
+                    .pt_1()
+                    .text_size(px(11.))
+                    .text_color(rgb(colors().muted))
+                    .child("FIND"),
+            )
+            .child(self.find.clone())
+            .children(render_lines(ranked, &self.shared, LABEL_CHARS, None))
+            .child(div().flex().child(search_button))
+            .children(status.map(|text| {
+                div()
+                    .px_1()
+                    .text_size(px(11.))
+                    .text_color(rgb(colors().muted))
+                    .child(text)
+            }))
+            .children(render_lines(found, &self.shared, LABEL_CHARS, None));
 
         let message = message.map(|m| {
             let color = match m.kind {
-                MessageKind::Info => ACCENT,
-                MessageKind::Error => RED,
+                MessageKind::Info => colors().accent,
+                MessageKind::Error => colors().red,
             };
             div()
                 .id("message")
@@ -145,7 +233,7 @@ impl Render for RightPanel {
                 .px_2()
                 .py_1()
                 .rounded(px(4.))
-                .bg(rgb(PANEL))
+                .bg(rgb(colors().panel))
                 .border_l_2()
                 .border_color(rgb(color))
                 .text_size(px(12.))
@@ -168,11 +256,11 @@ impl Render for RightPanel {
                 .gap_1()
                 .p_2()
                 .rounded(px(6.))
-                .bg(rgb(PANEL))
+                .bg(rgb(colors().panel))
                 .child(
                     div()
                         .text_size(px(11.))
-                        .text_color(rgb(MUTED))
+                        .text_color(rgb(colors().muted))
                         .child("New folder name (a/b makes nested folders)"),
                 )
                 .child(self.field.clone())
@@ -206,13 +294,24 @@ impl Render for RightPanel {
             .gap_2()
             .p_2()
             .overflow_hidden()
-            .bg(rgb(BG))
-            .text_color(rgb(TEXT))
+            .bg(rgb(colors().bg))
+            .text_color(rgb(colors().text))
             .text_size(px(13.))
             .child(header)
-            .children(notice)
-            .child(actions)
-            .children(message)
-            .children(prompt)
+            .child(
+                div()
+                    .id("right-scroll")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .children(notice)
+                    .child(actions)
+                    .children(message)
+                    .children(prompt)
+                    .child(find_box),
+            )
     }
 }

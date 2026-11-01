@@ -1,0 +1,11 @@
+pressed Cancel -> True
+client received: REPLY (1, {'writable': True, 'uris': [], 'choices': []})
+after CANCEL: recents file exists: False
+pressed Save -> True
+client received: REPLY (0, {'uris': ['file:///tmp/ofolder-rec-71ram3x5/reports/spike.txt'], 'choices': [], 'writable': True})
+after SAVE: recents file exists: True
+folders: [('<scratch>/reports', ['spike'])]
+files: [('<scratch>/reports/spike.txt', ['spike'])]
+RECORDED the save folder: True | recorded the file: True
+proxy alive: True | stderr: (none)
+files created inside the save folder (must be none): []

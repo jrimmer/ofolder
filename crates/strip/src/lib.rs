@@ -6,15 +6,22 @@
 //! that touches the dialog. The logic lives in plain modules (`model`,
 //! `favorites`, `paths`, `naming`) that need no display; `view` only draws.
 
+mod colors;
 mod demo;
 mod error;
+pub mod expand;
 pub mod favorites;
 mod field;
+mod finder;
 mod left;
+mod lines;
+mod menu;
 pub mod model;
 pub mod naming;
 pub mod paths;
 mod right;
+mod rows;
+mod sources;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -24,7 +31,7 @@ use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size,
 };
 
-pub use demo::DemoActions;
+pub use demo::{DemoActions, demo_setup};
 pub use error::StripError;
 
 use left::LeftPanel;
@@ -56,6 +63,10 @@ pub trait StripActions: Send + Sync + 'static {
     fn new_folder(&self, name: &str) -> Result<PathBuf, String>;
     /// False once the dialog is gone; the strip then closes itself and the process ends.
     fn dialog_alive(&self) -> bool;
+    /// Open `folder` in the user's file manager.
+    fn open_in_file_manager(&self, folder: &Path) -> Result<(), String>;
+    /// Open a terminal in `folder`.
+    fn open_in_terminal(&self, folder: &Path) -> Result<(), String>;
 }
 
 pub struct StripOptions {
@@ -65,6 +76,21 @@ pub struct StripOptions {
     pub favorites_path: PathBuf,
     /// For abbreviating paths as `~/...`.
     pub home: PathBuf,
+    /// Which application opened the dialog: a portal id, `class:<name>`, or
+    /// empty when it is not known.
+    pub app_key: String,
+    /// The recent folders and files file.
+    pub recents_path: PathBuf,
+    /// The settings file.
+    pub settings_path: PathBuf,
+    /// The `user-dirs.dirs` file.
+    pub user_dirs_path: PathBuf,
+    /// Normally `/proc/self/mountinfo`.
+    pub mountinfo_path: PathBuf,
+    /// The login name, for finding the user's mounted drives.
+    pub user: String,
+    /// The desktop theme's colours; the default palette is the built-in dark look.
+    pub palette: ofolder_core::theme::Palette,
 }
 
 fn window_options(app_id: &str, title: &str, width: f32, cx: &mut App) -> WindowOptions {
@@ -88,12 +114,22 @@ fn window_options(app_id: &str, title: &str, width: f32, cx: &mut App) -> Window
 /// Opens both panels and runs until the dialog is gone or either window is
 /// closed.
 pub fn run_strip(options: StripOptions, actions: Arc<dyn StripActions>) -> anyhow::Result<()> {
-    let StripOptions {
-        label,
-        favorites_path,
-        home,
-    } = options;
-    let vm = ViewModel::new(label.clone(), home, favorites_path);
+    run_strip_preview(options, actions, |_| {})
+}
+
+/// Like [`run_strip`], but lets the caller put the view-model in a state
+/// first, so a screenshot can show open rows, menus and results. For the
+/// demo only.
+#[doc(hidden)]
+pub fn run_strip_preview(
+    options: StripOptions,
+    actions: Arc<dyn StripActions>,
+    prepare: impl FnOnce(&mut ViewModel),
+) -> anyhow::Result<()> {
+    colors::set(colors::Colors::from_palette(&options.palette));
+    let mut vm = ViewModel::new(&options);
+    prepare(&mut vm);
+    let label = options.label;
     Application::new().run(move |cx| {
         let shared = cx.new(|cx| Shared::new(vm, actions, cx));
         let left_options = window_options(APP_ID_LEFT, "ofolder favorites", LEFT_WIDTH, cx);
@@ -122,22 +158,8 @@ pub fn run_strip(options: StripOptions, actions: Arc<dyn StripActions>) -> anyho
 /// are opened beside a dialog by the portal backend.
 pub fn run_demo() -> anyhow::Result<()> {
     let base = std::env::temp_dir().join(format!("ofolder-demo-{}", std::process::id()));
-    let work = base.join("Work/ofolder");
-    for sample in ["Documents", "Downloads", "Work/ofolder"] {
-        std::fs::create_dir_all(base.join(sample))?;
-    }
-    let mut samples = favorites::Favorites::default();
-    for sample in ["Documents", "Downloads", "Work/ofolder"] {
-        samples.add(base.join(sample));
-    }
-    samples.add(base.join("Deleted"));
-    let favorites_path = base.join("favorites.json");
-    favorites::save(&favorites_path, &samples)?;
-    let options = StripOptions {
-        label: "demo".to_owned(),
-        favorites_path,
-        home: base.clone(),
-    };
+    std::fs::create_dir_all(&base)?;
+    let (options, work) = demo::demo_setup(&base, Default::default())?;
     let result = run_strip(options, Arc::new(DemoActions::new(work)));
     std::fs::remove_dir_all(&base).ok();
     result

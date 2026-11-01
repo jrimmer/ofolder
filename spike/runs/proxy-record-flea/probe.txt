@@ -1,0 +1,11 @@
+sent Escape to the verified-active picker
+client received: REPLY (1, {})
+after CANCEL: recents file exists: False
+sent Return to the verified-active picker
+client received: REPLY (0, {'uris': ['file:///tmp/ofolder-rec-aq4k1ry4/reports/spike.txt']})
+after SAVE: recents file exists: True
+folders: [('<scratch>/reports', ['spike'])]
+files: [('<scratch>/reports/spike.txt', ['spike'])]
+RECORDED the save folder: True | recorded the file: True
+proxy alive: True | stderr: (none)
+files created inside the save folder (must be none): []

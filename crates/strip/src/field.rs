@@ -2,14 +2,19 @@
 //! display name). It edits at the end of the text, which is all a short
 //! name needs, and reads typed characters from the key event.
 
+use crate::colors::colors;
 use gpui::{
-    App, ClipboardItem, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, Window, div,
-    prelude::*, px, rgb,
+    App, ClipboardItem, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseButton,
+    MouseDownEvent, Window, div, prelude::*, px, rgb,
 };
 
 pub enum FieldEvent {
     Submit(String),
     Cancel,
+    /// The text changed; carries the new text.
+    Changed(String),
+    Up,
+    Down,
 }
 
 pub struct TextField {
@@ -59,7 +64,10 @@ impl TextField {
         let ks = &ev.keystroke;
         let m = &ks.modifiers;
         let ctrl = m.control || m.platform;
+        let before_text = self.text.clone();
         match ks.key.as_str() {
+            "up" => cx.emit(FieldEvent::Up),
+            "down" => cx.emit(FieldEvent::Down),
             "enter" => cx.emit(FieldEvent::Submit(self.text.clone())),
             "escape" => cx.emit(FieldEvent::Cancel),
             "backspace" if ctrl => delete_word(&mut self.text),
@@ -86,8 +94,16 @@ impl TextField {
                 _ => return,
             },
         }
+        if before_text != self.text {
+            cx.emit(FieldEvent::Changed(self.text.clone()));
+        }
         cx.notify();
         cx.stop_propagation();
+    }
+
+    fn on_mouse_down(&mut self, _: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus);
+        cx.notify();
     }
 }
 
@@ -98,7 +114,7 @@ impl Render for TextField {
             div()
                 .flex_none()
                 .whitespace_nowrap()
-                .text_color(rgb(0x6c_72_80))
+                .text_color(rgb(colors().placeholder))
                 .child(self.placeholder)
         } else {
             div()
@@ -109,25 +125,32 @@ impl Render for TextField {
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .w_full()
             .h(px(26.))
             .px_2()
             .flex()
             .items_center()
-            // Justified to the end so a long name shows the part being typed.
-            .justify_end()
+            // A long name is pushed to the end so the part being typed shows.
+            .when(!self.text.is_empty(), |d| d.justify_end())
             .overflow_hidden()
             .rounded(px(4.))
-            .bg(rgb(0x14_16_1b))
+            .bg(rgb(colors().field_bg))
             .border_1()
             .border_color(if focused {
-                rgb(0x6c_a0_ff)
+                rgb(colors().accent)
             } else {
-                rgb(0x3a_3e_48)
+                rgb(colors().field_border)
             })
             .child(shown)
             .when(focused, |d| {
-                d.child(div().flex_none().w(px(1.)).h(px(14.)).bg(rgb(0x6c_a0_ff)))
+                d.child(
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h(px(14.))
+                        .bg(rgb(colors().accent)),
+                )
             })
     }
 }

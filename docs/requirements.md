@@ -548,6 +548,48 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - Mirroring a cloud-sync client's own activity: out of scope; users can add synced folders as favorites.
 - Support-bundle and performance-test buttons: replaced by the log in R-104.
 
+## Coverage
+
+Where the first build stands against each Baseline requirement. **Met** means every acceptance line is covered by a named test or a recorded live run. **Partly met** names what was not exercised. A real mouse click and typing in a field were never driven unattended, so anything that depends on them is at best partly met. Live runs are `spike/proxy_strip_check2.py` (two panels docked, focus kept, follows a move, cleans up: Flea, GTK and Strata, two runs each), `spike/proxy_record_check.py` (Flea and GTK), and `ofolder live-check` (adapters: Flea 13 of 14, GTK 3 of 3, Strata 3 of 3).
+
+| ID | Status | Evidence, and what is not covered |
+|---|---|---|
+| R-01 strip appears with the dialog | Partly met | Live on all three dialogs. Not covered: two dialogs open at once; the under-one-second start was not timed on the final build |
+| R-02 two panels, one each side | Met | `geometry` placement tests (split, packed, overlap); live docking on all three. The `swap_sides` setting is read but not applied, which the maintainer deferred |
+| R-04 start with the session | Partly met | `packaging/` holds the portal and D-Bus activation files; not installed, because registering the proxy is the user's decision |
+| R-05 keyboard-only operation | Held | Needs a compositor key binding |
+| R-06 large lists | Partly met | Row cap with "Show more", off-thread folder reads, view-model tests. Not covered: a hung mount, a real very large folder |
+| R-11 copy path | Partly met | Model tests. Not covered: the clipboard write, which may be lost when the process exits |
+| R-12 open in file manager | Partly met | `launch` tests with fake desktop entries; spawn test. Not covered: a click on the real button |
+| R-13 open in terminal | Partly met | As R-12; the terminal starts with the folder as its working directory |
+| R-20 send the dialog to a folder | Met | `ofolder live-check` on Flea, GTK and Strata, and the dialog's typed file name survives (GTK) |
+| R-22 standard places and drives | Partly met | Parsers tested on sample files, rows seen in a demo screenshot. Not covered: a click; a live drive plug or unplug |
+| R-23 parent, back, forward | Partly met | `places::History` tests. Not covered: a click; after a failed Back or Forward the history position has already moved |
+| R-24 browse subfolders | Partly met | `browse` and `expand` tests; nesting seen in a screenshot. Not covered: a click on the arrow |
+| R-25 folders of open file managers | Held | Needs a decision on which file managers to support |
+| R-30 favorites list | Partly met | Favorites tests; missing-folder badge seen. Not covered: clicks in the final layout |
+| R-31 add current folder | Partly met | As R-30 |
+| R-32 edit, reorder, remove | Partly met | Menu actions tested; not clicked |
+| R-33 shortcut per favorite | Held | Needs compositor key bindings |
+| R-40 remember folders used | Partly met | Recorder tests and live proxy runs on GTK and Flea: confirm records, cancel records nothing. Not covered: Strata |
+| R-41 choose from recent folders | Partly met | Section seen in a screenshot, ranking tested. Not covered: a click |
+| R-43 recents per app | Partly met | Identity tests, tagging proven live (the app tag came through). On this desktop apps send no id, so the tag is the focused window's class, and an unknown app gets no per-app view |
+| R-44 recent files | Partly met | Files recorded live. Not covered: a click on a recent file |
+| R-50 starting folder per app | Met | Hook tests and private-bus proxy tests: rewritten only when the app named no folder, never over one it supplied. Only an exact `class:` key written in settings fires, by design |
+| R-52 the document's own folder | Partly met | The app's folder is always kept, so it works for apps that send one. Nothing more is possible for the rest |
+| R-60 fuzzy find | Partly met | `fuzzy` and `finder` tests, ranked result seen. Not covered: typing, Up, Down, Enter, Escape live |
+| R-61 search under a folder | Partly met | `search` tests including cancel, hidden folders, symlinks, and an ignored 50k-folder performance test. Not covered: Stop pressed live |
+| R-63 actions on a result | Partly met | Menu tests; not clicked |
+| R-70 new folder | Partly met | Live in the earlier spike, and name checks tested. Not covered: the field in the final layout |
+| R-90 dialog size and position | Partly met | `dialog_memory` tests and wired through the float rule. Not covered: a visible jump when the remembered place is applied |
+| R-100 settings without restart | Partly met | Read per dialog, lenient parsing with warnings. There is no settings view |
+| R-101 data local and recoverable | Partly met | Plain TOML and JSON under the user's folders, atomic writes, a corrupt file renamed aside. The formats are not yet written up for users |
+| R-102 pause | Partly met | `ofolder pause` and `resume`, honoured by the hooks and the recorder, tested. No keyboard shortcut |
+| R-103 appearance follows the desktop | Partly met | The active theme's `colors.toml` is read per dialog with a default fallback (`theme` tests) and mapped in one place (8 `colors` tests); seen with the default and a hand-made light palette. Not covered: a live theme change, and a check against real themes |
+| R-104 fail visibly | Partly met | Errors show in the panel's message area and on stderr. There is no log file |
+
+R-10 and R-21 were dropped by the maintainer. R-71 is Next.
+
 ## Open questions
 
 1. Which dialogs are in scope for first release: only portal-provided choosers, or also toolkit-native ones?

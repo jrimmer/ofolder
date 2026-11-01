@@ -7,24 +7,24 @@ use std::time::{Duration, Instant};
 
 use gpui::{AnyView, App, Context, ElementId, Render, Stateful, Window, div, prelude::*, px, rgb};
 
-use crate::StripActions;
-use crate::model::{Job, Mode, ViewModel};
+use std::path::{Path, PathBuf};
 
-pub const BG: u32 = 0x1b_1d_23;
-pub const PANEL: u32 = 0x24_27_2f;
-pub const RAISED: u32 = 0x2f_33_3d;
-pub const HOVER: u32 = 0x3a_3f_4b;
-pub const TEXT: u32 = 0xe6_e6_e6;
-pub const MUTED: u32 = 0x8a_90_9e;
-pub const ACCENT: u32 = 0x6c_a0_ff;
-pub const RED: u32 = 0xff_7b_72;
-pub const AMBER: u32 = 0xe3_b3_41;
+use ofolder_core::{browse, search};
+
+use crate::StripActions;
+use crate::colors::colors;
+use crate::expand::RowKey;
+use crate::menu::RowAction;
+use crate::model::{Effect, Job, Mode, ViewModel};
+use crate::sources::RecentsRead;
 
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
-/// Favorites are checked for existence every this many polls, because a
-/// stat on a slow mount can take a while.
-const AVAILABILITY_EVERY: u32 = 10;
+/// Favorites are checked for existence and the recents reread every this
+/// many polls (two seconds), because a stat on a slow mount can take a while.
+const RECENTS_EVERY: u32 = 10;
+/// The drives are reread every this many polls (three seconds).
+const PLACES_EVERY: u32 = 15;
 
 struct Tip(String);
 
@@ -35,11 +35,11 @@ impl Render for Tip {
             .px_2()
             .py_1()
             .rounded(px(4.))
-            .bg(rgb(0x0f_10_14))
+            .bg(rgb(colors().tooltip_bg))
             .border_1()
-            .border_color(rgb(HOVER))
+            .border_color(rgb(colors().hover))
             .text_size(px(12.))
-            .text_color(rgb(TEXT))
+            .text_color(rgb(colors().text))
             .child(self.0.clone())
     }
 }
@@ -58,14 +58,14 @@ pub fn button(id: impl Into<ElementId>, label: &str, enabled: bool) -> Stateful<
         .rounded(px(4.))
         .text_size(px(12.))
         .whitespace_nowrap()
-        .bg(rgb(RAISED))
+        .bg(rgb(colors().raised))
         .child(label.to_owned());
     if enabled {
         base.cursor_pointer()
-            .hover(|s| s.bg(rgb(HOVER)))
-            .text_color(rgb(TEXT))
+            .hover(|s| s.bg(rgb(colors().hover)))
+            .text_color(rgb(colors().text))
     } else {
-        base.text_color(rgb(MUTED)).opacity(0.5)
+        base.text_color(rgb(colors().muted)).opacity(0.5)
     }
 }
 
@@ -82,25 +82,30 @@ impl Shared {
         shared
     }
 
-    /// Asks the dialog for its folder on a background thread and applies the
-    /// answer here. Ends the process when the dialog is gone.
+    /// Asks the dialog for its folder on a background thread, rereads the
+    /// lists now and then, and applies the answers here. Ends the process
+    /// when the dialog is gone.
     fn start_polling(&self, cx: &mut Context<Self>) {
         let actions = self.actions.clone();
+        let sources = self.vm.sources();
+        let read_recents = self.vm.recents_enabled();
         cx.spawn(async move |this, cx| {
             let mut tick: u32 = 0;
             loop {
-                let check = tick.is_multiple_of(AVAILABILITY_EVERY);
+                let lists = tick.is_multiple_of(RECENTS_EVERY);
+                let places = tick.is_multiple_of(PLACES_EVERY);
                 tick = tick.wrapping_add(1);
                 let Ok(paths) = this.update(cx, |t, _| t.vm.favorite_paths()) else {
                     return;
                 };
                 let actions = actions.clone();
-                let (folder, alive, seen) = cx
+                let sources = sources.clone();
+                let read = cx
                     .background_executor()
                     .spawn(async move {
                         let folder = actions.current_folder();
                         let alive = actions.dialog_alive();
-                        let seen = check.then(|| {
+                        let seen = lists.then(|| {
                             paths
                                 .into_iter()
                                 .map(|p| {
@@ -109,17 +114,31 @@ impl Shared {
                                 })
                                 .collect::<Vec<_>>()
                         });
-                        (folder, alive, seen)
+                        let recents = (lists && read_recents).then(|| sources.read_recents());
+                        let places = places.then(|| sources.read_places());
+                        Polled {
+                            folder,
+                            alive,
+                            seen,
+                            recents,
+                            places,
+                        }
                     })
                     .await;
                 let applied = this.update(cx, |t, cx| {
-                    if !alive {
+                    if !read.alive {
                         cx.quit();
                         return;
                     }
-                    let mut changed = t.vm.set_folder(folder);
-                    if let Some(seen) = seen {
+                    let mut changed = t.vm.set_folder(read.folder);
+                    if let Some(seen) = read.seen {
                         changed |= t.vm.set_availability(seen);
+                    }
+                    if let Some(recents) = read.recents {
+                        changed |= t.vm.set_recents(recents);
+                    }
+                    if let Some(places) = read.places {
+                        changed |= t.vm.set_places(places);
                     }
                     changed |= t.vm.expire_message(Instant::now());
                     if changed {
@@ -135,7 +154,8 @@ impl Shared {
         .detach();
     }
 
-    /// Runs a job that touches the dialog off the UI thread.
+    /// Runs a job that touches the dialog or starts a program, off the UI
+    /// thread.
     pub fn run(&mut self, job: Job, cx: &mut Context<Self>) {
         let actions = self.actions.clone();
         cx.spawn(async move |this, cx| match job {
@@ -161,8 +181,81 @@ impl Shared {
                 })
                 .ok();
             }
+            Job::OpenFileManager(path) => {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { actions.open_in_file_manager(&path) })
+                    .await;
+                this.update(cx, |t, cx| {
+                    t.vm.finish_launch("file manager", result);
+                    cx.notify();
+                })
+                .ok();
+            }
+            Job::OpenTerminal(path) => {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { actions.open_in_terminal(&path) })
+                    .await;
+                this.update(cx, |t, cx| {
+                    t.vm.finish_launch("terminal", result);
+                    cx.notify();
+                })
+                .ok();
+            }
         })
         .detach();
+    }
+
+    /// Reads a row's subfolders off the UI thread.
+    fn read_subfolders(&mut self, key: RowKey, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let path = key.path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { browse::subfolders(&path, false) })
+                .await;
+            this.update(cx, |t, cx| {
+                t.vm.finish_browse(&key, result);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Runs a search below the current folder off the UI thread.
+    pub fn search(&mut self, cx: &mut Context<Self>) {
+        let Some(job) = self.vm.start_search() else {
+            cx.notify();
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let outcome = cx
+                .background_executor()
+                .spawn(async move {
+                    search::search(
+                        &job.root,
+                        &job.query,
+                        search::Limits::default(),
+                        &job.cancel,
+                    )
+                })
+                .await;
+            this.update(cx, |t, cx| {
+                let found = outcome.found.into_iter().map(|f| f.path).collect();
+                t.vm.finish_search(job.id, found, outcome.ended);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub fn stop_search(&mut self, cx: &mut Context<Self>) {
+        self.vm.stop_search();
+        cx.notify();
     }
 
     /// Applies text typed into a prompt, for whichever prompt is open.
@@ -174,8 +267,47 @@ impl Shared {
                 }
             }
             Mode::Rename(_) => self.vm.submit_rename(text),
-            _ => {}
+            Mode::Browse => {}
         }
         cx.notify();
     }
+
+    pub fn start(&mut self, job: Option<Job>, cx: &mut Context<Self>) {
+        if let Some(job) = job {
+            self.run(job, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn expand(&mut self, key: RowKey, cx: &mut Context<Self>) {
+        if let Some(key) = self.vm.toggle_expand(key) {
+            self.read_subfolders(key, cx);
+        }
+        cx.notify();
+    }
+
+    /// Runs a menu action; returns text for the clipboard when it has any.
+    pub fn menu_action(
+        &mut self,
+        action: RowAction,
+        path: &Path,
+        cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let mut copy = None;
+        match self.vm.row_action(action, path) {
+            Effect::Job(job) => self.run(job, cx),
+            Effect::Copy(text) => copy = Some(text),
+            Effect::None => {}
+        }
+        cx.notify();
+        copy
+    }
+}
+
+struct Polled {
+    folder: Option<PathBuf>,
+    alive: bool,
+    seen: Option<Vec<(PathBuf, bool)>>,
+    recents: Option<RecentsRead>,
+    places: Option<Vec<ofolder_core::places::Place>>,
 }
