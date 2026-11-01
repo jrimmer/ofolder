@@ -21,27 +21,33 @@ proxy = subprocess.Popen([BIN, "portal", "--backend", BACKEND], env=env, stdout=
 time.sleep(1.5)
 def clients(): return p1.hj("clients") or []
 def dlg(cs): return next((c for c in cs if c["class"] == CLASS and (BACKEND == "flea" or c["title"] == TITLE)), None)
-def strp(cs): return next((c for c in cs if c["class"] == "ofolder.strip"), None)
+def panel(cs, side): return next((c for c in cs if c["class"] == "ofolder.strip." + side), None)
+def both(cs): return panel(cs, "left") and panel(cs, "right")
 call = subprocess.Popen([sys.executable, os.path.join(HERE, "portal_call.py"), "ofolder", scratch, TITLE], stdout=open(os.path.join(p1.OUT, "call.out"), "w"), stderr=subprocess.STDOUT)
 for _ in range(240):
     cs = clients()
-    if dlg(cs) and strp(cs): break
+    if dlg(cs) and both(cs): break
     time.sleep(0.05)
 time.sleep(2.0)
-cs = clients(); d, s = dlg(cs), strp(cs)
+cs = clients(); d, L, R = dlg(cs), panel(cs, "left"), panel(cs, "right")
 say(BACKEND, "dialog:", d and (d["at"], d["size"], "floating" if d["floating"] else "TILED"))
-say(BACKEND, "strip:", s and (s["at"], s["size"], "floating" if s["floating"] else "TILED"))
-if d and s:
-    say("DOCKED flush beside the dialog:", s["floating"] and s["at"][1] == d["at"][1] and s["size"][1] == d["size"][1] and s["at"][0] in (d["at"][0] + d["size"][0] + 6, d["at"][0] - 6 - 230))
+say(BACKEND, "left panel:", L and (L["at"], L["size"], "floating" if L["floating"] else "TILED"))
+say(BACKEND, "right panel:", R and (R["at"], R["size"], "floating" if R["floating"] else "TILED"))
+def flush(d, L, R):
+    return bool(d and L and R and L["floating"] and R["floating"]
+                and L["at"][0] + L["size"][0] + 6 == d["at"][0] and R["at"][0] == d["at"][0] + d["size"][0] + 6
+                and L["at"][1] == d["at"][1] == R["at"][1] and L["size"][1] == d["size"][1] == R["size"][1])
+if d and L and R:
+    say("DOCKED: left panel flush on the left, right panel flush on the right:", flush(d, L, R))
     act = (p1.hj("activewindow") or {}).get("address")
-    say("FOCUS stayed with the dialog:", act == d["address"], "| strip has focus:", act == s["address"])
-    x, y = min(d["at"][0], s["at"][0]), min(d["at"][1], s["at"][1])
-    x2 = max(d["at"][0] + d["size"][0], s["at"][0] + s["size"][0]); y2 = max(d["at"][1] + d["size"][1], s["at"][1] + s["size"][1])
-    subprocess.run(["grim", "-g", "%d,%d %dx%d" % (x, y, x2 - x, y2 - y), os.path.join(p1.OUT, "docked.png")])
+    say("FOCUS stayed with the dialog:", act == d["address"], "| a panel has focus:", act in (L["address"], R["address"]))
+    xs = [c["at"][0] for c in (d, L, R)]; ys = [c["at"][1] for c in (d, L, R)]
+    x2 = max(c["at"][0] + c["size"][0] for c in (d, L, R)); y2 = max(c["at"][1] + c["size"][1] for c in (d, L, R))
+    subprocess.run(["grim", "-g", "%d,%d %dx%d" % (min(xs), min(ys), x2 - min(xs), y2 - min(ys)), os.path.join(p1.OUT, "docked.png")])
     subprocess.run(["hyprctl", "dispatch", 'hl.dsp.window.move({ x = 200, y = 100, relative = true, window = "address:%s" })' % d["address"]], capture_output=True)
     time.sleep(1.5)
-    cs = clients(); d2, s2 = dlg(cs), strp(cs)
-    say("FOLLOWED the move:", bool(d2 and s2 and s2["at"][1] == d2["at"][1] and s2["at"][0] in (d2["at"][0] + d2["size"][0] + 6, d2["at"][0] - 6 - 230)))
+    cs = clients()
+    say("FOLLOWED the move (both panels):", flush(dlg(cs), panel(cs, "left"), panel(cs, "right")))
 # close the dialog the safe way for each backend
 def a11y_cancel(app_hint, name):
     desk = Atspi.get_desktop(0)
@@ -67,9 +73,9 @@ try: call.wait(10)
 except subprocess.TimeoutExpired: say("call did not finish; killing"); call.kill()
 say("client received:", open(os.path.join(p1.OUT, "call.out")).read().strip()[:90])
 for _ in range(80):
-    if not strp(clients()): break
+    if not (panel(clients(), "left") or panel(clients(), "right")): break
     time.sleep(0.1)
-say("strip gone after the dialog closed:", not strp(clients()))
+say("panels gone after the dialog closed:", not (panel(clients(), "left") or panel(clients(), "right")))
 say("strip processes left:", subprocess.run(["pgrep", "-fc", "^%s strip " % BIN], capture_output=True, text=True).stdout.strip())
 say("proxy alive:", proxy.poll() is None, "| stderr:", (open(os.path.join(p1.OUT, "proxy.err")).read().strip()[:160] or "(none)"))
 proxy.terminate(); proxy.wait(5)

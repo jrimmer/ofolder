@@ -74,6 +74,89 @@ pub fn place_strip(dialog: Rect, bounds: Option<Rect>, strip_width: i32, gap: i3
     }
 }
 
+/// How the two panels ended up around the dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arrangement {
+    /// Left panel on the left of the dialog, right panel on its right.
+    Split,
+    /// No room on the left: both panels on the right, left panel first.
+    PackedRight,
+    /// No room on the right: both panels on the left, left panel first.
+    PackedLeft,
+    /// Neither side has room for both: against the monitor's right edge, over the dialog.
+    Overlap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Panels {
+    pub left: Rect,
+    pub right: Rect,
+    pub arrangement: Arrangement,
+}
+
+/// Where the left panel (places to go) and the right panel (things to do)
+/// belong around a dialog. Each stands on its own side when there is room.
+/// When one side is short, both panels pack onto the other side in the same
+/// order, and when neither side can hold both they overlap the dialog's edge.
+/// Heights follow the dialog, clamped to the monitor's usable area.
+pub fn place_panels(
+    dialog: Rect,
+    bounds: Option<Rect>,
+    left_w: i32,
+    right_w: i32,
+    gap: i32,
+) -> Panels {
+    let mut y = dialog.y;
+    let mut h = dialog.h;
+    if let Some(b) = bounds {
+        h = h.min(b.h);
+        y = y.min(b.bottom() - h).max(b.y);
+    }
+    let panel = |x: i32, w: i32| Rect { x, y, w, h };
+
+    let split_left_x = dialog.x - gap - left_w;
+    let split_right_x = dialog.right() + gap;
+    let Some(b) = bounds else {
+        return Panels {
+            left: panel(split_left_x, left_w),
+            right: panel(split_right_x, right_w),
+            arrangement: Arrangement::Split,
+        };
+    };
+    let left_fits = split_left_x >= b.x;
+    let right_fits = split_right_x + right_w <= b.right();
+    if left_fits && right_fits {
+        return Panels {
+            left: panel(split_left_x, left_w),
+            right: panel(split_right_x, right_w),
+            arrangement: Arrangement::Split,
+        };
+    }
+    let both_right_x = dialog.right() + gap;
+    if both_right_x + left_w + gap + right_w <= b.right() {
+        return Panels {
+            left: panel(both_right_x, left_w),
+            right: panel(both_right_x + left_w + gap, right_w),
+            arrangement: Arrangement::PackedRight,
+        };
+    }
+    let both_left_right_edge = dialog.x - gap;
+    let packed_left_x = both_left_right_edge - right_w - gap - left_w;
+    if packed_left_x >= b.x {
+        return Panels {
+            left: panel(packed_left_x, left_w),
+            right: panel(packed_left_x + left_w + gap, right_w),
+            arrangement: Arrangement::PackedLeft,
+        };
+    }
+    let right_x = b.right() - right_w;
+    Panels {
+        left: panel(right_x - gap - left_w, left_w),
+        right: panel(right_x, right_w),
+        arrangement: Arrangement::Overlap,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +246,74 @@ mod tests {
         let p = place_strip(dialog_at(3211), None, 230, 6);
         assert_eq!(p.side, Side::Right);
         assert_eq!(p.rect.x, 3211 + 875 + 6);
+    }
+
+    #[test]
+    fn each_panel_stands_on_its_own_side_of_a_dialog_with_room() {
+        let p = place_panels(dialog_at(1611), Some(MONITOR), 200, 230, 6);
+        assert_eq!(p.arrangement, Arrangement::Split);
+        assert_eq!(p.left.x, 1611 - 6 - 200);
+        assert_eq!(p.right.x, 1611 + 875 + 6);
+        assert_eq!((p.left.y, p.left.h), (289, 600));
+        assert_eq!((p.right.y, p.right.h), (289, 600));
+    }
+
+    #[test]
+    fn with_no_room_on_the_left_both_panels_pack_to_the_right_in_order() {
+        let p = place_panels(dialog_at(100), Some(MONITOR), 200, 230, 6);
+        assert_eq!(p.arrangement, Arrangement::PackedRight);
+        assert_eq!(p.left.x, 100 + 875 + 6);
+        assert_eq!(p.right.x, p.left.right() + 6);
+        assert!(p.right.right() <= MONITOR.right());
+    }
+
+    #[test]
+    fn with_no_room_on_the_right_both_panels_pack_to_the_left_in_order() {
+        let p = place_panels(dialog_at(3200), Some(MONITOR), 200, 230, 6);
+        assert_eq!(p.arrangement, Arrangement::PackedLeft);
+        assert_eq!(p.right.right() + 6, 3200);
+        assert_eq!(p.right.x, p.left.right() + 6);
+        assert!(p.left.x >= MONITOR.x);
+    }
+
+    #[test]
+    fn with_room_on_neither_side_the_panels_overlap_against_the_right_edge() {
+        let narrow = Rect {
+            x: 0,
+            y: 0,
+            w: 1000,
+            h: 800,
+        };
+        let dialog = Rect {
+            x: 50,
+            y: 10,
+            w: 900,
+            h: 600,
+        };
+        let p = place_panels(dialog, Some(narrow), 200, 230, 6);
+        assert_eq!(p.arrangement, Arrangement::Overlap);
+        assert_eq!(p.right.right(), narrow.right());
+        assert_eq!(p.left.right() + 6, p.right.x);
+    }
+
+    #[test]
+    fn panel_heights_follow_the_dialog_and_stay_on_the_monitor() {
+        let tall = Rect {
+            x: 1000,
+            y: -50,
+            w: 800,
+            h: 2000,
+        };
+        let p = place_panels(tall, Some(MONITOR), 200, 230, 6);
+        assert_eq!((p.left.h, p.right.h), (MONITOR.h, MONITOR.h));
+        assert_eq!((p.left.y, p.right.y), (MONITOR.y, MONITOR.y));
+    }
+
+    #[test]
+    fn without_monitor_bounds_the_panels_just_stand_on_their_sides() {
+        let p = place_panels(dialog_at(3200), None, 200, 230, 6);
+        assert_eq!(p.arrangement, Arrangement::Split);
+        assert_eq!(p.left.x, 3200 - 6 - 200);
+        assert_eq!(p.right.x, 3200 + 875 + 6);
     }
 }

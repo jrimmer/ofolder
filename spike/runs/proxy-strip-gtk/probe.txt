@@ -1,11 +1,11 @@
-proxy: ofolder portal: org.freedesktop.impl.portal.desktop.ofolder forwards to org.freedesktop.impl.portal.desktop.gtk with a strip per dialog
-dialog: ([1611, 289], [875, 600], True)
-strip: ([2492, 289], [230, 600], True, 'pid', 2810578)
-DOCKED flush on the right: True
-FOCUS stayed with the dialog (strip did not take it): True | strip has focus: False
-FOLLOWED the move: True
+gtk dialog: ([1611, 289], [875, 600], 'floating')
+gtk left panel: ([1405, 289], [200, 600], 'floating')
+gtk right panel: ([2492, 289], [230, 600], 'floating')
+DOCKED: left panel flush on the left, right panel flush on the right: True
+FOCUS stayed with the dialog: True | a panel has focus: False
+FOLLOWED the move (both panels): True
 cancel via accessibility -> True
-client received: REPLY (1, {'choices': [], 'writable': True, 'uris': []})
-strip gone after the dialog closed: True
+client received: REPLY (1, {'writable': True, 'uris': [], 'choices': []})
+panels gone after the dialog closed: True
 strip processes left: 0
 proxy alive: True | stderr: (none)

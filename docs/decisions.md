@@ -6,12 +6,12 @@ Recorded from the requirements review of 2026-11-01. `requirements.md` carries e
 
 | | Documented | After review |
 |---|---|---|
-| Baseline | 17 | **34** |
-| Next | 14 | 3 |
+| Baseline | 17 | **33** |
+| Next | 14 | 4 |
 | Later | 10 | 2 |
 | Dropped | 0 | 2 |
 
-23 priorities changed. 18 requirements were promoted into Baseline, 1 moved down (R-42 to Next), 1 moved up from Later to Next (R-51), and 2 were dropped.
+23 priorities changed, and R-71 was then set to Next. 17 requirements were promoted into Baseline, 1 moved down (R-42 to Next), 2 moved up from Later to Next (R-51, R-71), and 2 were dropped.
 
 ## Dropped
 
@@ -35,11 +35,22 @@ Recorded from the requirements review of 2026-11-01. `requirements.md` carries e
 | 11. Destructive file actions (R-71) | First release only moves dialogs and creates folders; defer R-71 |
 | 12. Monitors and tiled dialogs | Flip at a monitor edge, follow across workspaces, float a tiled dialog with a rule before it opens |
 
-## Conflicts that need a decision
+## Conflicts, now resolved
 
-1. **R-71 is Baseline, but answer 11 defers it.** Both were chosen in the same review. R-71 renames, copies, moves and trashes the selected item, which is the only destructive feature in the list.
-2. **R-02 and the layout note.** "Strip on the left for the click-to-select icons and navigation; more interactive components on the right." That reads as two panels, one each side of the dialog, which changes the docking design. Not yet confirmed.
+1. **R-71 versus answer 11.** Resolved: R-71 is **Next**. The first release only moves dialogs and creates folders.
+2. **R-02 and the layout note.** Resolved: **one panel on each side of the dialog**. See the next section.
 3. **Answer 4 says "per-app view (R-43, Next)"**, and R-43 was then promoted to Baseline. Consistent, but the answer's text is stale.
+
+## Layout: a panel on each side
+
+Decided by the maintainer on 2026-11-01. The left panel holds the click-to-select icons and navigation. The right panel holds the more interactive components.
+
+| Panel | Holds |
+|---|---|
+| **Left: go somewhere** | favorites (R-30), standard locations and drives (R-22), recent folders (R-41, R-43), back, forward and parent (R-23), folders of open file managers (R-25) |
+| **Right: do something here** | the "folder unknown" notice, copy path (R-11), add or remove favorite (R-31), new folder (R-70), find (R-60, R-61), open in file manager or terminal (R-12, R-13), settings and pause (R-102) |
+
+Placement rules, in order: the left panel sits left of the dialog and the right panel sits right of it. If one side has no room, both panels pack onto the other side, in the same order. If neither side has room for both, they overlap the dialog's edge. R-02 as documented ("choose which side") becomes: the roles are fixed, and a setting may swap the two sides later.
 
 ## Feasibility flags on the promoted items
 
@@ -57,8 +68,8 @@ Recorded from the requirements review of 2026-11-01. `requirements.md` carries e
 
 Ordered by dependency, not by importance. All 34 remain Baseline.
 
-1. **A strip that works**: R-01, R-06, R-20, R-30, R-31, R-32, R-70, R-11, R-100, R-101, R-104, R-60. Mostly built or proven.
+1. **Two panels that work**: R-01, R-02, R-06, R-20, R-30, R-31, R-32, R-70, R-11, R-100, R-101, R-104, R-60. Mostly built or proven.
 2. **Memory**: R-40, R-41, R-43, R-44, plus the end hook in the proxy.
 3. **Going places**: R-22, R-23, R-24, R-61, R-63, R-12, R-13.
-4. **Per-app behaviour**: R-50, R-52, R-03, R-04, R-102, R-103, R-90, and the layout from R-02.
-5. **Needs your say first**: R-05, R-33, R-25, R-71.
+4. **Per-app behaviour**: R-50, R-52, R-03, R-04, R-102, R-103, R-90.
+5. **Needs your say first**: R-05, R-33, R-25. R-71 is now Next.

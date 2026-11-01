@@ -1,4 +1,5 @@
-//! The strip: the chrome docked beside a dialog.
+//! The strip: two panels of chrome docked either side of a dialog, the left
+//! one to go somewhere and the right one to do something here.
 //!
 //! The strip knows nothing about any dialog. It shows a folder, some
 //! favorites and a few actions, and asks a [`StripActions`] to do the work
@@ -9,9 +10,11 @@ mod demo;
 mod error;
 pub mod favorites;
 mod field;
+mod left;
 pub mod model;
 pub mod naming;
 pub mod paths;
+mod right;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -24,15 +27,21 @@ use gpui::{
 pub use demo::DemoActions;
 pub use error::StripError;
 
+use left::LeftPanel;
 use model::ViewModel;
-use view::StripView;
+use right::RightPanel;
+use view::Shared;
 
-/// The window class Hyprland rules match on. It must stay stable: the strip's
-/// float rule is keyed on it.
-pub const APP_ID: &str = "ofolder.strip";
+/// The window class of the left panel ("go somewhere"). Hyprland rules match
+/// on it, so it must stay stable.
+pub const APP_ID_LEFT: &str = "ofolder.strip.left";
+/// The window class of the right panel ("do something here").
+pub const APP_ID_RIGHT: &str = "ofolder.strip.right";
 
-/// The strip's width in logical pixels.
-pub const WIDTH: f32 = 230.0;
+/// The left panel's width in logical pixels.
+pub const LEFT_WIDTH: f32 = 200.0;
+/// The right panel's width in logical pixels.
+pub const RIGHT_WIDTH: f32 = 230.0;
 
 /// The height the window opens with; the caller may resize it.
 const HEIGHT: f32 = 480.0;
@@ -58,54 +67,57 @@ pub struct StripOptions {
     pub home: PathBuf,
 }
 
-fn window_options(cx: &mut App) -> WindowOptions {
+fn window_options(app_id: &str, title: &str, width: f32, cx: &mut App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
             None,
-            size(px(WIDTH), px(HEIGHT)),
+            size(px(width), px(HEIGHT)),
             cx,
         ))),
         titlebar: Some(TitlebarOptions {
-            title: Some("ofolder".into()),
+            title: Some(title.to_owned().into()),
             ..Default::default()
         }),
-        app_id: Some(APP_ID.into()),
-        // The dialog keeps the keyboard until the user clicks the strip.
+        app_id: Some(app_id.to_owned()),
+        // The dialog keeps the keyboard until the user clicks a panel.
         focus: false,
         ..Default::default()
     }
 }
 
-/// Opens the strip and runs until the dialog is gone or the window closes.
+/// Opens both panels and runs until the dialog is gone or either window is
+/// closed.
 pub fn run_strip(options: StripOptions, actions: Arc<dyn StripActions>) -> anyhow::Result<()> {
     let StripOptions {
         label,
         favorites_path,
         home,
     } = options;
-    let vm = ViewModel::new(label, home, favorites_path);
+    let vm = ViewModel::new(label.clone(), home, favorites_path);
     Application::new().run(move |cx| {
-        let window_options = window_options(cx);
-        let opened = cx.open_window(window_options, move |_, cx| {
-            cx.new(|cx| StripView::new(vm, actions, cx))
+        let shared = cx.new(|cx| Shared::new(vm, actions, cx));
+        let left_options = window_options(APP_ID_LEFT, "ofolder favorites", LEFT_WIDTH, cx);
+        let left_shared = shared.clone();
+        let left = cx.open_window(left_options, move |_, cx| {
+            cx.new(|cx| LeftPanel::new(left_shared, cx))
         });
-        if let Err(error) = opened {
-            eprintln!("ofolder: could not open the strip window: {error}");
+        let right_options = window_options(APP_ID_RIGHT, "ofolder", RIGHT_WIDTH, cx);
+        let right = cx.open_window(right_options, move |_, cx| {
+            cx.new(|cx| RightPanel::new(shared, label, cx))
+        });
+        if let Some(error) = left.err().or(right.err()) {
+            eprintln!("ofolder: could not open a panel window: {error}");
             cx.quit();
             return;
         }
-        cx.on_window_closed(|cx| {
-            if cx.windows().is_empty() {
-                cx.quit();
-            }
-        })
-        .detach();
+        // Either window closing ends the process, so no panel is left alone.
+        cx.on_window_closed(|cx| cx.quit()).detach();
         // No `cx.activate`: that would take the keyboard from the dialog.
     });
     Ok(())
 }
 
-/// Opens a strip on its own, in a scratch folder under the system temporary
+/// Opens both panels on their own, in a scratch folder under the system temporary
 /// directory with a few sample favorites, to see how it draws. Real strips
 /// are opened beside a dialog by the portal backend.
 pub fn run_demo() -> anyhow::Result<()> {

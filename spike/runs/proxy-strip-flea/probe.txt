@@ -1,10 +1,11 @@
 flea dialog: ([1611, 289], [875, 600], 'floating')
-flea strip: ([2492, 289], [230, 600], 'floating')
-DOCKED flush beside the dialog: True
-FOCUS stayed with the dialog: True | strip has focus: False
-FOLLOWED the move: True
+flea left panel: ([1405, 289], [200, 600], 'floating')
+flea right panel: ([2492, 289], [230, 600], 'floating')
+DOCKED: left panel flush on the left, right panel flush on the right: True
+FOCUS stayed with the dialog: True | a panel has focus: False
+FOLLOWED the move (both panels): True
 sent Escape to the verified-active picker
 client received: REPLY (1, {})
-strip gone after the dialog closed: True
+panels gone after the dialog closed: True
 strip processes left: 0
 proxy alive: True | stderr: (none)

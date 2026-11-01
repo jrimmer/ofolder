@@ -54,7 +54,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Changing the setting affects the next dialog without restarting the tool.
   - A dialog at the screen edge still gets a fully visible strip.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01. Owner note: the strip on the left holds the click-to-select icons and navigation; the more interactive components go on the right. Layout question open (see docs/decisions.md).
+- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01. Owner note: the strip on the left holds the click-to-select icons and navigation; the more interactive components go on the right. Decided: one panel on each side of the dialog (see docs/decisions.md).
 - **Depends on**: OS, STORE
 
 ### R-03 Per-app exclusion
@@ -449,8 +449,8 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - Each action changes the filesystem as described and the dialog's listing is refreshed or the user is told to refresh.
   - Moving to the trash is recoverable using the desktop's trash.
-- **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Priority**: Next
+- **Decision**: promoted from Later to Baseline in the user's review of 2026-11-01, then set to Next the same day to agree with the answer that defers destructive file actions.
 - **Depends on**: READ, FS
 
 ## 9. Actions after saving

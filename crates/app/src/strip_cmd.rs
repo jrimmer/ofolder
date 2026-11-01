@@ -17,12 +17,15 @@ use ofolder_adapters::hyprctl::Hyprctl;
 use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
-use ofolder_core::geometry::place_strip;
+use ofolder_core::geometry::{Panels, place_panels};
 use ofolder_core::system::{Compositor, Typist};
-use ofolder_strip::{APP_ID, StripActions, StripOptions, WIDTH};
+use ofolder_strip::{
+    APP_ID_LEFT, APP_ID_RIGHT, LEFT_WIDTH, RIGHT_WIDTH, StripActions, StripOptions,
+};
 
 const GAP: i32 = 6;
-const DOCK_RULE: &str = "ofolder-strip";
+const RULE_LEFT: &str = "ofolder-strip-left";
+const RULE_RIGHT: &str = "ofolder-strip-right";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Args {
@@ -195,8 +198,25 @@ fn build_adapter(
     })
 }
 
-/// Keeps the strip beside the dialog: flips at monitor edges, follows moves,
-/// resizes and workspace changes. Runs until the process exits.
+/// Where the two panels belong around `dialog`, on its own monitor.
+fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) -> Panels {
+    let bounds = compositor
+        .monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == dialog.monitor))
+        .map(|m| m.usable_bounds());
+    place_panels(
+        dialog.rect(),
+        bounds,
+        LEFT_WIDTH as i32,
+        RIGHT_WIDTH as i32,
+        GAP,
+    )
+}
+
+/// Keeps both panels around the dialog: on their own sides, packed to one
+/// side at a monitor edge, following moves, resizes and workspace changes.
+/// Runs until the process exits.
 fn dock_forever(actions: Arc<Actions>, compositor: Arc<dyn Compositor>) {
     let me = std::process::id();
     let mut checked_focus = false;
@@ -208,37 +228,42 @@ fn dock_forever(actions: Arc<Actions>, compositor: Arc<dyn Compositor>) {
         let Ok(clients) = compositor.clients() else {
             continue;
         };
-        let (Some(dialog), Some(strip)) = (
-            clients.iter().find(|c| c.address == window.address),
-            clients.iter().find(|c| c.class == APP_ID && c.pid == me),
-        ) else {
+        let Some(dialog) = clients.iter().find(|c| c.address == window.address) else {
             continue;
         };
-        let bounds = compositor
-            .monitors()
-            .ok()
-            .and_then(|ms| ms.into_iter().find(|m| m.id == dialog.monitor))
-            .map(|m| m.usable_bounds());
-        // Once, when the strip first shows: it must not hold the keyboard the dialog needs.
-        if !checked_focus {
+        let left = clients
+            .iter()
+            .find(|c| c.class == APP_ID_LEFT && c.pid == me);
+        let right = clients
+            .iter()
+            .find(|c| c.class == APP_ID_RIGHT && c.pid == me);
+        // Once, when the panels first show: they must not hold the keyboard the dialog needs.
+        if !checked_focus && left.is_some() && right.is_some() {
             checked_focus = true;
-            if compositor.active_window().ok().flatten().as_deref() == Some(strip.address.as_str())
+            let active = compositor.active_window().ok().flatten();
+            if [left, right]
+                .into_iter()
+                .flatten()
+                .any(|p| active.as_deref() == Some(p.address.as_str()))
             {
                 compositor.focus(&dialog.address).ok();
             }
         }
-        let place = place_strip(dialog.rect(), bounds, WIDTH as i32, GAP);
-        let (size, at) = ((place.rect.w, place.rect.h), (place.rect.x, place.rect.y));
-        if strip.workspace.id != dialog.workspace.id {
-            compositor
-                .send_to_workspace(&strip.address, &dialog.workspace.name)
-                .ok();
-        }
-        if !strip.floating {
-            compositor.float_window(&strip.address, size, at).ok();
-        } else if strip.rect() != place.rect {
-            compositor.resize_window(&strip.address, size).ok();
-            compositor.move_window(&strip.address, at).ok();
+        let panels = panels_for(&*compositor, dialog);
+        for (panel, wanted) in [(left, panels.left), (right, panels.right)] {
+            let Some(panel) = panel else { continue };
+            let (size, at) = ((wanted.w, wanted.h), (wanted.x, wanted.y));
+            if panel.workspace.id != dialog.workspace.id {
+                compositor
+                    .send_to_workspace(&panel.address, &dialog.workspace.name)
+                    .ok();
+            }
+            if !panel.floating {
+                compositor.float_window(&panel.address, size, at).ok();
+            } else if panel.rect() != wanted {
+                compositor.resize_window(&panel.address, size).ok();
+                compositor.move_window(&panel.address, at).ok();
+            }
         }
     }
 }
@@ -265,27 +290,21 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         "the dialog's window never appeared, or more than one dialog has the same title",
     )?;
     note(&format!("dialog window {} found", window.address));
-    // Position the strip before it opens, so it never appears tiled and then jumps.
+    // Position the panels before they open, so they never appear tiled and then jump.
     if let Some(dialog) = compositor
         .clients()
         .ok()
         .and_then(|cs| cs.into_iter().find(|c| c.address == window.address))
     {
-        let bounds = compositor
-            .monitors()
-            .ok()
-            .and_then(|ms| ms.into_iter().find(|m| m.id == dialog.monitor))
-            .map(|m| m.usable_bounds());
-        let place = place_strip(dialog.rect(), bounds, WIDTH as i32, GAP);
-        compositor
-            .install_float_rule(
-                DOCK_RULE,
-                APP_ID,
-                (place.rect.w, place.rect.h),
-                (place.rect.x, place.rect.y),
-                false,
-            )
-            .ok();
+        let panels = panels_for(&*compositor, &dialog);
+        for (rule, class, rect) in [
+            (RULE_LEFT, APP_ID_LEFT, panels.left),
+            (RULE_RIGHT, APP_ID_RIGHT, panels.right),
+        ] {
+            compositor
+                .install_float_rule(rule, class, (rect.w, rect.h), (rect.x, rect.y), false)
+                .ok();
+        }
     }
     {
         let (actions, compositor) = (actions.clone(), compositor.clone());
@@ -306,7 +325,8 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         actions,
     );
     note(&format!("strip window closed: {result:?}"));
-    compositor.remove_rule(DOCK_RULE).ok();
+    compositor.remove_rule(RULE_LEFT).ok();
+    compositor.remove_rule(RULE_RIGHT).ok();
     result
 }
 

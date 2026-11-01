@@ -1,10 +1,11 @@
 strata dialog: ([1548, 269], [1000, 640], 'floating')
-strata strip: ([2554, 269], [230, 640], 'floating')
-DOCKED flush beside the dialog: True
-FOCUS stayed with the dialog: True | strip has focus: False
-FOLLOWED the move: True
+strata left panel: ([1342, 269], [200, 640], 'floating')
+strata right panel: ([2554, 269], [230, 640], 'floating')
+DOCKED: left panel flush on the left, right panel flush on the right: True
+FOCUS stayed with the dialog: True | a panel has focus: False
+FOLLOWED the move (both panels): True
 cancel via accessibility -> True
 client received: REPLY (1, {})
-strip gone after the dialog closed: True
+panels gone after the dialog closed: True
 strip processes left: 0
 proxy alive: True | stderr: (none)
