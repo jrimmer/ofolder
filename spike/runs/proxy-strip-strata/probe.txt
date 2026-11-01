@@ -1,0 +1,10 @@
+strata dialog: ([1548, 269], [1000, 640], 'floating')
+strata strip: ([2554, 269], [230, 640], 'floating')
+DOCKED flush beside the dialog: True
+FOCUS stayed with the dialog: True | strip has focus: False
+FOLLOWED the move: True
+cancel via accessibility -> True
+client received: REPLY (1, {})
+strip gone after the dialog closed: True
+strip processes left: 0
+proxy alive: True | stderr: (none)

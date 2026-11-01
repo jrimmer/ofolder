@@ -1,0 +1,22 @@
+931.80 out dir <scratch>/scratchpad/spike/h4
+931.83 spawned picker pid=1191306 folder=/home/user
+932.24 picker window found at=[1611, 289] size=[875, 600]
+932.25 rule on -> ok
+932.35 FOLDER -> /home/user
+936.48 TREE start: one_folder=/home/user kids=[(1191386, '/usr/bin/flea --backend '), (1191387, '/usr/bin/flea --backend ')]
+936.55 shot p0-start
+937.06 goto /root -> sent
+939.72 TREE after /root: one_folder=None kids=[(1191386, '/usr/bin/flea --backend '), (1192670, '/usr/bin/flea --backend ')]
+939.80 shot p1-root
+940.40 goto /home/user/Documents -> sent
+940.49 FOLDER -> /home/user/Documents
+943.05 TREE after Documents: one_folder=/home/user/Documents kids=[(1191386, '/usr/bin/flea --backend '), (1193556, '/usr/bin/flea --backend ')]
+943.12 shot p2-documents
+943.15 killed picker
+943.15 spawned picker pid=1194280 folder=/home/user/Documents
+943.55 picker window found at=[1611, 289] size=[875, 600]
+947.32 TREE after respawn: one_folder=/home/user/Documents kids=[(1194376, '/usr/bin/flea --backend '), (1194377, '/usr/bin/flea --backend ')]
+947.40 shot p3-respawn
+948.12 killed picker
+948.12 picker exited rc=-15 reply=none
+948.13 rule off -> ok

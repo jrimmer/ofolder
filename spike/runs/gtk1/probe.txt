@@ -1,0 +1,13 @@
+dir table size 4598
+window: class='xdg-desktop-portal-gtk' title='GTK spike save' pid=1584 at=[1611, 289] size=[875, 600] floating=True ws=1
+=== survey open at HOME pid 1584
+cwd: /home/user
+dir fds: []
+inotify watches resolved: ['/home/user', '/home/user/.config/gtk-3.0', '/home/user/.config/omarchy', '?1474b', '?1474c', '?147bc', '?147bd', '?16d', '?175', '?1bfbe', '?1bfd0', '?1f49a', '?1f8c1', '?20f04', '?25613', '?3dbb4', '?402ba', '?40446', '?64d9', '?86e16']
+typed /home/user/Documents/ + Return
+=== survey after Documents pid 1584
+cwd: /home/user
+dir fds: []
+inotify watches resolved: ['/home/user', '/home/user/.config/gtk-3.0', '/home/user/.config/omarchy', '/home/user/Documents', '?1474b', '?1474c', '?147bc', '?147bd', '?16d', '?175', '?1bfbe', '?1bfd0', '?1f49a', '?1f8c1', '?20f04', '?25613', '?3dbb4', '?402ba', '?40446', '?64d9', '?86e16']
+dialog still open after Escape; killing the call
+call output: 

@@ -1,0 +1,17 @@
+start: floating=False size=[1350, 212] reading=/home/user
+after float: floating=True at=[1500, 300] size=[1000, 640]
+click place Documents -> True PASS 312ms
+click place Downloads -> True PASS 441ms
+click Parent folder -> True PASS 370ms
+click place Home -> True PASS 78ms
+ctrl+L /home/user/Work                       sent PASS 141ms
+ctrl+L r/spike/runs/h3/playground/ünïcödé 日本語   sent PASS 72ms
+ctrl+L er/spike/runs/h3/playground/with space   sent PASS 67ms
+ctrl+L ofolder/spike/runs/h3/playground/-dash   sent PASS 70ms
+ctrl+L older/spike/runs/h3/playground/.hidden   sent PASS 70ms
+ctrl+L /usr/bin                                 sent PASS 189ms
+ctrl+L /home/user                            sent PASS 146ms
+click New Folder -> True
+editable-ish nodes now: [('text', 'Rename'), ('text', 'Name')]
+closing: click Cancel -> True
+dialog windows left: 0 | call process alive: False

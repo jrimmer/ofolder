@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/adapters", "crates/portal", "crates/strip", "crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+# The same three lints casabon opts in to: a dropped `Result` and a file
+# extension compared by hand are the mistakes that are cheap to forbid.
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+let_underscore_must_use = "warn"
+case_sensitive_file_extension_comparisons = "warn"
+
+[workspace.dependencies]
+ofolder-core = { path = "crates/core" }
+ofolder-adapters = { path = "crates/adapters" }
+ofolder-portal = { path = "crates/portal" }
+ofolder-strip = { path = "crates/strip" }
+anyhow = "1"
+atspi = { version = "0.30", default-features = false, features = ["connection", "proxies"] }
+async-io = "2.6"
+gpui = "=0.2.2"
+# Pinned: gpui's xattr dependency does not build with newer libc.
+libc = "=0.2.186"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zbus = "5.19"

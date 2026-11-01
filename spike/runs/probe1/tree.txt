@@ -1,0 +1,6 @@
+pids: 1074140 1074158 1074402 1075114 
+1074140 /usr/bin/bash -c source <shell-snapshot> 2>/dev/null || true 
+1074158 qs -p /usr/share/flea/ui/boot/picker.qml 
+1074402 /usr/bin/flea --backend 
+1075114 /usr/bin/flea --backend 
+reply: {"response":1}

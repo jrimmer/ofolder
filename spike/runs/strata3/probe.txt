@@ -1,0 +1,5 @@
+HOME header: [('panel', '', ''), ('panel', '', ''), ('panel', '', ''), ('scroll pane', '', ''), ('panel', '', ''), ('panel', '', ''), ('panel', '', ''), ('label', '~', '~'), ('button', 'Copy path', ''), ('image', '', '')]
+DOCUMENTS header: [('scroll pane', '', ''), ('panel', '', ''), ('panel', '', ''), ('button', '~', ''), ('label', '~', '~'), ('label', '/', '/'), ('panel', '', ''), ('label', 'Documents', 'Documents'), ('button', 'Copy path', ''), ('image', '', '')]
+DOWNLOADS header: [('scroll pane', '', ''), ('panel', '', ''), ('panel', '', ''), ('button', '~', ''), ('label', '~', '~'), ('label', '/', '/'), ('panel', '', ''), ('label', 'Downloads', 'Downloads'), ('button', 'Copy path', ''), ('image', '', '')]
+breadcrumb/list names: [('grouping', 'Downloads'), ('list', 'Downloads')]
+left: 0

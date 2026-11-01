@@ -1,0 +1,88 @@
+55.64 out dir <scratch>/scratchpad/spike/h6
+55.67 spawned picker pid=1219863 folder=/home/user
+56.07 picker window found at=[1611, 289] size=[875, 600]
+56.08 rule on -> ok
+56.17 FOLDER -> /home/user
+60.74 typed /home/user/Documents -> sent
+60.91 FOLDER -> /home/user/Documents
+61.47 typed /home/user/Work -> sent
+61.62 FOLDER -> /home/user/Work
+62.22 typed /home/user/Documents -> sent
+62.37 FOLDER -> /home/user/Documents
+62.94 typed /home/user/Work -> sent
+63.11 FOLDER -> /home/user/Work
+63.71 typed /home/user/Documents -> sent
+63.87 FOLDER -> /home/user/Documents
+64.44 typed /home/user/Work -> sent
+64.61 FOLDER -> /home/user/Work
+65.20 typed /home/user/Documents -> sent
+65.37 FOLDER -> /home/user/Documents
+65.93 typed /home/user/Work -> sent
+66.08 FOLDER -> /home/user/Work
+66.69 typed /home/user/Documents -> sent
+66.85 FOLDER -> /home/user/Documents
+67.41 typed /home/user/Work -> sent
+67.58 FOLDER -> /home/user/Work
+68.16 typed /home/user/Documents -> sent
+68.33 FOLDER -> /home/user/Documents
+68.89 typed /home/user/Work -> sent
+69.06 FOLDER -> /home/user/Work
+69.64 typed /home/user/Documents -> sent
+69.80 FOLDER -> /home/user/Documents
+70.37 typed /home/user/Work -> sent
+70.53 FOLDER -> /home/user/Work
+71.12 typed /home/user/Documents -> sent
+71.29 FOLDER -> /home/user/Documents
+71.86 typed /home/user/Work -> sent
+72.02 FOLDER -> /home/user/Work
+72.61 typed /home/user/Documents -> sent
+72.77 FOLDER -> /home/user/Documents
+73.34 typed /home/user/Work -> sent
+73.52 FOLDER -> /home/user/Work
+74.11 typed /home/user/Documents -> sent
+74.27 FOLDER -> /home/user/Documents
+74.84 typed /home/user/Work -> sent
+75.01 FOLDER -> /home/user/Work
+75.59 typed /home/user/Documents -> sent
+75.72 FOLDER -> /home/user/Documents
+76.29 typed /home/user/Work -> sent
+76.45 FOLDER -> /home/user/Work
+77.04 typed /home/user/Documents -> sent
+77.19 FOLDER -> /home/user/Documents
+77.76 typed /home/user/Work -> sent
+77.91 FOLDER -> /home/user/Work
+78.50 typed /home/user/Documents -> sent
+78.66 FOLDER -> /home/user/Documents
+79.23 typed /home/user/Work -> sent
+79.38 FOLDER -> /home/user/Work
+79.98 typed /home/user/Documents -> sent
+80.14 FOLDER -> /home/user/Documents
+80.71 typed /home/user/Work -> sent
+80.86 FOLDER -> /home/user/Work
+81.46 typed /home/user/Documents -> sent
+81.61 FOLDER -> /home/user/Documents
+82.18 typed /home/user/Work -> sent
+82.34 FOLDER -> /home/user/Work
+82.93 typed /home/user/Documents -> sent
+83.09 FOLDER -> /home/user/Documents
+83.65 typed /home/user/Work -> sent
+83.81 FOLDER -> /home/user/Work
+84.40 typed /home/user/Documents -> sent
+84.56 FOLDER -> /home/user/Documents
+85.13 typed /home/user/Work -> sent
+85.29 FOLDER -> /home/user/Work
+85.88 typed /home/user/Documents -> sent
+86.04 FOLDER -> /home/user/Documents
+86.61 typed /home/user/Work -> sent
+86.77 FOLDER -> /home/user/Work
+87.36 typed /home/user/Documents -> sent
+87.52 FOLDER -> /home/user/Documents
+88.09 typed /home/user/Work -> sent
+88.26 FOLDER -> /home/user/Work
+88.84 typed /home/user/Documents -> sent
+89.00 FOLDER -> /home/user/Documents
+89.57 typed /home/user/Work -> sent
+89.73 FOLDER -> /home/user/Work
+89.75 PASS stress 40 navigations misses=0 fallbacks=0
+90.59 picker exited rc=-15 reply={"response":1}
+90.59 rule off -> ok

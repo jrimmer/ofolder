@@ -1,0 +1,24 @@
+122.21 out dir <scratch>/scratchpad/spike/run3
+122.27 spawned picker pid=1011424 folder=/home/user
+122.67 picker window found 0x5593b6c98ed0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+122.68 hyprctl dispatch hl.dsp.window.float({ action = "on", window = "address:0x5593b7a01de0" }) -> ok
+122.68 hyprctl dispatch hl.dsp.window.resize({ x = 230, y = 600, relative = false, window = "address:0x5593b7a01de0" }) -> ok
+122.69 hyprctl dispatch hl.dsp.window.move({ x = 2492, y = 289, relative = false, window = "address:0x5593b7a01de0" }) -> ok
+126.45 shot 1-docked geom=1611,289 1111x600 title='Spike save'
+127.40 killed picker
+127.40 spawned picker pid=1012573 folder=/home/user/Work
+131.38 shot 2-respawn-work skipped: picker=False strip=True
+135.38 shot 3-wtype-documents skipped: picker=False strip=True
+136.39 sent Escape
+176.93 out dir <scratch>/scratchpad/spike/run3
+176.97 spawned picker pid=1023158 folder=/home/user
+177.38 picker window found 0x5593b7a01de0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+177.39 hyprctl dispatch hl.dsp.window.float({ action = "on", window = "address:0x5593b6c98ed0" }) -> ok
+177.40 hyprctl dispatch hl.dsp.window.resize({ x = 230, y = 600, relative = false, window = "address:0x5593b6c98ed0" }) -> ok
+177.40 hyprctl dispatch hl.dsp.window.move({ x = 2492, y = 289, relative = false, window = "address:0x5593b6c98ed0" }) -> ok
+181.17 shot 1-docked geom=1611,289 1111x600 title='Spike save'
+182.11 killed picker
+182.11 spawned picker pid=1024624 folder=/home/user/Work
+186.09 shot 2-respawn-work skipped: picker=False strip=True
+190.09 shot 3-wtype-documents skipped: picker=False strip=True
+191.09 sent Escape

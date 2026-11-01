@@ -1,0 +1,36 @@
+965.42 out dir <scratch>/scratchpad/spike/h5
+965.45 spawned picker pid=1199520 folder=/home/user
+965.86 picker window found at=[1611, 289] size=[875, 600]
+965.87 rule on -> ok
+965.95 FOLDER -> /home/user
+970.51 typed /nonexistent-xyz -> sent
+972.08 shot r-missing
+972.71 typed /home/user/Documents -> sent
+974.30 fallback: respawn into /home/user/Documents
+974.33 killed picker
+974.33 spawned picker pid=1201854 folder=/home/user/Documents
+974.73 picker window found at=[1611, 289] size=[875, 600]
+974.81 FOLDER -> /home/user/Documents
+976.51 PASS recover after missing bad-state-reading=/home/user via=respawn got=/home/user/Documents
+977.03 typed trash:/// -> sent
+978.60 shot r-trash
+979.25 typed /home/user/Documents -> sent
+979.78 PASS recover after trash bad-state-reading=/home/user/Documents via=in-place got=/home/user/Documents
+980.30 typed recent:/// -> sent
+981.88 shot r-recent
+982.53 typed /home/user/Documents -> sent
+983.08 PASS recover after recent bad-state-reading=/home/user/Documents via=in-place got=/home/user/Documents
+983.60 typed no/such/rel -> sent
+985.17 shot r-relative
+985.80 typed /home/user/Documents -> sent
+986.34 PASS recover after relative bad-state-reading=/home/user/Documents via=in-place got=/home/user/Documents
+986.81 typed ~ -> sent
+988.38 shot r-tilde
+989.03 typed /home/user/Documents -> sent
+989.58 PASS recover after tilde bad-state-reading=/home/user/Documents via=in-place got=/home/user/Documents
+990.08 typed /root -> sent
+991.65 shot r-unreadable
+992.29 typed /home/user/Documents -> sent
+992.83 PASS recover after unreadable bad-state-reading=/home/user/Documents via=in-place got=/home/user/Documents
+25.35 killed picker
+25.35 rule off -> ok

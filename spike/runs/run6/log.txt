@@ -1,0 +1,28 @@
+516.79 out dir <scratch>/scratchpad/spike/run6
+516.82 spawned picker pid=1098837 folder=/home/user
+517.23 picker window found 0x5593b6d546f0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+517.23 hyprctl eval hl.window_rule({ name = "spike-strip", enabled = true, match = { class = "^spike\\.strip$" }, float = true, size = "230 600", move = "2492 289" }) -> ok
+517.23 rule on -> ok
+521.01 shot 1-docked geom=1611,289 1111x600 title='Spike save'
+521.95 killed picker
+521.96 spawned picker pid=1100005 folder=<scratch>/scratchpad/spike/run6/playground
+522.23 picker window found 0x5593b71ff3e0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+525.99 CHECK after respawn          want=<scratch>/scratchpad/spike/run6/playground got=<scratch>/scratchpad/spike/run6/playground OK
+526.93 hyprctl dispatch hl.dsp.focus({ window = "address:0x5593b71ff3e0" }) -> ok
+528.25 wtype goto <scratch>/scratchpad/spike/run6/playground/sub
+529.99 CHECK after in-picker nav    want=<scratch>/scratchpad/spike/run6/playground/sub got=<scratch>/scratchpad/spike/run6/playground/sub OK
+530.99 mkdir <scratch>/scratchpad/spike/run6/playground/sub/spike-folder-1793564530
+531.03 new_folder created <scratch>/scratchpad/spike/run6/playground/sub/spike-folder-1793564530 (parent matches read folder: True)
+531.04 hyprctl dispatch hl.dsp.focus({ window = "address:0x5593b71ff3e0" }) -> ok
+532.48 wtype goto <scratch>/scratchpad/spike/run6/playground/sub/spike-folder-1793564530
+534.49 shot 2-new-folder-entered geom=1611,289 1111x600 title='Spike save'
+534.99 final folder read: <scratch>/scratchpad/spike/run6/playground/sub/spike-folder-1793564530
+535.93 hyprctl dispatch hl.dsp.window.move({ x = 200, y = 100, relative = true, window = "address:0x5593b71ff3e0" }) -> ok
+536.11 hyprctl dispatch hl.dsp.window.resize({ x = 230, y = 600, relative = false, window = "address:0x5593b7733ba0" }) -> ok
+536.11 hyprctl dispatch hl.dsp.window.move({ x = 2692, y = 389, relative = false, window = "address:0x5593b7733ba0" }) -> ok
+537.43 FOLLOW picker.at=[1811, 389] strip.at=[2692, 389] OK
+538.00 shot 3-after-drag geom=1811,389 1111x600 title='Spike save'
+538.94 sent Escape
+539.10 picker exited rc=-15 reply={"response":1}
+539.10 hyprctl eval hl.window_rule({ name = "spike-strip", enabled = false }) -> ok
+539.10 rule off -> ok

@@ -1,0 +1,54 @@
+822.78 out dir <scratch>/scratchpad/spike/h3
+822.83 spawned picker pid=1164144 folder=/home/user
+823.23 picker window found at=[1611, 289] size=[875, 600]
+823.25 rule on -> ok
+823.42 FOLDER -> /home/user
+827.39 killed picker
+827.39 spawned picker pid=1165199 folder=<scratch>/scratchpad/spike/h3/playground
+827.65 picker window found at=[1611, 289] size=[875, 600]
+827.77 FOLDER -> <scratch>/scratchpad/spike/h3/playground
+831.91 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+832.06 PASS path:space latency=79ms reported=(as typed)
+832.14 FOLDER -> <scratch>/scratchpad/spike/h3/playground/with space
+833.33 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+833.48 PASS path:unicode latency=75ms reported=(as typed)
+833.56 FOLDER -> <scratch>/scratchpad/spike/h3/playground/ünïcödé 日本語
+834.74 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+834.88 PASS path:quotes latency=69ms reported=(as typed)
+834.97 FOLDER -> <scratch>/scratchpad/spike/h3/playground/quo'te"d
+836.13 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+836.28 PASS path:dash latency=74ms reported=(as typed)
+836.36 FOLDER -> <scratch>/scratchpad/spike/h3/playground/-dash
+837.53 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+837.67 PASS path:hidden latency=74ms reported=(as typed)
+837.76 FOLDER -> <scratch>/scratchpad/spike/h3/playground/.hidden
+839.81 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+839.95 PASS path:long latency=76ms reported=(as typed)
+840.04 FOLDER -> <scratch>/scratchpad/spike/h3/playground/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+841.39 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+841.54 PASS path:deep latency=73ms reported=(as typed)
+841.62 FOLDER -> <scratch>/scratchpad/spike/h3/playground/d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14
+842.87 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+843.00 PASS path:shellmeta latency=70ms reported=(as typed)
+843.10 FOLDER -> <scratch>/scratchpad/spike/h3/playground/$(touch PWNED);`id`;|&
+844.27 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+844.41 PASS path:empty latency=68ms reported=(as typed)
+844.50 FOLDER -> <scratch>/scratchpad/spike/h3/playground/empty
+845.66 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+845.82 PASS path:big latency=89ms reported=(as typed)
+845.91 FOLDER -> <scratch>/scratchpad/spike/h3/playground/big
+847.11 goto <scratch>/scratchpad/spike/h3/playgro -> sent
+847.25 PASS path:symlink latency=74ms reported=(realpath)
+847.33 FOLDER -> <scratch>/scratchpad/spike/h3/playground/with space
+847.54 PASS shell metacharacters not executed 
+847.54 INFO latency min=68ms max=89ms n=11
+848.03 goto /root -> sent
+850.97 PROBE unreadable -> one_folder=None stable=None all_dir_fds=[] picker_alive=True
+851.51 goto /nonexistent-xyz -> sent
+854.47 PROBE missing -> one_folder=None stable=None all_dir_fds=[] picker_alive=True
+857.92 PROBE trash -> one_folder=None stable=None all_dir_fds=[] picker_alive=True
+861.36 PROBE recent -> one_folder=None stable=None all_dir_fds=[] picker_alive=True
+861.98 goto /home/user/Pictures/Screenshots -> sent
+864.93 PROBE images-thumbnails -> one_folder=None stable=None all_dir_fds=[] picker_alive=True
+912.69 killed picker
+912.70 rule off -> ok

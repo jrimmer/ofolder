@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/user/Work/ofolder/spike/gtk_call.py", line 9, in <module>
+    r = bus.call_sync("org.freedesktop.impl.portal.desktop.gtk", "/org/freedesktop/portal/desktop",
+                      "org.freedesktop.impl.portal.FileChooser", "SaveFile", args, None, Gio.DBusCallFlags.NONE, 90000)
+gi.repository.GLib.GError: g-dbus-error-quark: GDBus.Error:org.freedesktop.DBus.Error.NoReply: Remote peer disconnected (4)

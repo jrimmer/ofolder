@@ -1,0 +1,11 @@
+start reading: /home/user
+name entry found: True | its actions: ['activate']
+VARIANT V1 ctrl+a, path/, Return x2        no reading=/home/user
+VARIANT V2 ctrl+a, path, Return            no reading=/home/user
+VARIANT V3 ctrl+L, path/, Return           no reading=/home/user
+VARIANT V4 atspi set_text, Return          no reading=/home/user
+   places container role: viewport documents idx: 1
+   select_child -> False
+VARIANT V5 atspi Selection.select_child    no reading=/home/user
+VARIANT V6 grab_focus place + Return       no reading=/home/user
+VARIANT V7 list focus, type path/, Return  no reading=None

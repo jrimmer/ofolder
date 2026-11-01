@@ -1,0 +1,7 @@
+proxy alive: True | ofolder portal: org.freedesktop.impl.portal.desktop.ofolder forwards to org.freedesktop.impl.portal.desktop.gtk
+a real GTK dialog opened through the proxy: True | class xdg-desktop-portal-gtk | pid 1613331
+accessibility sees the dialog: True | reads folder: /home/user
+pressing Cancel via accessibility -> True
+client received: REPLY (1, {'writable': True, 'choices': [], 'uris': []})
+proxy still alive after the dialog closed: True
+dialog windows left: 1

@@ -1,0 +1,525 @@
+75.83 out dir <scratch>/scratchpad/spike/run2
+75.88 spawned picker pid=1000569 folder=/home/user
+76.28 picker window found 0x5593b69e42c0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+76.29 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.49 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.50 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.69 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.70 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.89 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+76.90 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.09 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.10 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.29 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.49 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.50 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.69 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.70 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.89 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+77.90 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.09 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.10 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.29 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.49 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.50 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.69 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.70 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.89 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+78.90 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.09 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.10 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.29 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.70 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.89 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+79.90 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.10 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.50 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+80.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.10 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.50 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+81.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.30 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+82.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.31 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.50 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.70 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.90 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+83.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.51 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.71 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.91 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+84.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.10 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.30 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.51 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.71 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.91 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+85.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.11 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.31 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.51 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.71 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.90 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.91 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+86.91 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.10 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.11 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.11 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.30 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.31 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.31 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.50 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.51 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.51 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.70 hyprctl dispatch togglefloating address:0x5593b6f9d040 -> error: [string "return hl.dispatch(togglefloating address:0x5..."]:1: ')' expected near 'address'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.71 hyprctl dispatch resizewindowpixel exact 230 600,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(resizewindowpixel exact 23..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.
+87.71 hyprctl dispatch movewindowpixel exact 2492 289,address:0x5593b6f9d040 -> error: [string "return hl.dispatch(movewindowpixel exact 2492..."]:1: ')' expected near 'exact'
+
+ → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated.

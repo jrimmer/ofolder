@@ -1,0 +1,26 @@
+519.70 adapter=strata
+519.74 rule ofolder-dialog on -> ok
+519.74 strata: dialog requested (call pid 1769047)
+520.16 rule ofolder-strip on -> ok
+520.17 strip presented beside strata dialog at=[1430, 269] size=[1000, 640] floating=True
+520.26 FOLDER -> /home/user
+525.75 PASS strip docked beside dialog dialog at=[1430, 269] size=[1000, 640] | strip at=[2436, 269] size=[230, 640] floating=True
+525.83 shot 1-docked geom=1430,269 1236x640
+526.75 PASS reads start folder reading=/home/user
+528.21 go /user/Work/ofolder/spike/runs/multi-strata/playground/sub -> arrived 64ms
+528.21 PASS strip button: go to a folder 
+528.26 FOLDER -> /home/user/Work/ofolder/spike/runs/multi-strata/playground/sub
+528.85 mkdir /home/user/Work/ofolder/spike/runs/multi-strata/playground/sub/New folder
+528.89 PASS new folder created in the dialog's real folder /spike/runs/multi-strata/playground/sub/New folder
+530.12 go rk/ofolder/spike/runs/multi-strata/playground/sub/New folder -> arrived 66ms
+530.12 PASS dialog entered the new folder 
+530.18 FOLDER -> /home/user/Work/ofolder/spike/runs/multi-strata/playground/sub/New folder
+530.99 shot 2-new-folder geom=1430,269 1236x640
+532.42 PASS strip follows the dialog when it moves dialog.at=[1630, 369] strip.at=[2636, 369]
+532.49 shot 3-after-move geom=1630,369 1236x640
+533.32 go /home/user -> arrived 349ms
+533.32 PASS strip button: back Home 
+533.40 FOLDER -> /home/user
+534.33 dialog gone; shutting down
+534.33 rule ofolder-strip off -> ok
+534.33 rule ofolder-dialog off -> ok

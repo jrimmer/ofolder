@@ -1,0 +1,16 @@
+closing stray dialog via Cancel action -> True
+a11y choosers with our title: 1 | window pid 1584 class xdg-desktop-portal-gtk
+READ at start: /home/user (41ms)
+typed Documents: FAIL latency=NONE reading=/home/user
+typed Work: FAIL latency=NONE reading=/home/user
+typed space+unicode: FAIL latency=NONE reading=/home/user
+typed Downloads: FAIL latency=NONE reading=/home/user
+path-bar button actions: ['click']
+action: click path-bar 'user': PASS latency=17ms
+places list items: 9 first item actions: []
+places labels: ['Home', 'Documents', 'Downloads', 'Music', 'Pictures', 'Projects', 'Videos', 'New bookmark', 'Other Locations']
+action: click place 'Downloads': FAIL latency=NONE
+Create Folder button actions: ['click']
+closing via Cancel action -> True
+call output: REPLY (1, {'uris': [], 'writable': True, 'choices': []})
+dialog windows left: 0

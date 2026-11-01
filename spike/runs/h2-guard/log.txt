@@ -1,0 +1,25 @@
+787.59 out dir <scratch>/scratchpad/spike/h2-guard
+787.62 spawned picker pid=1155444 folder=/home/user
+788.03 picker window found at=[1611, 289] size=[875, 600]
+788.04 rule on -> ok
+788.13 FOLDER -> /home/user
+792.16 killed picker
+792.16 spawned picker pid=1156496 folder=<scratch>/scratchpad/spike/h2-guard/playground
+792.43 picker window found at=[1611, 289] size=[875, 600]
+792.55 FOLDER -> <scratch>/scratchpad/spike/h2-guard/playground
+796.96 REFUSED goto '<scratch>/scratch': picker not alive or not focusable
+798.13 PASS guard refuses when picker not focused sent=False before=True after=True
+798.32 mkdir <scratch>/scratchpad/spike/h2-guard/playground/New folder
+798.47 mkdir <scratch>/scratchpad/spike/h2-guard/playground/New folder 2
+798.47 PASS new folder names never collide New folder New folder 2
+798.71 REFUSED new folder: picker folder unknown or ambiguous: ['/tmp', '/var']
+798.71 PASS new folder refuses on ambiguous folder 
+799.20 goto /usr -> sent
+799.45 FAILED mkdir in /usr: [Errno 13] Permission denied: '/usr/New folder'
+799.45 PASS new folder in unwritable dir fails cleanly 
+799.48 killed picker
+799.48 REFUSED new folder: picker gone
+799.48 REFUSED goto '<scratch>/scratch': picker not alive or not focusable
+799.48 PASS make_folder and goto inert after picker exit 
+799.49 picker exited rc=-15 reply=none
+799.49 rule off -> ok

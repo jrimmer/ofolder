@@ -1,0 +1,1 @@
+ofolder portal: org.freedesktop.impl.portal.desktop.ofolder forwards to org.freedesktop.impl.portal.desktop.strata with a strip per dialog

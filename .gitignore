@@ -1,0 +1,6 @@
+/target
+__pycache__/
+# Spike evidence worth keeping is the logs and screenshots; the fixture trees are throwaway.
+spike/runs/**/playground/
+# A copy of a third-party installer and docs, plus a backup of the user's own portal and Hyprland config.
+spike/strata/

@@ -1,0 +1,25 @@
+498.74 adapter=gtk
+498.77 gtk: dialog requested (call pid 1762387)
+498.99 rule ofolder-strip on -> ok
+499.00 strip presented beside gtk dialog at=[1611, 289] size=[875, 600] floating=True
+499.05 FOLDER -> /home/user
+504.78 PASS strip docked beside dialog dialog at=[1611, 289] size=[875, 600] | strip at=[2492, 289] size=[230, 600] floating=True
+504.86 shot 1-docked geom=1611,289 1111x600
+505.72 PASS reads start folder reading=/home/user
+506.42 go ome/user/Work/ofolder/spike/runs/multi-gtk/playground/sub -> arrived 25ms
+506.42 PASS strip button: go to a folder 
+506.46 FOLDER -> /home/user/Work/ofolder/spike/runs/multi-gtk/playground/sub
+507.04 mkdir /home/user/Work/ofolder/spike/runs/multi-gtk/playground/sub/New folder
+507.07 PASS new folder created in the dialog's real folder der/spike/runs/multi-gtk/playground/sub/New folder
+507.54 go /Work/ofolder/spike/runs/multi-gtk/playground/sub/New folder -> arrived 35ms
+507.54 PASS dialog entered the new folder 
+507.57 FOLDER -> /home/user/Work/ofolder/spike/runs/multi-gtk/playground/sub/New folder
+508.42 shot 2-new-folder geom=1611,289 1111x600
+509.84 PASS strip follows the dialog when it moves dialog.at=[1811, 389] strip.at=[2692, 389]
+509.91 shot 3-after-move geom=1811,389 1111x600
+510.86 go /home/user -> arrived 52ms
+510.86 PASS strip button: back Home 
+510.93 PASS app's filename survived every move name='spike.txt'
+510.97 FOLDER -> /home/user
+511.54 dialog gone; shutting down
+511.54 rule ofolder-strip off -> ok

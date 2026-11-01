@@ -1,0 +1,1 @@
+strip state t=339.42 floating=True at=[2492, 289] size=[230, 600]

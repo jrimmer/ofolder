@@ -1,0 +1,23 @@
+#!/bin/bash
+# The gate: formatting, clippy, tests, and the architecture guards.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+step() { printf '\n== %s\n' "$*"; }
+
+step "rustfmt"
+cargo fmt --all --check
+
+step "clippy"
+cargo clippy --workspace --all-targets --locked -- -D warnings
+
+step "tests"
+cargo test --workspace --locked
+
+step "guard: core stays free of gpui, D-Bus and accessibility crates"
+if cargo tree --locked -p ofolder-core -e normal,build --prefix none | grep -E '^(gpui|zbus|atspi)' >/dev/null; then
+  echo "ofolder-core depends on gpui, zbus or atspi:" >&2
+  cargo tree --locked -p ofolder-core -e normal,build --prefix none | grep -E '^(gpui|zbus|atspi)' >&2
+  exit 1
+fi
+echo ok

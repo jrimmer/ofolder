@@ -1,0 +1,18 @@
+start: /home/user | keystrokes used in this probe: 0
+PASS   action=True latency=260ms -> /home/user/Documents
+PASS   action=True latency=301ms -> /home/user/Work
+FAIL   action=True latency=NONE -> ork/ofolder/spike/runs/h3/playground/ünïcödé 日本語
+PASS   action=True latency=290ms -> Work/ofolder/spike/runs/h3/playground/with space
+FAIL   action=True latency=NONE -> r/Work/ofolder/spike/runs/h3/playground/quo'te"d
+PASS   action=True latency=283ms -> mmer/Work/ofolder/spike/runs/h3/playground/-dash
+FAIL   action=True latency=NONE -> er/Work/ofolder/spike/runs/h3/playground/.hidden
+PASS   action=True latency=275ms -> 0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14
+FAIL   action=True latency=NONE -> /home/user/Downloads
+PASS   action=True latency=280ms -> /
+FAIL   action=True latency=NONE -> /usr/bin
+PASS   action=True latency=291ms -> /home/user
+INFO latency min=260ms max=301ms n=7
+PROBE bad input missing dir        reading before=/home/user after=/home/user windows=1
+PROBE bad input a file, not a dir  reading before=/home/user after=/home/user windows=1
+closing via Cancel -> True
+call output: REPLY (1, {'uris': [], 'writable': True, 'choices': []})

@@ -1,0 +1,4 @@
+after typing: reading= /home/user
+after Return: reading= /home/user | dialog windows: 1
+cancel -> True
+left: 0

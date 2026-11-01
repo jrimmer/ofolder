@@ -1,0 +1,20 @@
+[package]
+name = "ofolder"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ofolder"
+path = "src/main.rs"
+
+[dependencies]
+ofolder-core.workspace = true
+ofolder-adapters.workspace = true
+ofolder-portal.workspace = true
+ofolder-strip.workspace = true
+anyhow.workspace = true

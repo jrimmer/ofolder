@@ -1,0 +1,14 @@
+801.82 out dir <scratch>/scratchpad/spike/h2-layout
+801.85 spawned picker pid=1158786 folder=/home/user
+802.05 picker window found at=[1611, 289] size=[875, 600]
+802.07 rule on -> ok
+802.24 FOLDER -> /home/user
+807.57 PASS strip flips left near right monitor edge picker.x=3211 strip=2975..3205 monitor.right=4096.0
+807.65 shot flip-left
+808.86 PASS strip returns to right edge strip.x=2492 want=2492
+810.08 PASS strip height follows picker resize picker=[700, 480] strip=[230, 480]
+812.60 PASS strip follows picker to another workspace picker ws=9 strip ws=9
+814.19 PASS strip follows picker back picker ws=1 strip ws=1
+814.26 shot layout-final
+814.50 picker exited rc=-15 reply={"response":1}
+814.50 rule off -> ok

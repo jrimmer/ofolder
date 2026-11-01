@@ -1,0 +1,16 @@
+338.93 out dir <scratch>/scratchpad/spike/run4
+338.97 spawned picker pid=1058882 folder=/home/user
+339.37 picker window found 0x5593b6ac83a0 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+339.37 hyprctl eval hl.window_rule({ name = "spike-strip", enabled = true, match = { class = "^spike\\.strip$" }, float = true, size = "230 600", move = "2492 289" }) -> ok
+339.37 rule on -> ok
+339.79 killed picker
+339.79 spawned picker pid=1059267 folder=/home/user
+343.07 shot 1-docked skipped: picker=False strip=True
+344.10 killed picker
+344.10 spawned picker pid=1060416 folder=/home/user/Work
+348.08 shot 2-respawn-work skipped: picker=False strip=True
+352.08 shot 3-wtype-documents skipped: picker=False strip=True
+353.08 sent Escape
+353.20 picker exited rc=-15 reply={"response":1}
+353.20 hyprctl eval hl.window_rule({ name = "spike-strip", enabled = false }) -> ok
+353.20 rule off -> ok

@@ -1,0 +1,27 @@
+  double  PASS   /home/user/Documents
+  double  PASS   /home/user/Work
+  double  PASS   der/spike/runs/h3/playground/ünïcödé 日本語
+  double  PASS   lder/spike/runs/h3/playground/with space
+  double  PASS   folder/spike/runs/h3/playground/quo'te"d
+  double  PASS   k/ofolder/spike/runs/h3/playground/-dash
+  double  PASS   ofolder/spike/runs/h3/playground/.hidden
+  double  PASS   /home/user/Downloads
+  double  PASS   /
+  double  PASS   /usr/bin
+  double  PASS   /home/user/Music
+  double  PASS   /home/user
+  double  PASS   /home/user/Documents
+  double  PASS   /home/user/Work
+  double  PASS   der/spike/runs/h3/playground/ünïcödé 日本語
+  double  PASS   lder/spike/runs/h3/playground/with space
+  double  PASS   folder/spike/runs/h3/playground/quo'te"d
+  double  PASS   k/ofolder/spike/runs/h3/playground/-dash
+  double  PASS   ofolder/spike/runs/h3/playground/.hidden
+  double  PASS   /home/user/Downloads
+  double  PASS   /
+  double  PASS   /usr/bin
+  double  PASS   /home/user/Music
+  double  PASS   /home/user
+RESULT passes of 12: {'pass1': 12, 'pass2': 12}
+closing via Cancel -> True
+daemon alive: 1

@@ -1,0 +1,12 @@
+40.51 out dir <scratch>/scratchpad/spike/run1
+40.61 spawned picker pid=992255 folder=/home/user
+41.43 picker window found 0x5593b79c7380 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+45.16 shot 1-docked geom=1611,289 2473x851 title='Spike save'
+46.01 killed picker
+46.01 spawned picker pid=993528 folder=/home/user/Work
+46.37 picker window found 0x5593b7627200 at=[1611, 289] size=[875, 600] float=True title='Spike save'
+50.14 shot 2-respawn-work geom=1611,289 2473x851 title='Spike save'
+51.92 wtype goto /home/user/Documents
+54.14 shot 3-wtype-documents geom=1611,289 2473x851 title='Spike save'
+54.99 sent Escape
+55.14 picker exited rc=-15 reply={"response":1}
