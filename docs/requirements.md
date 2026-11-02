@@ -559,34 +559,36 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 | R-04 start with the session | Partly met | `packaging/` holds the portal and D-Bus activation files; not installed, because registering the proxy is the user's decision |
 | R-05 keyboard-only operation | Held | Needs a compositor key binding |
 | R-06 large lists | Partly met | Row cap with "Show more", off-thread folder reads, view-model tests. Not covered: a hung mount, a real very large folder |
-| R-11 copy path | Partly met | Model tests. Not covered: the clipboard write, which may be lost when the process exits |
+| R-11 copy path | Met | Live click on the real panel: the clipboard held the dialog's folder, on Flea, GTK and Strata; model tests cover the unknown-folder refusal |
 | R-12 open in file manager | Partly met | `launch` tests with fake desktop entries; spawn test. Not covered: a click on the real button |
-| R-13 open in terminal | Partly met | As R-12; the terminal starts with the folder as its working directory |
-| R-20 send the dialog to a folder | Met | `ofolder live-check` on Flea, GTK and Strata, and the dialog's typed file name survives (GTK) |
+| R-13 open in terminal | Met | Live click: a terminal opened with the dialog's folder as its working directory, on Flea, GTK and Strata (then closed); `launch` tests |
+| R-20 send the dialog to a folder | Met | `ofolder live-check` on Flea, GTK and Strata, and live panel clicks that moved the dialog (see R-23) |
 | R-22 standard places and drives | Partly met | Parsers tested on sample files, rows seen in a demo screenshot. Not covered: a click; a live drive plug or unplug |
-| R-23 parent, back, forward | Partly met | `places::History` tests. Not covered: a click; after a failed Back or Forward the history position has already moved |
+| R-23 parent, back, forward | Partly met | Live through the real portal frontend on Flea and GTK: Downloads, then Parent, then Back landed in Downloads, and a stale poll no longer rewrites the history (`places` and `model` tests). Not confirmed on Strata, whose dialog the test could not end with a key |
 | R-24 browse subfolders | Partly met | `browse` and `expand` tests; nesting seen in a screenshot. Not covered: a click on the arrow |
 | R-25 folders of open file managers | Held | Needs a decision on which file managers to support |
 | R-30 favorites list | Partly met | Favorites tests; missing-folder badge seen. Not covered: clicks in the final layout |
-| R-31 add current folder | Partly met | As R-30 |
+| R-31 add current folder | Met | Live click: the button flipped to Unfavorite and the favorites file held the dialog's folder, on Flea, GTK and Strata |
 | R-32 edit, reorder, remove | Partly met | Menu actions tested; not clicked |
 | R-33 shortcut per favorite | Held | Needs compositor key bindings |
-| R-40 remember folders used | Partly met | Recorder tests and live proxy runs on GTK and Flea: confirm records, cancel records nothing. Not covered: Strata |
+| R-40 remember folders used | Met | Live through the real portal frontend on Flea, GTK and Strata: a confirmed save records the folder and file, a cancel records nothing and creates nothing |
 | R-41 choose from recent folders | Partly met | Section seen in a screenshot, ranking tested. Not covered: a click |
-| R-43 recents per app | Partly met | Identity tests, tagging proven live (the app tag came through). On this desktop apps send no id, so the tag is the focused window's class, and an unknown app gets no per-app view |
+| R-43 recents per app | Partly met | Live: recents are tagged `class:<window class>` of the app that asked, through the real frontend. On this desktop apps send no id. Not covered: a click on This app |
 | R-44 recent files | Partly met | Files recorded live. Not covered: a click on a recent file |
-| R-50 starting folder per app | Met | Hook tests and private-bus proxy tests: rewritten only when the app named no folder, never over one it supplied. Only an exact `class:` key written in settings fires, by design |
+| R-50 starting folder per app | Met | Live through the real portal frontend on Flea, GTK and Strata: a `class:` start-folder rule seeded the dialog for an app that named no folder; hook and private-bus tests show it never overrides one the app named |
 | R-52 the document's own folder | Partly met | The app's folder is always kept, so it works for apps that send one. Nothing more is possible for the rest |
-| R-60 fuzzy find | Partly met | `fuzzy` and `finder` tests, ranked result seen. Not covered: typing, Up, Down, Enter, Escape live |
+| R-60 fuzzy find | Partly met | Live on Flea and GTK: typing into the find box then Enter moved the dialog (`fuzzy`, `finder` tests). Not covered: Up, Down, Escape, and Strata |
 | R-61 search under a folder | Partly met | `search` tests including cancel, hidden folders, symlinks, and an ignored 50k-folder performance test. Not covered: Stop pressed live |
 | R-63 actions on a result | Partly met | Menu tests; not clicked |
-| R-70 new folder | Partly met | Live in the earlier spike, and name checks tested. Not covered: the field in the final layout |
+| R-70 new folder | Partly met | Live on Flea, GTK and Strata: typing a name and Enter in the field created exactly that folder in the dialog's scratch folder. Not confirmed: the dialog then moving into it |
 | R-90 dialog size and position | Partly met | `dialog_memory` tests and wired through the float rule. Not covered: a visible jump when the remembered place is applied |
 | R-100 settings without restart | Partly met | Read per dialog, lenient parsing with warnings. There is no settings view |
 | R-101 data local and recoverable | Partly met | Plain TOML and JSON under the user's folders, atomic writes, a corrupt file renamed aside. The formats are not yet written up for users |
-| R-102 pause | Partly met | `ofolder pause` and `resume`, honoured by the hooks and the recorder, tested. No keyboard shortcut |
-| R-103 appearance follows the desktop | Partly met | The active theme's `colors.toml` is read per dialog with a default fallback (`theme` tests) and mapped in one place (8 `colors` tests); seen with the default and a hand-made light palette. Not covered: a live theme change, and a check against real themes |
+| R-102 pause | Partly met | `ofolder pause` live: with it on, a real dialog opened with no panels and finished normally, on Flea, GTK and Strata; `resume` restores them. No keyboard shortcut |
+| R-103 appearance follows the desktop | Partly met | The active theme's `colors.toml` is read per dialog with a default fallback (`theme` tests), mapped in one place (8 `colors` tests); in live runs the panels took the desktop theme's accent. Not covered: a live theme change, and a check against more themes |
 | R-104 fail visibly | Partly met | Errors show in the panel's message area and on stderr. There is no log file |
+
+The live sweep is `spike/real_portal_check.py`. It temporarily registers ofolder as the first file-chooser backend, asks for a Save dialog from a small GTK test app through the real portal frontend, drives the panels with synthesized mouse clicks and typed keys (typing only after the target window is verified active), and then restores the portal configuration and checks it by hash. One finding from it was fixed: Flea's helper runs from the home folder, so a dialog showing home read as "unknown" until the working-directory exclusion was removed from the descriptor reader.
 
 R-10 and R-21 were dropped by the maintainer. R-71 is Next.
 

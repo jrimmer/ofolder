@@ -146,8 +146,17 @@ const HISTORY_LIMIT: usize = 100;
 pub struct History {
     entries: Vec<PathBuf>,
     index: usize,
-    /// A folder the strip itself asked for: seeing it arrive is not a new visit.
-    pending: Option<PathBuf>,
+    /// A step back or forward the strip asked for and has not yet seen land.
+    pending: Option<Step>,
+}
+
+/// A step in flight. Until the dialog shows `target`, it still shows `from`,
+/// and reading `from` again is not a new visit.
+#[derive(Debug, Clone)]
+struct Step {
+    target: PathBuf,
+    from: PathBuf,
+    from_index: usize,
 }
 
 impl History {
@@ -155,9 +164,15 @@ impl History {
     /// current, or the one a step back or forward asked for, adds nothing.
     /// A new folder after stepping back drops the forward entries.
     pub fn observe(&mut self, folder: &Path) {
-        if self.pending.as_deref() == Some(folder) {
-            self.pending = None;
-            return;
+        if let Some(step) = &self.pending {
+            if step.target == folder {
+                self.pending = None;
+                return;
+            }
+            // The dialog has not moved yet: it still shows the folder being left.
+            if step.from == folder {
+                return;
+            }
         }
         if self.entries.get(self.index).map(PathBuf::as_path) == Some(folder) {
             return;
@@ -181,23 +196,40 @@ impl History {
         self.index + 1 < self.entries.len()
     }
 
-    /// The folder to go back to, and the position moves there.
+    /// The folder to go back to, and the position moves there. If the move
+    /// then cannot be made, [`History::step_failed`] puts the position back.
     pub fn back(&mut self) -> Option<PathBuf> {
         if !self.can_go_back() {
             return None;
         }
-        self.index -= 1;
-        self.pending = Some(self.entries[self.index].clone());
-        self.pending.clone()
+        self.begin_step(self.index - 1)
     }
 
     pub fn forward(&mut self) -> Option<PathBuf> {
         if !self.can_go_forward() {
             return None;
         }
-        self.index += 1;
-        self.pending = Some(self.entries[self.index].clone());
-        self.pending.clone()
+        self.begin_step(self.index + 1)
+    }
+
+    fn begin_step(&mut self, to: usize) -> Option<PathBuf> {
+        let step = Step {
+            target: self.entries.get(to)?.clone(),
+            from: self.entries.get(self.index)?.clone(),
+            from_index: self.index,
+        };
+        self.index = to;
+        let target = step.target.clone();
+        self.pending = Some(step);
+        Some(target)
+    }
+
+    /// The step asked for did not happen: the dialog is still where it was,
+    /// so the position goes back to it.
+    pub fn step_failed(&mut self) {
+        if let Some(step) = self.pending.take() {
+            self.index = step.from_index;
+        }
     }
 }
 
@@ -214,6 +246,50 @@ mod tests {
     use super::*;
 
     const HOME: &str = "/home/j";
+
+    fn visited(folders: &[&str]) -> History {
+        let mut h = History::default();
+        for f in folders {
+            h.observe(Path::new(f));
+        }
+        h
+    }
+
+    #[test]
+    fn the_folder_being_left_read_again_during_a_step_does_not_rewrite_the_history() {
+        let mut h = visited(&["/a", "/b", "/c"]);
+        assert_eq!(h.back(), Some(PathBuf::from("/b")));
+        // The dialog has not moved yet, so a poll still sees /c.
+        h.observe(Path::new("/c"));
+        h.observe(Path::new("/c"));
+        h.observe(Path::new("/b"));
+        assert_eq!(h.back(), Some(PathBuf::from("/a")));
+        h.observe(Path::new("/b"));
+        h.observe(Path::new("/a"));
+        assert!(!h.can_go_back());
+        assert_eq!(h.forward(), Some(PathBuf::from("/b")));
+    }
+
+    #[test]
+    fn a_step_that_could_not_be_made_puts_the_position_back() {
+        let mut h = visited(&["/a", "/b", "/c"]);
+        assert_eq!(h.back(), Some(PathBuf::from("/b")));
+        h.step_failed();
+        assert!(!h.can_go_forward());
+        assert_eq!(h.back(), Some(PathBuf::from("/b")));
+        h.step_failed();
+        h.step_failed();
+        assert_eq!(h.back(), Some(PathBuf::from("/b")));
+    }
+
+    #[test]
+    fn arriving_somewhere_other_than_the_step_target_is_a_new_visit() {
+        let mut h = visited(&["/a", "/b", "/c"]);
+        h.back();
+        h.observe(Path::new("/elsewhere"));
+        assert!(!h.can_go_forward());
+        assert_eq!(h.back(), Some(PathBuf::from("/b")));
+    }
 
     #[test]
     fn the_standard_folders_come_after_home_with_home_expanded() {

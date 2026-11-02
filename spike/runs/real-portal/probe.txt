@@ -1,0 +1,86 @@
+registered: ofolder is first for FileChooser; portal frontend restarted
+save | picker: True | panels: 2 | strips after request: 2
+save | focus stayed with the dialog: True
+save | sent Return to the verified-active picker
+save | app received: SAVED <scratch>/reports/real.txt
+save | panels gone: True
+START FOLDER seeded from the class rule: True
+recents folders: [('<scratch>/reports', ['class:org.ofolder.TestApp'])]
+recents files: [('<scratch>/reports/real.txt', ['class:org.ofolder.TestApp'])]
+cancel | picker: True | panels: 2 | strips after request: 2
+cancel | focus stayed with the dialog: True
+cancel | sent Escape to the verified-active picker
+cancel | app received: CANCELLED Dismissed by user
+cancel | panels gone: True
+cancel recorded nothing new: True | files created in the save folder: []
+nav | picker: True | panels: 2 | strips after request: 2
+nav | focus stayed with the dialog: True
+   click at (1428, 467) cursor (1428, 467) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+nav | click Downloads -> ok
+nav |   after Downloads the dialog's folder over 4s: [[], [], [], [], [], [], [], []]
+   click at (1492, 289) cursor (1492, 289) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+nav | click Parent -> ok
+nav |   after Parent the dialog's folder over 4s: [[], [], [], [], [], [], [], []]
+   click at (1371, 289) cursor (1371, 289) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+nav | click Back -> ok
+nav |   after Back the dialog's folder over 4s: [[], [], [], [], [], [], [], []]
+nav | sent Return to the verified-active picker
+nav | app did not finish
+nav | app received: (no result)
+nav | panels gone: True
+NAV: Downloads -> Parent -> Back confirms in ~/Downloads: False
+find | picker: True | panels: 2 | strips after request: 2
+find | focus stayed with the dialog: True
+   click at (2634, 434) cursor (2634, 434) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+find | click box -> ok
+find | sent Return to the verified-active picker
+find | app did not finish
+find | app received: (no result)
+find | panels gone: True
+FIND: typing Downl + Enter confirms in ~/Downloads: False
+newfolder | picker: True | panels: 2 | strips after request: 2
+newfolder | focus stayed with the dialog: True
+   click at (2599, 345) cursor (2599, 345) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+newfolder | click -> ok
+newfolder | folder exists in the scratch folder: True | nothing else created: ['made-by-test']
+newfolder | sent Escape to the verified-active picker
+newfolder | app did not finish
+newfolder | app received: (no result)
+newfolder | panels gone: True
+terminal | picker: True | panels: 2 | strips after request: 2
+terminal | focus stayed with the dialog: True
+   click at (2594, 375) cursor (2594, 375) active before io.github.lgse.Strata.FileChooser | active after foot | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+terminal | click -> ok
+terminal | new window: foot | cwd: / | children cwd: ['<scratch>/reports'] | started in the dialog's folder: True
+terminal | sent Escape to the verified-active picker
+terminal | app received: CANCELLED Dismissed by user
+terminal | panels gone: True
+clicks | picker: True | panels: 2 | strips after request: 2
+clicks | focus stayed with the dialog: True
+   click at (2670, 316) cursor (2670, 316) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+click | Favorite -> ok
+click | favorites file: {
+  "version": 1,
+  "favorites": [
+    {
+      "path": "<scratch>/reports"
+    }
+  ]
+}
+
+   click at (2598, 316) cursor (2598, 316) active before io.github.lgse.Strata.FileChooser | active after io.github.lgse.Strata.FileChooser | window under panels: [('ofolder.strip.left', [1342, 269], [200, 640]), ('ofolder.strip.right', [2554, 269], [230, 640])]
+click | Copy path -> ok
+click | clipboard now: <scratch>/reports
+clicks | sent Escape to the verified-active picker
+clicks | app received: CANCELLED Dismissed by user
+clicks | panels gone: True
+paused | picker: True | panels: 0 | strips after request: 0
+paused | focus stayed with the dialog: True
+paused | sent Escape to the verified-active picker
+paused | app received: CANCELLED Dismissed by user
+paused | panels gone: True
+== RESTORED ==
+portal conf hash unchanged: True
+service/portal dirs unchanged: True
+ofolder data dirs removed again: True
+completed: True

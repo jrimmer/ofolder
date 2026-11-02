@@ -286,7 +286,11 @@ impl ViewModel {
             return None;
         }
         let target = self.history.back()?;
-        self.go_to(&target)
+        let job = self.go_to(&target);
+        if job.is_none() {
+            self.history.step_failed();
+        }
+        job
     }
 
     pub fn go_forward(&mut self) -> Option<Job> {
@@ -294,7 +298,11 @@ impl ViewModel {
             return None;
         }
         let target = self.history.forward()?;
-        self.go_to(&target)
+        let job = self.go_to(&target);
+        if job.is_none() {
+            self.history.step_failed();
+        }
+        job
     }
 
     pub fn go_up(&mut self) -> Option<Job> {
@@ -390,6 +398,7 @@ impl ViewModel {
     pub fn finish_go(&mut self, result: Result<(), String>) {
         self.busy = false;
         if let Err(why) = result {
+            self.history.step_failed();
             self.error(why);
         }
     }
@@ -1249,6 +1258,46 @@ mod tests {
         vm.finish_go(Ok(()));
         at(&mut vm, "/a");
         assert_eq!(vm.go_forward(), Some(Job::Go("/b".into())));
+    }
+
+    #[test]
+    fn a_failed_back_step_leaves_the_history_where_the_dialog_still_is() {
+        let d = Dir::new("history-failed");
+        let mut vm = vm(&d);
+        for p in ["/a", "/b"] {
+            at(&mut vm, p);
+        }
+        assert_eq!(vm.go_back(), Some(Job::Go("/a".into())));
+        vm.finish_go(Err("the dialog did not move".into()));
+        assert!(vm.can_go_back() && !vm.can_go_forward());
+        assert_eq!(vm.go_back(), Some(Job::Go("/a".into())));
+    }
+
+    #[test]
+    fn a_back_step_whose_target_is_gone_does_not_move_the_history() {
+        let d = Dir::new("history-gone");
+        let mut vm = vm(&d);
+        for p in ["/nowhere-ofolder/a", "/nowhere-ofolder/b"] {
+            at(&mut vm, p);
+        }
+        // The folder to go back to is known to be missing, so no move is started.
+        vm.set_availability(vec![(PathBuf::from("/nowhere-ofolder/a"), false)]);
+        assert_eq!(vm.go_back(), None);
+        assert!(vm.can_go_back() && !vm.can_go_forward());
+    }
+
+    #[test]
+    fn the_old_folder_read_during_a_back_step_does_not_change_the_history() {
+        let d = Dir::new("history-stale");
+        let mut vm = vm(&d);
+        for p in ["/a", "/b", "/c"] {
+            at(&mut vm, p);
+        }
+        assert_eq!(vm.go_back(), Some(Job::Go("/b".into())));
+        at(&mut vm, "/c");
+        vm.finish_go(Ok(()));
+        at(&mut vm, "/b");
+        assert_eq!(vm.go_back(), Some(Job::Go("/a".into())));
     }
 
     #[test]

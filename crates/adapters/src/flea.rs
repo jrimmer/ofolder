@@ -547,6 +547,19 @@ mod tests {
     }
 
     #[test]
+    fn a_dialog_showing_the_helpers_own_working_directory_still_reads_back() {
+        // Flea's helper runs from the home folder, and home is a folder a dialog shows.
+        let tmp = TempDir::new("flea-cwd-shown");
+        let home = tmp.0.join("home");
+        fs::create_dir_all(&home).expect("dir");
+        add_process(&tmp.0, PID, 1, "qs", &home, &[]);
+        add_process(&tmp.0, 4243, PID, "flea --backend", &home, &[&home]);
+        let r = rig(None, true, None);
+        let adapter = r.adapter.with_procfs(ProcFs::with_root(&tmp.0));
+        assert_eq!(adapter.read_folder(), Some(home));
+    }
+
+    #[test]
     fn a_picker_that_was_not_open_before_is_found_and_the_known_ones_are_not() {
         let r = rig(None, true, None);
         assert_eq!(

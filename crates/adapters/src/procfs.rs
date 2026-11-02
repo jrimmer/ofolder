@@ -73,19 +73,20 @@ impl ProcFs {
         )
     }
 
-    /// Directories the process holds open, other than its working directory.
+    /// Directories the process holds open through a file descriptor. Its
+    /// working directory is not listed there, so a folder that happens to be
+    /// the working directory still counts when the process really holds it
+    /// open: Flea's helper runs from the home folder, and home is a folder a
+    /// dialog shows.
     pub fn open_dirs(&self, pid: u32) -> Vec<PathBuf> {
         let base = self.root.join(pid.to_string());
-        let cwd = fs::read_link(base.join("cwd")).ok();
         let Ok(fds) = fs::read_dir(base.join("fd")) else {
             return Vec::new();
         };
         let mut dirs: Vec<PathBuf> = fds
             .filter_map(Result::ok)
             .filter_map(|fd| fs::read_link(fd.path()).ok())
-            .filter(|target| {
-                target.is_absolute() && Path::is_dir(target) && Some(target) != cwd.as_ref()
-            })
+            .filter(|target| target.is_absolute() && Path::is_dir(target))
             .collect();
         dirs.sort();
         dirs
@@ -173,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn open_dirs_leave_out_the_working_directory_and_files() {
+    fn open_dirs_keep_a_held_folder_even_when_it_is_the_working_directory_and_leave_out_files() {
         let tmp = TempDir::new("dirs");
         let (cwd, shown) = (tmp.0.join("cwd"), tmp.0.join("shown"));
         fs::create_dir_all(&cwd).expect("dir");
@@ -188,7 +189,9 @@ mod tests {
             &cwd,
             &[&shown, &cwd, &file],
         );
-        assert_eq!(ProcFs::with_root(&tmp.0).open_dirs(11), [shown]);
+        let mut expected = vec![cwd, shown];
+        expected.sort();
+        assert_eq!(ProcFs::with_root(&tmp.0).open_dirs(11), expected);
     }
 
     #[test]
