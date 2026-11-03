@@ -159,7 +159,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
         let home =
             PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
         Arc::new(hooks::StripHooks::new(
-            env::current_exe()?,
+            own_exe()?,
             id.to_owned(),
             Arc::new(ofolder_adapters::hyprctl::Hyprctl),
             ofolder_core::settings::settings_path(
@@ -234,4 +234,36 @@ fn status() -> anyhow::Result<()> {
         println!("warning: {warning}");
     }
     Ok(())
+}
+
+/// The path to start this program again with. When the binary was replaced
+/// while the portal was running, Linux reports the old file as
+/// "<path> (deleted)", which cannot be started: the same path now holds the
+/// new build, so use that.
+fn own_exe() -> std::io::Result<PathBuf> {
+    Ok(without_deleted_suffix(env::current_exe()?))
+}
+
+fn without_deleted_suffix(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
+        Some(live) => PathBuf::from(live),
+        None => path,
+    }
+}
+
+#[cfg(test)]
+mod own_exe_tests {
+    use super::*;
+
+    #[test]
+    fn a_replaced_binary_is_started_from_its_path_without_the_deleted_marker() {
+        assert_eq!(
+            without_deleted_suffix(PathBuf::from("/home/u/.local/bin/ofolder (deleted)")),
+            PathBuf::from("/home/u/.local/bin/ofolder")
+        );
+        assert_eq!(
+            without_deleted_suffix(PathBuf::from("/home/u/.local/bin/ofolder")),
+            PathBuf::from("/home/u/.local/bin/ofolder")
+        );
+    }
 }

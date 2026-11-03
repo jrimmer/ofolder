@@ -27,7 +27,9 @@ use ofolder_strip::{
     RailSide, StripActions, StripOptions, TipAnchor, TipRequest,
 };
 
-const GAP: i32 = 6;
+/// The space between the dialog and a rail: enough to keep the two readable as
+/// separate things, no more.
+const GAP: i32 = 3;
 const RULE_LEFT: &str = "ofolder-strip-left";
 const RULE_RIGHT: &str = "ofolder-strip-right";
 const RULE_MENU: &str = "ofolder-strip-menu";
