@@ -47,6 +47,29 @@ If `read_folder` is None the strip disables "New folder" instead of guessing. Af
 - Live proof: `ofolder live-check` runs the Flea adapter against the real Flea. 10 of 11 runs passed. The one failure was the first run after idle: both moves were issued and the picker went nowhere, cause not found, which is why moves are verified. The proxy was also run on the live session bus against the real GTK portal dialog: the dialog opened through it, accessibility read its folder, Cancel came back through the proxy as response 1. No portal configuration was changed for either.
 - Not yet in Rust: the GTK and Strata adapters (accessibility), the strip wired to a dialog, the hook that opens the strip beside the dialog, and the Hyprland window-rule handling.
 
+## Selection (spike, 2026-11-03)
+
+The preview panel under the dialog needs the one item selected in the dialog's file list. `Adapter::selection` returns it as a path that exists, or `None`. Nothing is typed or pressed to read it. A name read from the dialog is turned into a path only when it is one plain file name inside the folder the dialog shows (read before and after, and the two must agree) and that path exists; several selected items, an empty row or a name that cannot be tied to one path give `None`.
+
+| | Flea | GTK portal | Strata |
+|---|---|---|---|
+| Can it be read? | **yes** | **yes** (the selection; a cursor move by key was not seen to change it) | **yes** in Strata's own window; the chooser itself not run (see below) |
+| How | The picker's own Quickshell IPC: `qs ipc --pid <picker pid> call fleapicker snapshot`, a read-only seam in `PickerWindow.qml` (target `fleapicker`). One call returns the folder (`path`), the cursor row's name (`cursorName`) and the marks at one instant. A single mark wins; several marks are no single selection; otherwise the cursor row. | AT-SPI: the table named `Files`, four column headers then four cells per row; the first cell of a selected row (state SELECTED) holds the icon and the name. | AT-SPI: each Miller column is a `list` named after its folder; its `list item` with state SELECTED, in the column named after the folder shown. Two columns of that name are ambiguous and give `None`. |
+| Cost per read | about 20 ms (one `qs` process per call) | about 140 to 160 ms through the Rust `atspi` view (one D-Bus round trip per property, about 45 cells); 0.7 ms with the Table interface's `get_selected_rows` in Python | about 40 to 50 ms (Python walk) |
+| Update after a change | the next read (20 ms after a key) | not measured: Down keys sent to the verified-active dialog did not move GTK's selection | the next read (about 110 ms including the read) |
+
+Notes and hazards:
+
+- **Flea's folder from the same IPC.** In a scratch folder under `/tmp` the `--backend` helpers held **no** directory descriptor at all, so the fd reader (`read_folder`) answered unknown while `snapshot`'s `path` was right. The IPC is a better folder reader than `/proc` and is worth adopting for `read_folder` too.
+- **Flea has no accessibility tree.** The picker registers on the AT-SPI bus with no children. `org.a11y.Status.IsEnabled` is false on this desktop, and turning it on would change the system; the picker's rows declare no `Accessible` properties either. Not pursued.
+- **Flea's Recent view** reports a `path` that is not a folder; its rows give `None`.
+- **Single-file Open dialogs** in Flea keep the marks empty (`v` and Space did not mark); the cursor row is the selection, as Flea's own "a lone selection follows a plain move" says.
+- **GTK.** The first row is selected when the dialog opens. Only the visible rows are in the tree, which is enough for the selected one in practice. The read is slow through the Rust view; poll it at most twice a second, and only while the preview panel is open. A faster read would use the Table interface (`get_selected_rows`, `get_accessible_at`). As before, never call `Selection.select_child` or `Component.grab_focus` on this dialog.
+- **Strata's chooser was not run.** Enabling its portal backend (`strata --install-portal`) rewrites the portal configuration and restarts the portal frontend, which would have clobbered the user's live `FileChooser=ofolder;flea;gtk` line and killed a dialog the maintainer had open. The reading was proven on Strata's main window on the same folder (its documentation says the chooser uses the same views); it must be confirmed on the chooser before the preview relies on it there.
+- **What the preview does without a selection:** shows the folder the dialog is in (its summary), never a guess.
+
+Evidence: `spike/runs/selection/` (notes and probe output). Probe: `cargo run -p ofolder-adapters --example selection_probe -- flea <picker pid>` or `-- gtk "<dialog title>"`, read-only.
+
 ## Hazards (all observed)
 
 - **Flea's picker once ignored two moves issued right after launch** (1 of 11 live runs, the first after idle; settle delays did not matter in later runs). Always verify arrival and be ready to retry or respawn.
