@@ -14,6 +14,11 @@ pub enum Role {
     Label,
     Text,
     List,
+    ListItem,
+    /// A file list laid out in columns, read row by row.
+    Table,
+    TableCell,
+    ColumnHeader,
     FileChooser,
     Filler,
     Other,
@@ -24,6 +29,8 @@ pub trait Node: Clone {
     fn name(&self) -> String;
     fn checked(&self) -> bool;
     fn editable(&self) -> bool;
+    /// Whether the node is a selected row or item of a list.
+    fn selected(&self) -> bool;
     fn children(&self) -> Vec<Self>;
     fn parent(&self) -> Option<Self>;
     /// Performs the node's first action (a click, or an entry's "activate").
@@ -67,7 +74,7 @@ pub fn find<N: Node>(root: &N, matches: impl Fn(&N) -> bool) -> Option<N> {
         if matches(node) {
             found = Some(node.clone());
             Walk::Stop
-        } else if node.role() == Role::List {
+        } else if is_file_list(node.role()) {
             Walk::Over
         } else {
             Walk::Into
@@ -87,13 +94,19 @@ pub fn labels<N: Node>(root: &N) -> Vec<String> {
         if node.role() == Role::Label && !node.name().is_empty() {
             out.push(node.name());
         }
-        if node.role() == Role::List {
+        if is_file_list(node.role()) {
             Walk::Over
         } else {
             Walk::Into
         }
     });
     out
+}
+
+/// Lists and tables hold the files, which can be thousands of nodes, and
+/// none of the controls the adapters look for.
+fn is_file_list(role: Role) -> bool {
+    matches!(role, Role::List | Role::Table)
 }
 
 /// The wait between the two "activate" presses GTK needs after a move.
@@ -111,6 +124,7 @@ pub(crate) mod fake {
         pub role: Vec<Role>,
         pub name: Vec<String>,
         pub checked: Vec<bool>,
+        pub selected: Vec<bool>,
         pub editable: Vec<bool>,
         pub children: Vec<Vec<usize>>,
         pub parent: Vec<Option<usize>>,
@@ -139,6 +153,7 @@ pub(crate) mod fake {
             d.role.push(role);
             d.name.push(name.to_owned());
             d.checked.push(false);
+            d.selected.push(false);
             d.editable.push(false);
             d.children.push(Vec::new());
             d.parent.push(parent);
@@ -158,6 +173,11 @@ pub(crate) mod fake {
 
         pub fn checked_on(self) -> Self {
             self.data.borrow_mut().checked[self.id] = true;
+            self
+        }
+
+        pub fn selected_on(self) -> Self {
+            self.data.borrow_mut().selected[self.id] = true;
             self
         }
 
@@ -186,6 +206,9 @@ pub(crate) mod fake {
         }
         fn editable(&self) -> bool {
             self.data.borrow().editable[self.id]
+        }
+        fn selected(&self) -> bool {
+            self.data.borrow().selected[self.id]
         }
         fn children(&self) -> Vec<Self> {
             self.data.borrow().children[self.id]
@@ -251,6 +274,14 @@ mod tests {
     #[test]
     fn find_does_not_look_inside_file_lists() {
         assert!(find_named(&sample(), Role::Button, "inside-list").is_none());
+    }
+
+    #[test]
+    fn find_does_not_look_inside_file_tables_either() {
+        let root = FakeNode::root(Role::Other, "app");
+        let table = root.add(Role::Table, "Files");
+        table.add(Role::Button, "inside-table");
+        assert!(find_named(&root, Role::Button, "inside-table").is_none());
     }
 
     #[test]

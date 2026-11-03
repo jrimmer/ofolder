@@ -65,6 +65,14 @@ pub trait Adapter: Send {
     /// Called once a move has been seen to land. Some dialogs are moved by
     /// borrowing a field, and this is where it is given back.
     fn after_arrival(&mut self) {}
+
+    /// The one item selected in the dialog's file list, as a path that
+    /// exists. `None` when nothing or more than one item is selected, when
+    /// the dialog cannot say, or when the name read cannot be tied to one
+    /// path in the folder shown. Never a guess.
+    fn selection(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// A reading is trusted once two in a row agree, so a dialog caught

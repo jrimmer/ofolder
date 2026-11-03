@@ -78,6 +78,10 @@ impl Node for AtspiNode {
             atspi::Role::Label => Role::Label,
             atspi::Role::Text | atspi::Role::Entry => Role::Text,
             atspi::Role::List => Role::List,
+            atspi::Role::ListItem => Role::ListItem,
+            atspi::Role::Table => Role::Table,
+            atspi::Role::TableCell => Role::TableCell,
+            atspi::Role::TableColumnHeader | atspi::Role::ColumnHeader => Role::ColumnHeader,
             atspi::Role::FileChooser => Role::FileChooser,
             atspi::Role::Filler => Role::Filler,
             _ => Role::Other,
@@ -100,6 +104,12 @@ impl Node for AtspiNode {
         self.accessible()
             .and_then(|p| block_on(p.get_state()).ok())
             .is_some_and(|s| s.contains(State::Editable))
+    }
+
+    fn selected(&self) -> bool {
+        self.accessible()
+            .and_then(|p| block_on(p.get_state()).ok())
+            .is_some_and(|s| s.contains(State::Selected))
     }
 
     fn children(&self) -> Vec<Self> {
