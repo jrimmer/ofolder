@@ -18,13 +18,13 @@ use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
-use ofolder_core::geometry::{Panels, Rect, place_menu, place_panels, place_tip};
+use ofolder_core::geometry::{Panels, Rect, centre_in, place_menu, place_panels, place_tip};
 use ofolder_core::launch::{self, Command};
 use ofolder_core::settings;
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
-    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, APP_ID_TIP, LEFT_WIDTH, MenuRequest, RIGHT_WIDTH,
-    RailSide, StripActions, StripOptions, TipAnchor, TipRequest,
+    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP, LEFT_WIDTH, MenuRequest,
+    RIGHT_WIDTH, RailSide, SettingsRequest, StripActions, StripOptions, TipAnchor, TipRequest,
 };
 
 /// The space between the dialog and a rail: enough to keep the two readable as
@@ -34,6 +34,7 @@ const RULE_LEFT: &str = "ofolder-strip-left";
 const RULE_RIGHT: &str = "ofolder-strip-right";
 const RULE_MENU: &str = "ofolder-strip-menu";
 const RULE_TIP: &str = "ofolder-strip-tip";
+const RULE_SETTINGS: &str = "ofolder-strip-settings";
 /// The space between a rail and its tooltip.
 const TIP_GAP: i32 = 4;
 
@@ -139,6 +140,16 @@ struct Dock {
     /// one time the strip takes the keyboard on its own.
     focus_menu: bool,
     tip: Option<TipRequest>,
+    settings: Option<SettingsRequest>,
+    /// The settings window was just asked for: give it the keyboard once
+    /// it appears, as for a menu that is typed into.
+    focus_settings: bool,
+}
+
+/// Where the settings window opens: centred on the dialog's monitor, or on
+/// the dialog when the monitor is not known.
+fn settings_rect(dialog: Rect, bounds: Option<Rect>, settings: &SettingsRequest) -> Rect {
+    centre_in(bounds.unwrap_or(dialog), (settings.width, settings.height))
 }
 
 /// Where a menu belongs: beside its rail, which stands where the docker puts it.
@@ -335,6 +346,28 @@ impl StripActions for Actions {
         }
     }
 
+    fn place_settings(&self, settings: Option<SettingsRequest>) {
+        let placed = self.dock.lock().ok().and_then(|mut dock| {
+            dock.settings = settings;
+            dock.focus_settings = settings.is_some();
+            let settings = settings?;
+            Some(settings_rect(dock.dialog?, dock.bounds, &settings))
+        });
+        // In force before the window maps, so it opens where it belongs; it
+        // takes the keyboard, since the user clicked the gear for it.
+        if let Some(rect) = placed {
+            self.compositor
+                .install_float_rule(
+                    RULE_SETTINGS,
+                    APP_ID_SETTINGS,
+                    (rect.w, rect.h),
+                    (rect.x, rect.y),
+                    true,
+                )
+                .ok();
+        }
+    }
+
     fn pointer_on_rail(&self, side: RailSide) -> Option<bool> {
         let (dialog, bounds) = self.dock.lock().ok().map(|d| (d.dialog, d.bounds))?;
         let panels = place_panels(dialog?, bounds, LEFT_WIDTH as i32, RIGHT_WIDTH as i32, GAP);
@@ -442,16 +475,22 @@ fn dock_forever(
             *seen = Some(dialog.rect());
         }
         let bounds = bounds_for(&*compositor, dialog);
-        let (menu, focus_menu, tip) = actions
+        let (menu, focus_menu, tip, settings, focus_settings) = actions
             .dock
             .lock()
             .ok()
             .map(|mut dock| {
                 dock.dialog = Some(dialog.rect());
                 dock.bounds = bounds;
-                (dock.menu, dock.focus_menu, dock.tip)
+                (
+                    dock.menu,
+                    dock.focus_menu,
+                    dock.tip,
+                    dock.settings,
+                    dock.focus_settings,
+                )
             })
-            .unwrap_or((None, false, None));
+            .unwrap_or((None, false, None, None, false));
         let left = clients
             .iter()
             .find(|c| c.class == APP_ID_LEFT && c.pid == me);
@@ -484,6 +523,31 @@ fn dock_forever(
             compositor.focus(&window.address).ok();
             if let Ok(mut dock) = actions.dock.lock() {
                 dock.focus_menu = false;
+            }
+        }
+        let settings_window = clients
+            .iter()
+            .find(|c| c.class == APP_ID_SETTINGS && c.pid == me);
+        if focus_settings && let Some(window) = settings_window {
+            compositor.focus(&window.address).ok();
+            if let Ok(mut dock) = actions.dock.lock() {
+                dock.focus_settings = false;
+            }
+        }
+        // The settings window is placed once, when it opens, and only kept
+        // floating and on the dialog's workspace after that, so the user may
+        // move it.
+        if let (Some(window), Some(settings)) = (settings_window, settings) {
+            if window.workspace.id != dialog.workspace.id {
+                compositor
+                    .send_to_workspace(&window.address, &dialog.workspace.name)
+                    .ok();
+            }
+            if !window.floating {
+                let wanted = settings_rect(dialog.rect(), bounds, &settings);
+                compositor
+                    .float_window(&window.address, (wanted.w, wanted.h), (wanted.x, wanted.y))
+                    .ok();
             }
         }
         let tip_window = clients
@@ -645,6 +709,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     compositor.remove_rule(RULE_RIGHT).ok();
     compositor.remove_rule(RULE_MENU).ok();
     compositor.remove_rule(RULE_TIP).ok();
+    compositor.remove_rule(RULE_SETTINGS).ok();
     result
 }
 
@@ -849,5 +914,37 @@ mod tests {
             ),
             PathBuf::from("/tmp/f.json")
         );
+    }
+
+    #[test]
+    fn the_settings_window_opens_centred_on_the_dialogs_monitor() {
+        let dialog = Rect {
+            x: 1611,
+            y: 289,
+            w: 875,
+            h: 600,
+        };
+        let monitor = Rect {
+            x: 0,
+            y: 26,
+            w: 4096,
+            h: 1126,
+        };
+        let request = SettingsRequest {
+            width: 780,
+            height: 560,
+        };
+        assert_eq!(
+            settings_rect(dialog, Some(monitor), &request),
+            Rect {
+                x: 1658,
+                y: 309,
+                w: 780,
+                h: 560
+            }
+        );
+        // With no monitor known it is centred on the dialog instead.
+        let on_dialog = settings_rect(dialog, None, &request);
+        assert_eq!((on_dialog.x, on_dialog.w), (1658, 780));
     }
 }

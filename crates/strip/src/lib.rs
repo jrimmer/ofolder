@@ -26,6 +26,7 @@ mod popup;
 pub mod rail;
 mod right;
 mod rows;
+mod settings_window;
 mod sources;
 mod view;
 
@@ -57,6 +58,16 @@ pub const APP_ID_RIGHT: &str = "ofolder.strip.right";
 pub const APP_ID_MENU: &str = "ofolder.strip.menu";
 /// The window class of a rail icon's tooltip.
 pub const APP_ID_TIP: &str = "ofolder.strip.tip";
+/// The window class of the settings window the gear opens.
+pub const APP_ID_SETTINGS: &str = "ofolder.strip.settings";
+
+/// The settings window about to open: its size, centred on the dialog's
+/// monitor. It takes the keyboard, since the user clicked for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettingsRequest {
+    pub width: i32,
+    pub height: i32,
+}
 
 /// The left rail's width in logical pixels.
 pub const LEFT_WIDTH: f32 = rail::RAIL_WIDTH;
@@ -122,6 +133,9 @@ pub trait StripActions: Send + Sync + 'static {
     /// cannot be told. Called from a background thread while a tooltip is
     /// up, about five times a second.
     fn pointer_on_rail(&self, side: RailSide) -> Option<bool>;
+    /// Where the settings window goes: `Some` just before it opens, `None`
+    /// once it is closed. Called on the UI thread, so it must return quickly.
+    fn place_settings(&self, settings: Option<SettingsRequest>);
 }
 
 pub struct StripOptions {
@@ -192,6 +206,16 @@ pub(crate) fn tip_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
     )
 }
 
+/// The options for the settings window of `size`.
+pub(crate) fn settings_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
+    window_options(
+        APP_ID_SETTINGS,
+        "ofolder settings",
+        (size.0 as f32, size.1 as f32),
+        cx,
+    )
+}
+
 /// Opens both panels and runs until the dialog is gone or either window is
 /// closed.
 pub fn run_strip(options: StripOptions, actions: Arc<dyn StripActions>) -> anyhow::Result<()> {
@@ -211,10 +235,12 @@ pub fn run_strip_preview(
     let mut vm = ViewModel::new(&options);
     let open_first = prepare(&mut vm);
     let label = options.label;
+    let settings_path = options.settings_path.clone();
+    let home = options.home.clone();
     Application::new().with_assets(icons::Icons).run(move |cx| {
         let backend = label.clone();
         let shared = cx.new(|cx| {
-            let mut shared = Shared::new(vm, actions, cx);
+            let mut shared = Shared::new(vm, actions, settings_path, home, cx);
             shared.label = backend;
             shared
         });
@@ -250,6 +276,7 @@ pub fn run_strip_preview(
             watched.update(cx, |s, cx| {
                 s.menu_window_closed(&open, cx);
                 s.tip_window_closed(&open);
+                s.settings_window_closed(&open, cx);
             });
         })
         .detach();

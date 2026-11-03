@@ -32,9 +32,10 @@ impl LeftRail {
 
 impl Render for LeftRail {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (busy, back, forward, up, open) = {
+        let (entries, busy, back, forward, up, open) = {
             let s = self.shared.read(cx);
             (
+                s.layout.entries(RailSide::Left).to_vec(),
                 s.vm.busy(),
                 s.vm.can_go_back(),
                 s.vm.can_go_forward(),
@@ -56,7 +57,7 @@ impl Render for LeftRail {
             .bg(rgb(colors().bg))
             .text_color(rgb(colors().text))
             .text_size(px(13.));
-        for slot in rail::slots(RailSide::Left) {
+        for slot in rail::slots(&entries) {
             let button = match slot.entry {
                 Entry::Divider => {
                     rail = rail.child(rail_divider(slot.y));

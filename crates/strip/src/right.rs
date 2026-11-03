@@ -1,7 +1,7 @@
 //! The right rail, "do something here": new folder and find open a menu;
 //! the favorite toggle, copy path and the two launchers act at once. At the
-//! foot, a mark opens the About menu: the version, which dialog this is,
-//! and whether its folder can be read.
+//! foot, the gear opens the settings window; an amber dot on it says the
+//! dialog's folder cannot be read.
 
 use gpui::{
     ClipboardItem, Context, Entity, IntoElement, MouseButton, Render, Subscription, Window, div,
@@ -10,13 +10,13 @@ use gpui::{
 
 use crate::colors::colors;
 use crate::hint::{Hint, TipAnchor};
-use crate::rail::{self, Button, Entry, MenuKind, RailSide};
+use crate::rail::{self, Button, Entry, RailSide};
 use crate::view::{
     IconLook, Shared, Which, hover_shows_tip, press_hides_tip, rail_divider, rail_icon,
 };
 
-/// The About mark's distance from the rail's foot.
-const MARK_BOTTOM: f32 = 8.0;
+/// The gear's distance from the rail's foot.
+const GEAR_BOTTOM: f32 = 8.0;
 
 pub struct RightRail {
     shared: Entity<Shared>,
@@ -40,9 +40,10 @@ impl RightRail {
 
 impl Render for RightRail {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (known, busy, favorite, full, open) = {
+        let (entries, known, busy, favorite, full, open) = {
             let s = self.shared.read(cx);
             (
+                s.layout.entries(RailSide::Right).to_vec(),
                 s.vm.folder().is_some(),
                 s.vm.busy(),
                 s.vm.current_is_favorite(),
@@ -64,7 +65,7 @@ impl Render for RightRail {
             .bg(rgb(colors().bg))
             .text_color(rgb(colors().text))
             .text_size(px(13.));
-        for slot in rail::slots(RailSide::Right) {
+        for slot in rail::slots(&entries) {
             let button = match slot.entry {
                 Entry::Divider => {
                     rail = rail.child(rail_divider(slot.y));
@@ -136,45 +137,59 @@ impl Render for RightRail {
             };
             rail = rail.child(element);
         }
-        let (mark, mark_color, mark_tip) = if known {
-            ("icons/info.svg", colors().muted, "About ofolder".to_owned())
+        let settings_open = self.shared.read(cx).settings_open();
+        let gear_tip = if known {
+            "Settings".to_owned()
         } else {
-            (
-                "icons/warning.svg",
-                colors().amber,
-                "About ofolder\nFolder unknown: the dialog's folder cannot be read".to_owned(),
-            )
+            "Settings\nFolder unknown: the dialog's folder cannot be read".to_owned()
         };
-        let about_open = open == Some(MenuKind::About);
         rail.child(
             div()
-                .id("rail-mark")
+                .id("rail-gear")
                 .absolute()
-                .bottom(px(MARK_BOTTOM))
+                .bottom(px(GEAR_BOTTOM))
                 .left(px((rail::RAIL_WIDTH - rail::BUTTON) / 2.))
                 .size(px(rail::BUTTON))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(6.))
+                .rounded(px(7.))
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, press_hides_tip(&self.shared))
-                .when(about_open, |d| d.bg(rgb(colors().chosen)))
+                .when(settings_open, |d| d.bg(rgb(colors().chosen)))
                 .hover(|s| s.bg(rgb(colors().hover)))
                 .on_hover(hover_shows_tip(
                     &self.shared,
                     Hint {
-                        key: "rail-mark",
+                        key: "rail-gear",
                         side: RailSide::Right,
-                        anchor: TipAnchor::Bottom((MARK_BOTTOM + rail::BUTTON / 2.).round() as i32),
-                        text: mark_tip,
+                        anchor: TipAnchor::Bottom((GEAR_BOTTOM + rail::BUTTON / 2.).round() as i32),
+                        text: gear_tip,
                     },
                 ))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.shared
-                        .update(cx, |s, cx| s.click_menu(MenuKind::About, cx));
+                    this.shared.update(cx, |s, cx| s.toggle_settings(cx));
                 }))
-                .child(svg().path(mark).size(px(18.)).text_color(rgb(mark_color))),
+                .child(svg().path("icons/gear.svg").size(px(20.)).text_color(rgb(
+                    if settings_open {
+                        colors().accent
+                    } else {
+                        colors().muted
+                    },
+                )))
+                // The folder cannot be read: a small amber dot on the gear,
+                // explained by its tooltip.
+                .when(!known, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .top(px(5.))
+                            .right(px(5.))
+                            .size(px(7.))
+                            .rounded(px(4.))
+                            .bg(rgb(colors().amber)),
+                    )
+                }),
         )
     }
 }

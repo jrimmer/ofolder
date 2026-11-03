@@ -21,9 +21,14 @@ use crate::hint::{self, Hint, Hints, Step, TipAnchor, TipWindow};
 use crate::menu::RowAction;
 use crate::model::{Effect, Job, Mode, ViewModel};
 use crate::popup::MenuWindow;
-use crate::rail::{self, Change, MenuKind, Menus};
+use crate::rail::{self, Change, Layout, MenuKind, Menus};
+use crate::settings_window::{self, SettingsWindow};
 use crate::sources::RecentsRead;
-use crate::{MenuRequest, StripActions, TipRequest, menu_options, tip_options};
+use crate::{
+    MenuRequest, SettingsRequest, StripActions, TipRequest, menu_options, settings_options,
+    tip_options,
+};
+use ofolder_core::rails::RailLayout;
 
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
@@ -108,8 +113,20 @@ pub struct Shared {
     /// Counts changes of `active`, so a pending close is dropped when the
     /// keyboard comes back in time.
     leave_check: u64,
-    /// The short backend name, e.g. "flea", for the About menu.
+    /// The short backend name, e.g. "flea", for the settings window.
     pub label: String,
+    /// The settings file, which the settings window reads and writes.
+    pub settings_path: PathBuf,
+    pub home: PathBuf,
+    /// The rail layout as the settings hold it, and as the rails draw it.
+    pub rails: RailLayout,
+    pub layout: Layout,
+    /// The settings window, once it has opened; `settings_open` is set as
+    /// soon as it is asked for.
+    settings_window: Option<WindowHandle<SettingsWindow>>,
+    settings_open: bool,
+    /// Counts settings windows opened and closed, so a late one is taken down.
+    settings_serial: u64,
     /// Which rail icon's tooltip is wanted or showing.
     hints: Hints,
     /// The tooltip's window, once it has opened.
@@ -119,7 +136,15 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub fn new(vm: ViewModel, actions: Arc<dyn StripActions>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        vm: ViewModel,
+        actions: Arc<dyn StripActions>,
+        settings_path: PathBuf,
+        home: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let rails = vm.rails().clone();
+        let layout = Layout::from_core(&rails);
         let shared = Shared {
             vm,
             actions,
@@ -130,6 +155,13 @@ impl Shared {
             active: [false; 3],
             leave_check: 0,
             label: String::new(),
+            settings_path,
+            home,
+            rails,
+            layout,
+            settings_window: None,
+            settings_open: false,
+            settings_serial: 0,
             hints: Hints::default(),
             tip_window: None,
             tip_serial: 0,
@@ -153,20 +185,108 @@ impl Shared {
             MenuKind::RecentFolders => lines(Section::RecentFolders).max(1),
             MenuKind::RecentFiles => lines(Section::RecentFiles).max(1),
             MenuKind::Find => lines(Section::Ranked) + lines(Section::Found),
-            MenuKind::NewFolder | MenuKind::About | MenuKind::Toast => 0,
+            MenuKind::NewFolder | MenuKind::Toast => 0,
         }
     }
 
     fn request(&self, kind: MenuKind, size: (i32, i32), fresh: bool) -> MenuRequest {
         MenuRequest {
             side: kind.side(),
-            anchor_y: kind.button().map(rail::anchor_y).unwrap_or(TOAST_ANCHOR),
+            anchor_y: kind
+                .button()
+                .map(|b| rail::anchor_y(&self.layout, b))
+                .unwrap_or(TOAST_ANCHOR),
             width: size.0,
             height: size.1,
             takes_keyboard: kind.takes_keyboard(),
             fresh,
             away_from_dialog: kind == MenuKind::Toast,
         }
+    }
+
+    // ---- the settings window and the layout --------------------------------
+
+    pub fn settings_open(&self) -> bool {
+        self.settings_open
+    }
+
+    /// The gear: opens the settings window, or closes it when it is open.
+    pub fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+        self.hide_tip(cx);
+        if self.settings_open {
+            self.close_settings(cx);
+            return;
+        }
+        self.close_menu(cx);
+        self.settings_open = true;
+        self.settings_serial += 1;
+        let serial = self.settings_serial;
+        let size = settings_window::SIZE;
+        // The placement rule must be in force before the window maps.
+        self.actions.place_settings(Some(SettingsRequest {
+            width: size.0,
+            height: size.1,
+        }));
+        let shared = cx.entity();
+        cx.defer(move |cx| {
+            let options = settings_options(size, cx);
+            let inner = shared.clone();
+            let opened = cx.open_window(options, move |window, cx| {
+                cx.new(|cx| SettingsWindow::new(inner, window, cx))
+            });
+            shared.update(cx, |s, cx| match opened {
+                Ok(handle) if s.settings_serial == serial && s.settings_open => {
+                    s.settings_window = Some(handle);
+                }
+                // Closed again before its window came up.
+                Ok(handle) => {
+                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                }
+                Err(error) => {
+                    eprintln!("ofolder: could not open the settings: {error}");
+                    s.settings_open = false;
+                    s.actions.place_settings(None);
+                    cx.notify();
+                }
+            });
+        });
+        cx.notify();
+    }
+
+    pub fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings_open = false;
+        self.settings_serial += 1;
+        if let Some(handle) = self.settings_window.take() {
+            cx.defer(move |cx| {
+                handle.update(cx, |_, w, _| w.remove_window()).ok();
+            });
+        }
+        self.actions.place_settings(None);
+        cx.notify();
+    }
+
+    /// Called when any window closes: a settings window closed by the
+    /// compositor is forgotten.
+    pub fn settings_window_closed(&mut self, open: &[WindowId], cx: &mut Context<Self>) {
+        if self
+            .settings_window
+            .is_some_and(|h| !open.contains(&h.window_id()))
+        {
+            self.settings_window = None;
+            self.settings_open = false;
+            self.actions.place_settings(None);
+            cx.notify();
+        }
+    }
+
+    /// A new rail layout from the settings window: the rails redraw at once,
+    /// and an open menu or tooltip, anchored to the old places, goes.
+    pub fn set_rails(&mut self, rails: RailLayout, cx: &mut Context<Self>) {
+        self.layout = Layout::from_core(&rails);
+        self.rails = rails;
+        self.hide_tip(cx);
+        self.close_menu(cx);
+        cx.notify();
     }
 
     // ---- tooltips ---------------------------------------------------------

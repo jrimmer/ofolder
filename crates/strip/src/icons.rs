@@ -10,6 +10,8 @@ const ALL: &[&str] = &[
     "icons/back.svg",
     "icons/chevron-down.svg",
     "icons/chevron-right.svg",
+    "icons/chevron-up.svg",
+    "icons/close.svg",
     "icons/copy.svg",
     "icons/dots.svg",
     "icons/file.svg",
@@ -17,7 +19,7 @@ const ALL: &[&str] = &[
     "icons/folder-open.svg",
     "icons/folder-plus.svg",
     "icons/forward.svg",
-    "icons/info.svg",
+    "icons/gear.svg",
     "icons/parent.svg",
     "icons/places.svg",
     "icons/recent.svg",
@@ -25,7 +27,6 @@ const ALL: &[&str] = &[
     "icons/star-filled.svg",
     "icons/star-plus.svg",
     "icons/terminal.svg",
-    "icons/warning.svg",
 ];
 
 fn bytes(path: &str) -> Option<&'static [u8]> {
@@ -33,6 +34,8 @@ fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/back.svg" => include_bytes!("../assets/icons/back.svg"),
         "icons/chevron-down.svg" => include_bytes!("../assets/icons/chevron-down.svg"),
         "icons/chevron-right.svg" => include_bytes!("../assets/icons/chevron-right.svg"),
+        "icons/chevron-up.svg" => include_bytes!("../assets/icons/chevron-up.svg"),
+        "icons/close.svg" => include_bytes!("../assets/icons/close.svg"),
         "icons/copy.svg" => include_bytes!("../assets/icons/copy.svg"),
         "icons/dots.svg" => include_bytes!("../assets/icons/dots.svg"),
         "icons/file.svg" => include_bytes!("../assets/icons/file.svg"),
@@ -40,7 +43,7 @@ fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/folder-open.svg" => include_bytes!("../assets/icons/folder-open.svg"),
         "icons/folder-plus.svg" => include_bytes!("../assets/icons/folder-plus.svg"),
         "icons/forward.svg" => include_bytes!("../assets/icons/forward.svg"),
-        "icons/info.svg" => include_bytes!("../assets/icons/info.svg"),
+        "icons/gear.svg" => include_bytes!("../assets/icons/gear.svg"),
         "icons/parent.svg" => include_bytes!("../assets/icons/parent.svg"),
         "icons/places.svg" => include_bytes!("../assets/icons/places.svg"),
         "icons/recent.svg" => include_bytes!("../assets/icons/recent.svg"),
@@ -48,7 +51,6 @@ fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/star-filled.svg" => include_bytes!("../assets/icons/star-filled.svg"),
         "icons/star-plus.svg" => include_bytes!("../assets/icons/star-plus.svg"),
         "icons/terminal.svg" => include_bytes!("../assets/icons/terminal.svg"),
-        "icons/warning.svg" => include_bytes!("../assets/icons/warning.svg"),
         _ => return None,
     })
 }
@@ -72,18 +74,22 @@ impl AssetSource for Icons {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rail::{Entry, RailSide, entries};
+    use crate::rail::Button;
 
     #[test]
     fn every_rail_icon_is_built_in() {
-        for side in [RailSide::Left, RailSide::Right] {
-            for e in entries(side) {
-                if let Entry::Button(b) = e {
-                    assert!(bytes(b.icon()).is_some(), "{b:?}");
-                }
-            }
+        for b in Button::ALL {
+            assert!(bytes(b.icon()).is_some(), "{b:?}");
         }
-        assert!(bytes("icons/star-filled.svg").is_some());
+        for extra in [
+            "icons/star-filled.svg",
+            "icons/gear.svg",
+            "icons/close.svg",
+            "icons/chevron-up.svg",
+            "icons/chevron-down.svg",
+        ] {
+            assert!(bytes(extra).is_some(), "{extra}");
+        }
     }
 
     #[test]

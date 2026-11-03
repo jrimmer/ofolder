@@ -95,6 +95,8 @@ pub struct ViewModel {
     places: Vec<Place>,
     recents: Recents,
     recents_enabled: bool,
+    /// The rail layout the settings file gave when the dialog opened.
+    rails: ofolder_core::rails::RailLayout,
     scope: Scope,
     app_key: String,
     expansion: Expansion,
@@ -129,6 +131,7 @@ impl ViewModel {
             places: Vec::new(),
             recents: Recents::default(),
             recents_enabled: settings.recents_enabled,
+            rails: settings.rails,
             scope: Scope::AllApps,
             app_key: options.app_key.clone(),
             expansion: Expansion::default(),
@@ -547,6 +550,11 @@ impl ViewModel {
 
     pub fn recents_enabled(&self) -> bool {
         self.recents_enabled
+    }
+
+    /// The rail layout read when the dialog opened.
+    pub fn rails(&self) -> &ofolder_core::rails::RailLayout {
+        &self.rails
     }
 
     pub fn scope(&self) -> Scope {

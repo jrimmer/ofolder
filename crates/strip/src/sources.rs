@@ -46,6 +46,7 @@ impl Sources {
 /// What the settings file says that the strip uses, and what is wrong with it.
 pub struct SettingsRead {
     pub recents_enabled: bool,
+    pub rails: ofolder_core::rails::RailLayout,
     pub warnings: Vec<String>,
 }
 
@@ -53,6 +54,7 @@ pub fn read_settings(path: &Path, home: &Path) -> SettingsRead {
     let loaded = settings::load(path, home);
     SettingsRead {
         recents_enabled: loaded.settings.recents_enabled,
+        rails: loaded.settings.rails,
         warnings: loaded.warnings,
     }
 }

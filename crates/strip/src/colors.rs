@@ -11,6 +11,8 @@ pub struct Colors {
     pub bg: Rgb,
     /// A raised block: a menu, a prompt, a message.
     pub panel: Rgb,
+    /// The settings window's pane list.
+    pub sidebar: Rgb,
     /// A button.
     pub raised: Rgb,
     pub hover: Rgb,
@@ -49,6 +51,7 @@ impl Colors {
         Colors {
             bg: p.background,
             panel: mix(p.background, p.surface, 0.5),
+            sidebar: mix(p.background, deep, 0.18),
             raised: p.surface,
             hover: p.selection,
             text: p.foreground,

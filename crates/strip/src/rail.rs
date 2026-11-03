@@ -1,7 +1,10 @@
 //! The two rails: which icon sits where, which menu each opens, and how big
 //! that menu should be. No window is involved, so all of it is tested here;
 //! the drawing code places each icon at the position this module gives, so a
-//! menu's anchor always matches the icon that opened it.
+//! menu's anchor always matches the icon that opened it. The order, the
+//! hidden icons and the divider lines come from the user's [`Layout`].
+
+use ofolder_core::rails::{Item, RailLayout, Side};
 
 /// The width of each rail, in logical pixels.
 pub const RAIL_WIDTH: f32 = 52.0;
@@ -45,7 +48,68 @@ pub enum Entry {
     Divider,
 }
 
-/// The left rail, "go somewhere", top to bottom.
+impl Button {
+    /// Every icon, left rail first.
+    pub const ALL: [Button; 13] = [
+        Button::Back,
+        Button::Forward,
+        Button::Parent,
+        Button::Favorites,
+        Button::Places,
+        Button::RecentFolders,
+        Button::RecentFiles,
+        Button::NewFolder,
+        Button::Find,
+        Button::Favorite,
+        Button::CopyPath,
+        Button::FileManager,
+        Button::Terminal,
+    ];
+
+    /// Its id in the settings file's `[rails]` lists.
+    pub fn key(self) -> &'static str {
+        match self {
+            Button::Back => "back",
+            Button::Forward => "forward",
+            Button::Parent => "parent",
+            Button::Favorites => "favorites",
+            Button::Places => "places",
+            Button::RecentFolders => "recent_folders",
+            Button::RecentFiles => "recent_files",
+            Button::NewFolder => "new_folder",
+            Button::Find => "find",
+            Button::Favorite => "favorite",
+            Button::CopyPath => "copy_path",
+            Button::FileManager => "file_manager",
+            Button::Terminal => "terminal",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Button> {
+        Button::ALL.into_iter().find(|b| b.key() == key)
+    }
+
+    /// Its name in the settings window.
+    pub fn name(self) -> &'static str {
+        match self {
+            Button::Back => "Back",
+            Button::Forward => "Forward",
+            Button::Parent => "Parent folder",
+            Button::Favorites => "Favorites",
+            Button::Places => "Places and drives",
+            Button::RecentFolders => "Recent folders",
+            Button::RecentFiles => "Recent files",
+            Button::NewFolder => "New folder",
+            Button::Find => "Find a folder",
+            Button::Favorite => "Add or remove favorite",
+            Button::CopyPath => "Copy path",
+            Button::FileManager => "Open in file manager",
+            Button::Terminal => "Open a terminal",
+        }
+    }
+}
+
+/// The left rail, "go somewhere", top to bottom, as it comes.
 pub const LEFT: &[Entry] = &[
     Entry::Button(Button::Back),
     Entry::Button(Button::Forward),
@@ -57,7 +121,7 @@ pub const LEFT: &[Entry] = &[
     Entry::Button(Button::RecentFiles),
 ];
 
-/// The right rail, "do something here", top to bottom.
+/// The right rail, "do something here", top to bottom, as it comes.
 pub const RIGHT: &[Entry] = &[
     Entry::Button(Button::NewFolder),
     Entry::Button(Button::Find),
@@ -79,8 +143,6 @@ pub enum MenuKind {
     RecentFiles,
     NewFolder,
     Find,
-    /// Opened by the mark at the right rail's foot, not by a button.
-    About,
     Toast,
 }
 
@@ -177,9 +239,7 @@ impl MenuKind {
             | MenuKind::Places
             | MenuKind::RecentFolders
             | MenuKind::RecentFiles => RailSide::Left,
-            MenuKind::NewFolder | MenuKind::Find | MenuKind::About | MenuKind::Toast => {
-                RailSide::Right
-            }
+            MenuKind::NewFolder | MenuKind::Find | MenuKind::Toast => RailSide::Right,
         }
     }
 
@@ -192,7 +252,7 @@ impl MenuKind {
             MenuKind::RecentFiles => Some(Button::RecentFiles),
             MenuKind::NewFolder => Some(Button::NewFolder),
             MenuKind::Find => Some(Button::Find),
-            MenuKind::About | MenuKind::Toast => None,
+            MenuKind::Toast => None,
         }
     }
 
@@ -219,7 +279,6 @@ impl MenuKind {
         let fixed = match self {
             MenuKind::NewFolder => return 120,
             MenuKind::Toast => return 64,
-            MenuKind::About => return 236,
             // The search box, the search button and a status line.
             MenuKind::Find => 144,
             // The All apps / This app switch.
@@ -240,18 +299,61 @@ pub struct Slot {
     pub h: f32,
 }
 
-pub fn entries(side: RailSide) -> &'static [Entry] {
-    match side {
-        RailSide::Left => LEFT,
-        RailSide::Right => RIGHT,
+impl RailSide {
+    pub fn core(self) -> Side {
+        match self {
+            RailSide::Left => Side::Left,
+            RailSide::Right => Side::Right,
+        }
+    }
+}
+
+/// What each rail shows, top to bottom: the user's choice of icons, order
+/// and divider lines.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Layout {
+    left: Vec<Entry>,
+    right: Vec<Entry>,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Layout {
+            left: LEFT.to_vec(),
+            right: RIGHT.to_vec(),
+        }
+    }
+}
+
+fn entry(item: &Item) -> Option<Entry> {
+    match item {
+        Item::Divider => Some(Entry::Divider),
+        Item::Icon(key) => Button::from_key(key).map(Entry::Button),
+    }
+}
+
+impl Layout {
+    pub fn from_core(layout: &RailLayout) -> Layout {
+        let side = |s: Side| layout.items(s).iter().filter_map(entry).collect();
+        Layout {
+            left: side(Side::Left),
+            right: side(Side::Right),
+        }
+    }
+
+    pub fn entries(&self, side: RailSide) -> &[Entry] {
+        match side {
+            RailSide::Left => &self.left,
+            RailSide::Right => &self.right,
+        }
     }
 }
 
 /// Every entry of a rail with its position.
-pub fn slots(side: RailSide) -> Vec<Slot> {
+pub fn slots(entries: &[Entry]) -> Vec<Slot> {
     let mut y = TOP;
     let mut out = Vec::new();
-    for &entry in entries(side) {
+    for &entry in entries {
         let h = match entry {
             Entry::Button(_) => BUTTON,
             Entry::Divider => DIVIDER,
@@ -263,8 +365,8 @@ pub fn slots(side: RailSide) -> Vec<Slot> {
 }
 
 /// The top of the icon, from the top of its rail: where its menu's top goes.
-pub fn anchor_y(button: Button) -> i32 {
-    slots(button.side())
+pub fn anchor_y(layout: &Layout, button: Button) -> i32 {
+    slots(layout.entries(button.side()))
         .into_iter()
         .find(|s| s.entry == Entry::Button(button))
         .map(|s| s.y.round() as i32)
@@ -322,6 +424,10 @@ impl Menus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entries(side: RailSide) -> Vec<Entry> {
+        Layout::default().entries(side).to_vec()
+    }
 
     fn buttons(side: RailSide) -> Vec<Button> {
         entries(side)
@@ -402,7 +508,7 @@ mod tests {
     #[test]
     fn icons_are_stacked_without_overlap_and_fit_a_short_dialog() {
         for side in [RailSide::Left, RailSide::Right] {
-            let s = slots(side);
+            let s = slots(&entries(side));
             for pair in s.windows(2) {
                 assert!(pair[1].y >= pair[0].y + pair[0].h, "{pair:?}");
             }
@@ -414,11 +520,12 @@ mod tests {
 
     #[test]
     fn a_menu_is_anchored_at_the_top_of_its_icon() {
-        assert_eq!(anchor_y(Button::Back), 8);
-        assert_eq!(anchor_y(Button::Forward), 48);
+        let layout = Layout::default();
+        assert_eq!(anchor_y(&layout, Button::Back), 8);
+        assert_eq!(anchor_y(&layout, Button::Forward), 48);
         // Three buttons and a divider above it.
-        assert_eq!(anchor_y(Button::Favorites), 8 + 3 * 40 + 17);
-        assert_eq!(anchor_y(Button::NewFolder), 8);
+        assert_eq!(anchor_y(&layout, Button::Favorites), 8 + 3 * 40 + 17);
+        assert_eq!(anchor_y(&layout, Button::NewFolder), 8);
     }
 
     #[test]
@@ -476,11 +583,42 @@ mod tests {
     }
 
     #[test]
-    fn the_about_menu_belongs_to_the_right_rail_and_has_no_button() {
-        assert_eq!(MenuKind::About.side(), RailSide::Right);
-        assert_eq!(MenuKind::About.button(), None);
-        assert!(!MenuKind::About.takes_keyboard());
-        // Its content is fixed, so the row count does not change its height.
-        assert_eq!(MenuKind::About.height(0), MenuKind::About.height(40));
+    fn every_icon_has_a_settings_id_on_its_own_rail_and_back() {
+        for b in Button::ALL {
+            assert_eq!(Button::from_key(b.key()), Some(b));
+            assert!(b.side().core().icons().contains(&b.key()), "{b:?}");
+        }
+        for side in [RailSide::Left, RailSide::Right] {
+            assert_eq!(side.core().icons().len(), buttons(side).len());
+        }
+    }
+
+    #[test]
+    fn the_default_layout_matches_the_rails_as_they_come() {
+        assert_eq!(Layout::from_core(&RailLayout::default()), Layout::default());
+    }
+
+    #[test]
+    fn a_changed_layout_moves_the_icons_and_their_menu_anchors() {
+        let mut core = RailLayout::default();
+        // Favorites to the top of the left rail, then a line below it.
+        for i in (1..=4).rev() {
+            core.move_up(Side::Left, i);
+        }
+        core.add_divider_after(Side::Left, 0);
+        let layout = Layout::from_core(&core);
+        assert_eq!(
+            layout.entries(RailSide::Left)[..2],
+            [Entry::Button(Button::Favorites), Entry::Divider]
+        );
+        assert_eq!(anchor_y(&layout, Button::Favorites), 8);
+        assert_eq!(anchor_y(&layout, Button::Back), 8 + 40 + 17);
+        core.hide(Side::Left, 2);
+        let hidden = Layout::from_core(&core);
+        assert!(
+            !hidden
+                .entries(RailSide::Left)
+                .contains(&Entry::Button(Button::Back))
+        );
     }
 }

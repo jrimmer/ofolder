@@ -89,6 +89,8 @@ impl StripActions for DemoActions {
     fn pointer_on_rail(&self, _: RailSide) -> Option<bool> {
         None
     }
+
+    fn place_settings(&self, _: Option<crate::SettingsRequest>) {}
 }
 
 /// Writes sample favorites, recents, settings, user folders and drives under
