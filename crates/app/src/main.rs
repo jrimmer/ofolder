@@ -179,6 +179,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
                 &home,
             ),
             home,
+            keys::runtime_dir().ok(),
         ))
     } else {
         Arc::new(PassThrough)

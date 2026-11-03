@@ -30,6 +30,9 @@ pub struct StripHooks {
     recorder: Recorder,
     /// Who asked for each open dialog, from `begin` to `end`.
     pending: Mutex<HashMap<String, Identity>>,
+    /// Where strips record their key bindings, to remove those of a strip
+    /// that had to be stopped. None leaves bindings to the next strip.
+    runtime: Option<PathBuf>,
 }
 
 impl StripHooks {
@@ -40,6 +43,7 @@ impl StripHooks {
         settings_path: PathBuf,
         recents_path: PathBuf,
         home: PathBuf,
+        runtime: Option<PathBuf>,
     ) -> Self {
         let recorder = Recorder::new(recents_path, settings_path.clone(), home.clone());
         Self {
@@ -50,6 +54,7 @@ impl StripHooks {
             home,
             recorder,
             pending: Mutex::new(HashMap::new()),
+            runtime,
         }
     }
 
@@ -72,6 +77,7 @@ struct DialogGuard {
     strip: Option<Child>,
     compositor: Arc<dyn Compositor>,
     strata_rule: bool,
+    runtime: Option<PathBuf>,
 }
 
 /// How long a strip has to notice its dialog closed and end by itself,
@@ -85,6 +91,7 @@ impl Drop for DialogGuard {
             // covers a crash or a hang. Waited for off this thread, so the
             // application gets its answer at once.
             let compositor = self.compositor.clone();
+            let runtime = self.runtime.clone();
             std::thread::spawn(move || {
                 let start = Instant::now();
                 while matches!(strip.try_wait(), Ok(None)) && start.elapsed() < STRIP_GRACE {
@@ -95,7 +102,7 @@ impl Drop for DialogGuard {
                 }
                 strip.wait().ok();
                 // A strip that was stopped could not remove its key bindings.
-                if let Ok(dir) = keys::runtime_dir() {
+                if let Some(dir) = runtime {
                     keys::release_for(&*compositor, &dir, strip.id());
                 }
             });
@@ -148,6 +155,7 @@ impl Hooks for StripHooks {
                 strip: None,
                 compositor: self.compositor.clone(),
                 strata_rule: false,
+                runtime: None,
             });
         }
         // Strata's dialog tiles unless a rule says otherwise, and the rule has to exist before it opens.
@@ -176,6 +184,7 @@ impl Hooks for StripHooks {
             strip: strip.flatten(),
             compositor: self.compositor.clone(),
             strata_rule,
+            runtime: self.runtime.clone(),
         })
     }
 
@@ -267,6 +276,7 @@ mod tests {
             dir.join("settings.toml"),
             dir.join("recents.json"),
             PathBuf::from("/home/j"),
+            None,
         );
         Rig { dir, hooks }
     }
