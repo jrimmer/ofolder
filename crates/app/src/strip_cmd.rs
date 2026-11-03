@@ -824,6 +824,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     compositor.remove_rule(RULE_MENU).ok();
     compositor.remove_rule(RULE_TIP).ok();
     compositor.remove_rule(RULE_SETTINGS).ok();
+    note("cleanup done: dialog place remembered, window rules removed");
     result
 }
 

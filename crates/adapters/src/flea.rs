@@ -297,7 +297,15 @@ impl Adapter for FleaAdapter {
     fn alive(&self) -> bool {
         match self.child.borrow_mut().as_mut() {
             Some(child) => matches!(child.try_wait(), Ok(None)),
-            None => self.adopted_pid.is_some(),
+            // A picker the portal frontend started: alive while that process
+            // runs and is still a picker, so a reused pid does not count.
+            None => self.adopted_pid.is_some_and(|pid| {
+                self.procfs.is_running(pid)
+                    && self
+                        .procfs
+                        .cmdline(pid)
+                        .is_some_and(|c| c.contains("picker"))
+            }),
         }
     }
 
@@ -554,7 +562,7 @@ mod tests {
         for d in [&cwd, &shown, &state] {
             fs::create_dir_all(d).expect("dir");
         }
-        add_process(&tmp.0, PID, 1, "qs", &cwd, &[]);
+        add_process(&tmp.0, PID, 1, "qs -p picker.qml", &cwd, &[]);
         add_process(&tmp.0, 4243, PID, "flea --backend", &cwd, &[&state, &shown]);
         let r = rig(None, true, None);
         let adapter = r
@@ -570,7 +578,7 @@ mod tests {
         let tmp = TempDir::new("flea-cwd-shown");
         let home = tmp.0.join("home");
         fs::create_dir_all(&home).expect("dir");
-        add_process(&tmp.0, PID, 1, "qs", &home, &[]);
+        add_process(&tmp.0, PID, 1, "qs -p picker.qml", &home, &[]);
         add_process(&tmp.0, 4243, PID, "flea --backend", &home, &[&home]);
         let r = rig(None, true, None);
         let adapter = r.adapter.with_procfs(ProcFs::with_root(&tmp.0));
@@ -605,20 +613,46 @@ mod tests {
     fn the_selection_is_the_cursor_row_the_picker_reports_when_it_exists() {
         let tmp = TempDir::new("flea-selection");
         fs::write(tmp.0.join("alpha.txt"), "x").expect("file");
+        let procs = TempDir::new("flea-selection-proc");
+        add_process(&procs.0, PID, 1, "qs -p picker.qml", &tmp.0, &[]);
         let snap =
             |name: &str| Some(json!({"path": tmp.0, "cursorName": name, "marks": []}).to_string());
-        let adapter = rig(None, true, None)
-            .adapter
-            .with_ipc(Arc::new(FakeIpc(snap("alpha.txt"))));
+        let picker = |ipc: FakeIpc| {
+            rig(None, true, None)
+                .adapter
+                .with_procfs(ProcFs::with_root(&procs.0))
+                .with_ipc(Arc::new(ipc))
+        };
+        let adapter = picker(FakeIpc(snap("alpha.txt")));
         assert_eq!(adapter.selection(), Some(tmp.0.join("alpha.txt")));
-        let gone = rig(None, true, None)
-            .adapter
-            .with_ipc(Arc::new(FakeIpc(snap("deleted.txt"))));
+        let gone = picker(FakeIpc(snap("deleted.txt")));
         assert_eq!(gone.selection(), None);
-        let silent = rig(None, true, None)
-            .adapter
-            .with_ipc(Arc::new(FakeIpc(None)));
+        let silent = picker(FakeIpc(None));
         assert_eq!(silent.selection(), None);
+    }
+
+    #[test]
+    fn an_adopted_picker_is_alive_only_while_its_process_runs_as_a_picker() {
+        let tmp = TempDir::new("flea-alive");
+        let adapter = |procs: &Path| {
+            rig(None, true, None)
+                .adapter
+                .with_procfs(ProcFs::with_root(procs))
+        };
+        add_process(&tmp.0, PID, 1, "qs -p picker.qml", &tmp.0, &[]);
+        assert!(adapter(&tmp.0).alive());
+        // Exited but not yet reaped by the portal frontend.
+        fs::write(
+            tmp.0.join(PID.to_string()).join("stat"),
+            format!("{PID} (qs) Z 1 1 1 0"),
+        )
+        .expect("stat");
+        assert!(!adapter(&tmp.0).alive());
+        // Gone, and then the pid reused by something that is not a picker.
+        fs::remove_dir_all(tmp.0.join(PID.to_string())).expect("remove");
+        assert!(!adapter(&tmp.0).alive());
+        add_process(&tmp.0, PID, 1, "bash", &tmp.0, &[]);
+        assert!(!adapter(&tmp.0).alive());
     }
 
     #[test]

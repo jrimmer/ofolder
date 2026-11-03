@@ -23,7 +23,22 @@ pub fn parse_ppid(stat: &str) -> Option<u32> {
     after.split_whitespace().nth(1)?.parse().ok()
 }
 
+/// The state letter out of a `/proc/<pid>/stat` line (`R`, `S`, `Z`...).
+pub fn parse_state(stat: &str) -> Option<char> {
+    let after = &stat[stat.rfind(')')? + 1..];
+    after.split_whitespace().next()?.chars().next()
+}
+
 impl ProcFs {
+    /// Whether `pid` is a process that has not exited: it is listed and is
+    /// neither a zombie waiting to be reaped nor dead.
+    pub fn is_running(&self, pid: u32) -> bool {
+        fs::read_to_string(self.root.join(pid.to_string()).join("stat"))
+            .ok()
+            .and_then(|stat| parse_state(&stat))
+            .is_some_and(|state| !matches!(state, 'Z' | 'X' | 'x'))
+    }
+
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
@@ -202,6 +217,18 @@ mod tests {
             ProcFs::with_root(&tmp.0).cmdline(11).as_deref(),
             Some("/usr/bin/flea --backend")
         );
+    }
+
+    #[test]
+    fn a_process_is_running_until_it_is_a_zombie_or_gone() {
+        let tmp = TempDir::new("running");
+        add_process(&tmp.0, 11, 1, "qs", &tmp.0, &[]);
+        let procfs = ProcFs::with_root(&tmp.0);
+        assert!(procfs.is_running(11));
+        fs::write(tmp.0.join("11").join("stat"), "11 (a (b) c) Z 1 1 1 0").expect("stat");
+        assert!(!procfs.is_running(11));
+        assert!(!procfs.is_running(12));
+        assert_eq!(parse_state("11 (a (b) c) Z 1 1"), Some('Z'));
     }
 
     #[test]
