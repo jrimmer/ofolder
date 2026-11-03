@@ -1,30 +1,24 @@
 //! The right rail, "do something here": new folder and find open a menu;
 //! the favorite toggle, copy path and the two launchers act at once. At the
-//! foot, a mark says which dialog this is, or warns that its folder cannot
-//! be read.
+//! foot, a mark opens the About menu: the version, which dialog this is,
+//! and whether its folder can be read.
 
 use gpui::{
-    ClipboardItem, Context, Entity, IntoElement, Render, Subscription, Window, div, prelude::*, px,
-    rgb, svg,
+    ClipboardItem, Context, Entity, IntoElement, MouseButton, Render, Subscription, Window, div,
+    prelude::*, px, rgb, svg,
 };
 
 use crate::colors::colors;
-use crate::rail::{self, Button, Entry, RailSide};
+use crate::rail::{self, Button, Entry, MenuKind, RailSide};
 use crate::view::{IconLook, Shared, Which, rail_divider, rail_icon, tip};
 
 pub struct RightRail {
     shared: Entity<Shared>,
-    label: String,
     _subscriptions: Vec<Subscription>,
 }
 
 impl RightRail {
-    pub fn new(
-        shared: Entity<Shared>,
-        label: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(shared: Entity<Shared>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observe = cx.observe(&shared, |_, _, cx| cx.notify());
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             let active = window.is_window_active();
@@ -33,7 +27,6 @@ impl RightRail {
         });
         RightRail {
             shared,
-            label,
             _subscriptions: vec![observe, activation],
         }
     }
@@ -55,6 +48,13 @@ impl Render for RightRail {
             .size_full()
             .relative()
             .overflow_hidden()
+            // A press on the rail's empty space takes down an open menu.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.shared.update(cx, |s, cx| s.close_menu(cx));
+                }),
+            )
             .bg(rgb(colors().bg))
             .text_color(rgb(colors().text))
             .text_size(px(13.));
@@ -131,18 +131,15 @@ impl Render for RightRail {
             rail = rail.child(element);
         }
         let (mark, mark_color, mark_tip) = if known {
-            (
-                "icons/info.svg",
-                colors().muted,
-                format!("ofolder on {}\n{}", self.label, full.unwrap_or_default()),
-            )
+            ("icons/info.svg", colors().muted, "About ofolder".to_owned())
         } else {
             (
                 "icons/warning.svg",
                 colors().amber,
-                "Folder unknown: the dialog's folder cannot be read".to_owned(),
+                "About ofolder\nFolder unknown: the dialog's folder cannot be read".to_owned(),
             )
         };
+        let about_open = open == Some(MenuKind::About);
         rail.child(
             div()
                 .id("rail-mark")
@@ -153,7 +150,16 @@ impl Render for RightRail {
                 .flex()
                 .items_center()
                 .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .when(about_open, |d| d.bg(rgb(colors().chosen)))
+                .hover(|s| s.bg(rgb(colors().hover)))
                 .tooltip(tip(mark_tip))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.shared
+                        .update(cx, |s, cx| s.click_menu(MenuKind::About, cx));
+                }))
                 .child(svg().path(mark).size(px(18.)).text_color(rgb(mark_color))),
         )
     }

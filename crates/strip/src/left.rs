@@ -1,7 +1,10 @@
 //! The left rail, "go somewhere": back, forward and parent act at once; the
 //! favorites, places and recent lists open in a menu beside the rail.
 
-use gpui::{Context, Entity, IntoElement, Render, Subscription, Window, div, prelude::*, px, rgb};
+use gpui::{
+    Context, Entity, IntoElement, MouseButton, Render, Subscription, Window, div, prelude::*, px,
+    rgb,
+};
 
 use crate::colors::colors;
 use crate::rail::{self, Button, Entry, RailSide};
@@ -43,6 +46,13 @@ impl Render for LeftRail {
             .size_full()
             .relative()
             .overflow_hidden()
+            // A press on the rail's empty space takes down an open menu.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.shared.update(cx, |s, cx| s.close_menu(cx));
+                }),
+            )
             .bg(rgb(colors().bg))
             .text_color(rgb(colors().text))
             .text_size(px(13.));

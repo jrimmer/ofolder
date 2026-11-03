@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyView, App, Context, ElementId, Render, Stateful, Window, WindowHandle, WindowId, div,
-    prelude::*, px, rgb,
+    AnyView, App, Context, ElementId, MouseButton, Render, Stateful, Window, WindowHandle,
+    WindowId, div, prelude::*, px, rgb,
 };
 
 use std::path::{Path, PathBuf};
@@ -107,6 +107,8 @@ pub struct Shared {
     /// Counts changes of `active`, so a pending close is dropped when the
     /// keyboard comes back in time.
     leave_check: u64,
+    /// The short backend name, e.g. "flea", for the About menu.
+    pub label: String,
 }
 
 impl Shared {
@@ -120,6 +122,7 @@ impl Shared {
             menu_size: None,
             active: [false; 3],
             leave_check: 0,
+            label: String::new(),
         };
         shared.start_polling(cx);
         shared
@@ -140,7 +143,7 @@ impl Shared {
             MenuKind::RecentFolders => lines(Section::RecentFolders).max(1),
             MenuKind::RecentFiles => lines(Section::RecentFiles).max(1),
             MenuKind::Find => lines(Section::Ranked) + lines(Section::Found),
-            MenuKind::NewFolder | MenuKind::Toast => 0,
+            MenuKind::NewFolder | MenuKind::About | MenuKind::Toast => 0,
         }
     }
 
@@ -596,6 +599,9 @@ pub fn rail_icon(
         .justify_center()
         .rounded(px(7.))
         .when_some(bg, |d, bg| d.bg(rgb(bg)))
+        // A press on an icon is not a press on the dead space around it,
+        // which closes an open menu.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .tooltip(tip(tooltip))
         .child(
             gpui::svg()

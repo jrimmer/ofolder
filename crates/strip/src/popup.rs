@@ -139,6 +139,56 @@ impl MenuWindow {
             .into_any_element()
     }
 
+    /// The About menu: what this is, which version, which dialog it is
+    /// docked to and whether it can read that dialog's folder.
+    fn about(label: &str, folder: Option<String>) -> Vec<AnyElement> {
+        let line = |name: &str, value: String, color: u32| {
+            div()
+                .flex()
+                .gap_2()
+                .px_2()
+                .text_size(px(12.))
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(52.))
+                        .text_color(rgb(colors().muted))
+                        .child(name.to_owned()),
+                )
+                .child(div().flex_1().text_color(rgb(color)).child(value))
+                .into_any_element()
+        };
+        let folder_line = match folder {
+            Some(path) => line("Folder", path, colors().text),
+            None => line(
+                "Folder",
+                "unknown: the dialog's folder cannot be read".to_owned(),
+                colors().amber,
+            ),
+        };
+        vec![
+            div()
+                .px_2()
+                .pt_1()
+                .text_size(px(18.))
+                .child("ofolder")
+                .into_any_element(),
+            line(
+                "Version",
+                env!("CARGO_PKG_VERSION").to_owned(),
+                colors().text,
+            ),
+            Self::quiet("Chrome for the system save and open dialogs."),
+            line("Dialog", label.to_owned(), colors().text),
+            folder_line,
+            line(
+                "License",
+                env!("CARGO_PKG_LICENSE").to_owned(),
+                colors().text,
+            ),
+        ]
+    }
+
     fn prompt(
         &self,
         intro: &str,
@@ -373,6 +423,13 @@ impl MenuWindow {
                 }
                 out.extend(render_lines(found, &shared, LABEL_CHARS, None));
                 ("FIND", out)
+            }
+            MenuKind::About => {
+                let (label, folder) = {
+                    let s = shared.read(cx);
+                    (s.label.clone(), s.vm.folder_full())
+                };
+                ("ABOUT", Self::about(&label, folder))
             }
             MenuKind::Toast => ("", Vec::new()),
         }

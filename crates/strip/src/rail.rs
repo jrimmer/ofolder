@@ -79,6 +79,8 @@ pub enum MenuKind {
     RecentFiles,
     NewFolder,
     Find,
+    /// Opened by the mark at the right rail's foot, not by a button.
+    About,
     Toast,
 }
 
@@ -175,7 +177,9 @@ impl MenuKind {
             | MenuKind::Places
             | MenuKind::RecentFolders
             | MenuKind::RecentFiles => RailSide::Left,
-            MenuKind::NewFolder | MenuKind::Find | MenuKind::Toast => RailSide::Right,
+            MenuKind::NewFolder | MenuKind::Find | MenuKind::About | MenuKind::Toast => {
+                RailSide::Right
+            }
         }
     }
 
@@ -188,7 +192,7 @@ impl MenuKind {
             MenuKind::RecentFiles => Some(Button::RecentFiles),
             MenuKind::NewFolder => Some(Button::NewFolder),
             MenuKind::Find => Some(Button::Find),
-            MenuKind::Toast => None,
+            MenuKind::About | MenuKind::Toast => None,
         }
     }
 
@@ -215,6 +219,7 @@ impl MenuKind {
         let fixed = match self {
             MenuKind::NewFolder => return 120,
             MenuKind::Toast => return 64,
+            MenuKind::About => return 236,
             // The search box, the search button and a status line.
             MenuKind::Find => 144,
             // The All apps / This app switch.
@@ -468,5 +473,14 @@ mod tests {
     fn the_favorite_toggle_says_what_a_click_will_do() {
         assert!(Button::Favorite.tooltip(false).starts_with("Add"));
         assert!(Button::Favorite.tooltip(true).starts_with("Remove"));
+    }
+
+    #[test]
+    fn the_about_menu_belongs_to_the_right_rail_and_has_no_button() {
+        assert_eq!(MenuKind::About.side(), RailSide::Right);
+        assert_eq!(MenuKind::About.button(), None);
+        assert!(!MenuKind::About.takes_keyboard());
+        // Its content is fixed, so the row count does not change its height.
+        assert_eq!(MenuKind::About.height(0), MenuKind::About.height(40));
     }
 }

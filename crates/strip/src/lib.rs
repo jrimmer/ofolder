@@ -180,7 +180,12 @@ pub fn run_strip_preview(
     let open_first = prepare(&mut vm);
     let label = options.label;
     Application::new().with_assets(icons::Icons).run(move |cx| {
-        let shared = cx.new(|cx| Shared::new(vm, actions, cx));
+        let backend = label.clone();
+        let shared = cx.new(|cx| {
+            let mut shared = Shared::new(vm, actions, cx);
+            shared.label = backend;
+            shared
+        });
         let left_options = window_options(APP_ID_LEFT, "ofolder go", (LEFT_WIDTH, HEIGHT), cx);
         let left_shared = shared.clone();
         let left = cx.open_window(left_options, move |window, cx| {
@@ -189,7 +194,7 @@ pub fn run_strip_preview(
         let right_options = window_options(APP_ID_RIGHT, "ofolder do", (RIGHT_WIDTH, HEIGHT), cx);
         let right_shared = shared.clone();
         let right = cx.open_window(right_options, move |window, cx| {
-            cx.new(|cx| RightRail::new(right_shared, label, window, cx))
+            cx.new(|cx| RightRail::new(right_shared, window, cx))
         });
         let rails: Vec<AnyWindowHandle> = match (left, right) {
             (Ok(l), Ok(r)) => vec![l.into(), r.into()],

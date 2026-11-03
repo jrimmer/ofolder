@@ -62,6 +62,15 @@ impl Hyprctl {
     }
 }
 
+/// The pointer position from `hyprctl cursorpos -j`, in layout pixels.
+fn parse_cursor(json: &str) -> Option<(i64, i64)> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    Some((
+        value.get("x")?.as_f64()? as i64,
+        value.get("y")?.as_f64()? as i64,
+    ))
+}
+
 impl Compositor for Hyprctl {
     fn clients(&self) -> Result<Vec<Client>, SystemError> {
         parse_clients(&Self::run(&["clients", "-j"])?).map_err(|e| failure("clients", e))
@@ -87,10 +96,24 @@ impl Compositor for Hyprctl {
                 format!("refusing a malformed window address {address:?}"),
             )
         })?;
-        Self::dispatch(
+        // Focusing a window warps the pointer to its centre, which pulls it
+        // off the rail icon the user just clicked. Put it back afterwards;
+        // moving it by dispatcher does not hand focus to the window under it.
+        let pointer = Self::run(&["cursorpos", "-j"])
+            .ok()
+            .and_then(|json| parse_cursor(&json));
+        let focused = Self::dispatch(
             "focus",
             &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"),
-        )
+        );
+        if let Some((x, y)) = pointer {
+            Self::dispatch(
+                "cursor",
+                &format!("hl.dsp.cursor.move({{ x = {x}, y = {y} }})"),
+            )
+            .ok();
+        }
+        focused
     }
 
     fn float_window(
@@ -185,6 +208,17 @@ mod tests {
                 .install_float_rule("a b", "c", (1, 1), (0, 0), true)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn the_pointer_position_is_read_from_the_cursorpos_reply() {
+        assert_eq!(
+            parse_cursor("{\n\t\"x\": 2099,\n\t\"y\": 984\n}"),
+            Some((2099, 984))
+        );
+        assert_eq!(parse_cursor("{\"x\": 10.6, \"y\": 3.2}"), Some((10, 3)));
+        assert_eq!(parse_cursor("not json"), None);
+        assert_eq!(parse_cursor("{\"x\": 1}"), None);
     }
 
     #[test]
