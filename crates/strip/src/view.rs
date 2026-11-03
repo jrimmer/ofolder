@@ -219,6 +219,12 @@ impl Shared {
     /// does, unless the icon is switched off now (folder unknown, busy, no
     /// history).
     pub fn press(&mut self, button: Button, cx: &mut Context<Self>) {
+        self.press_from(button, false, cx);
+    }
+
+    /// `from_shortcut`: the press came from a key binding, with no input
+    /// event the clipboard can be set in answer to.
+    fn press_from(&mut self, button: Button, from_shortcut: bool, cx: &mut Context<Self>) {
         let known = self.vm.folder().is_some();
         let busy = self.vm.busy();
         if let Some(kind) = button.menu() {
@@ -269,10 +275,16 @@ impl Shared {
                         None
                     }
                 };
-                self.changed(cx);
                 if let Some(text) = copied {
-                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    if from_shortcut {
+                        if let Err(e) = self.actions.copy_text(&text) {
+                            self.vm.show_error(&format!("Could not copy: {e}"));
+                        }
+                    } else {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    }
                 }
+                self.changed(cx);
             }
         }
     }
@@ -283,7 +295,7 @@ impl Shared {
         if id == "settings" {
             self.toggle_settings(cx);
         } else if let Some(button) = Button::from_key(id) {
-            self.press(button, cx);
+            self.press_from(button, true, cx);
         }
     }
 

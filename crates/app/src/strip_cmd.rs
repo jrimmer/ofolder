@@ -356,6 +356,10 @@ impl StripActions for Actions {
         }
     }
 
+    fn copy_text(&self, text: &str) -> Result<(), String> {
+        copy_with_wl_copy(text)
+    }
+
     fn take_commands(&self) -> Vec<&'static str> {
         self.commands
             .lock()
@@ -627,6 +631,32 @@ fn dock_forever(
                 compositor.move_window(&panel.address, at).ok();
             }
         }
+    }
+}
+
+/// Sets the clipboard through `wl-copy`, which serves it from its own
+/// process: a shortcut brings no input event the strip's windows could set
+/// the clipboard in answer to. The text goes in on stdin, never through a
+/// shell.
+fn copy_with_wl_copy(text: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new("wl-copy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("wl-copy could not be started: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("wl-copy: {e}"))?;
+    }
+    let status = child.wait().map_err(|e| format!("wl-copy: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("wl-copy failed ({status})"))
     }
 }
 

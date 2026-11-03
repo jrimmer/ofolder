@@ -42,9 +42,22 @@ pub fn runtime_dir() -> io::Result<PathBuf> {
 }
 
 /// Whether `pid` is a running ofolder process, so a reused pid is not taken
-/// for a strip.
+/// for a strip. A process that died and has not been reaped yet (a zombie)
+/// is not running: a strip killed while its dialog is still open stays one
+/// until the portal collects it.
 pub fn ofolder_alive(pid: u32) -> bool {
-    fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "ofolder")
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| running_ofolder(&stat))
+}
+
+/// From a `/proc/<pid>/stat` line: the name in brackets is ofolder and the
+/// state after it is not dead or a zombie.
+fn running_ofolder(stat: &str) -> bool {
+    let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else {
+        return false;
+    };
+    let name = &stat[open + 1..close];
+    let state = stat[close + 1..].trim_start().chars().next();
+    name == "ofolder" && !matches!(state, Some('Z' | 'X' | 'x') | None)
 }
 
 // ---- the record --------------------------------------------------------
@@ -546,6 +559,26 @@ mod tests {
         assert_eq!(keys.ours(), ["F9"]);
         release_for(&*keys, &dir, 8);
         assert!(keys.ours().is_empty());
+    }
+
+    #[test]
+    fn a_zombie_or_another_program_is_not_a_running_strip() {
+        assert!(running_ofolder("431179 (ofolder) S 1 431179 ..."));
+        assert!(running_ofolder("431179 (ofolder) R 1"));
+        assert!(!running_ofolder("431179 (ofolder) Z 1 431179"));
+        assert!(!running_ofolder("431179 (ofolder) X 1"));
+        assert!(!running_ofolder("12 (bash) S 1"));
+        assert!(!running_ofolder("12 (ofolder) x"));
+        assert!(!running_ofolder("garbage"));
+        assert!(running_ofolder(
+            &fs::read_to_string("/proc/self/stat").unwrap().replace(
+                &format!(
+                    "({})",
+                    fs::read_to_string("/proc/self/comm").unwrap().trim()
+                ),
+                "(ofolder)"
+            )
+        ));
     }
 
     #[test]

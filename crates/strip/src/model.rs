@@ -180,6 +180,12 @@ impl ViewModel {
         self.say(text.into(), MessageKind::Error, ERROR_TTL);
     }
 
+    /// Shows an error that arose outside the view-model, such as a copy to
+    /// the clipboard that failed.
+    pub fn show_error(&mut self, text: &str) {
+        self.error(text);
+    }
+
     pub fn label(&self) -> &str {
         &self.label
     }

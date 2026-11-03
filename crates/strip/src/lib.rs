@@ -159,6 +159,12 @@ pub trait StripActions: Send + Sync + 'static {
     fn taken_by(&self, _combo: &Combo) -> Option<String> {
         None
     }
+    /// Puts `text` on the clipboard without a window of the strip's own: a
+    /// shortcut comes with no input event, and a Wayland window may only set
+    /// the clipboard in answer to one.
+    fn copy_text(&self, _text: &str) -> Result<(), String> {
+        Err("the clipboard cannot be set from a shortcut here".to_owned())
+    }
 }
 
 pub struct StripOptions {
