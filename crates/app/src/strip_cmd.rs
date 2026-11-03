@@ -18,19 +18,22 @@ use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
-use ofolder_core::geometry::{Panels, Rect, place_menu, place_panels};
+use ofolder_core::geometry::{Panels, Rect, place_menu, place_panels, place_tip};
 use ofolder_core::launch::{self, Command};
 use ofolder_core::settings;
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
-    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, LEFT_WIDTH, MenuRequest, RIGHT_WIDTH, RailSide,
-    StripActions, StripOptions,
+    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, APP_ID_TIP, LEFT_WIDTH, MenuRequest, RIGHT_WIDTH,
+    RailSide, StripActions, StripOptions, TipAnchor, TipRequest,
 };
 
 const GAP: i32 = 6;
 const RULE_LEFT: &str = "ofolder-strip-left";
 const RULE_RIGHT: &str = "ofolder-strip-right";
 const RULE_MENU: &str = "ofolder-strip-menu";
+const RULE_TIP: &str = "ofolder-strip-tip";
+/// The space between a rail and its tooltip.
+const TIP_GAP: i32 = 4;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Args {
@@ -133,6 +136,7 @@ struct Dock {
     /// once its window appears. The user clicked for it, so this is the
     /// one time the strip takes the keyboard on its own.
     focus_menu: bool,
+    tip: Option<TipRequest>,
 }
 
 /// Where a menu belongs: beside its rail, which stands where the docker puts it.
@@ -149,6 +153,27 @@ fn menu_rect(dialog: Rect, bounds: Option<Rect>, menu: &MenuRequest) -> Rect {
         menu.anchor_y,
         (menu.width, menu.height),
         !menu.away_from_dialog,
+    )
+}
+
+/// Where a tooltip belongs: beside its rail, centred on its icon.
+fn tip_rect(dialog: Rect, bounds: Option<Rect>, tip: &TipRequest) -> Rect {
+    let panels = place_panels(dialog, bounds, LEFT_WIDTH as i32, RIGHT_WIDTH as i32, GAP);
+    let rail = match tip.side {
+        RailSide::Left => panels.left,
+        RailSide::Right => panels.right,
+    };
+    let centre = match tip.anchor {
+        TipAnchor::Top(y) => rail.y + y,
+        TipAnchor::Bottom(y) => rail.bottom() - y,
+    };
+    place_tip(
+        rail,
+        dialog,
+        bounds,
+        centre,
+        (tip.width, tip.height),
+        TIP_GAP,
     )
 }
 
@@ -293,6 +318,21 @@ impl StripActions for Actions {
         }
     }
 
+    fn place_tip(&self, tip: Option<TipRequest>) {
+        let placed = self.dock.lock().ok().and_then(|mut dock| {
+            dock.tip = tip;
+            let tip = tip?;
+            Some(tip_rect(dock.dialog?, dock.bounds, &tip))
+        });
+        // In force before the window maps, so it never opens tiled, and it
+        // never takes the keyboard.
+        if let Some(rect) = placed {
+            self.compositor
+                .install_tip_rule(RULE_TIP, APP_ID_TIP, (rect.w, rect.h), (rect.x, rect.y))
+                .ok();
+        }
+    }
+
     fn dialog_alive(&self) -> bool {
         let alive = self.adapter.lock().is_ok_and(|a| a.alive());
         if !alive {
@@ -390,16 +430,16 @@ fn dock_forever(
             *seen = Some(dialog.rect());
         }
         let bounds = bounds_for(&*compositor, dialog);
-        let (menu, focus_menu) = actions
+        let (menu, focus_menu, tip) = actions
             .dock
             .lock()
             .ok()
             .map(|mut dock| {
                 dock.dialog = Some(dialog.rect());
                 dock.bounds = bounds;
-                (dock.menu, dock.focus_menu)
+                (dock.menu, dock.focus_menu, dock.tip)
             })
-            .unwrap_or((None, false));
+            .unwrap_or((None, false, None));
         let left = clients
             .iter()
             .find(|c| c.class == APP_ID_LEFT && c.pid == me);
@@ -434,10 +474,15 @@ fn dock_forever(
                 dock.focus_menu = false;
             }
         }
+        let tip_window = clients
+            .iter()
+            .find(|c| c.class == APP_ID_TIP && c.pid == me);
+        let tip_place = tip.map(|t| tip_rect(dialog.rect(), bounds, &t));
         for (panel, wanted) in [
             (left, Some(panels.left)),
             (right, Some(panels.right)),
             (menu_window, menu_place),
+            (tip_window, tip_place),
         ] {
             let (Some(panel), Some(wanted)) = (panel, wanted) else {
                 continue;
@@ -587,6 +632,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     compositor.remove_rule(RULE_LEFT).ok();
     compositor.remove_rule(RULE_RIGHT).ok();
     compositor.remove_rule(RULE_MENU).ok();
+    compositor.remove_rule(RULE_TIP).ok();
     result
 }
 
@@ -626,6 +672,34 @@ mod tests {
         let right = menu_rect(dialog, screen, &request(RailSide::Right, 0));
         assert_eq!(right.right(), dialog.right() + GAP);
         assert_eq!(right.y, 300);
+    }
+
+    #[test]
+    fn a_tooltip_opens_beside_its_rail_over_the_dialog_centred_on_its_icon() {
+        let dialog = Rect {
+            x: 1000,
+            y: 300,
+            w: 900,
+            h: 600,
+        };
+        let screen = Some(Rect {
+            x: 0,
+            y: 0,
+            w: 4096,
+            h: 1152,
+        });
+        let tip = |side, anchor| TipRequest {
+            side,
+            anchor,
+            width: 200,
+            height: 30,
+        };
+        let left = tip_rect(dialog, screen, &tip(RailSide::Left, TipAnchor::Top(100)));
+        // The left rail ends a gap before the dialog; the tooltip a gap after it.
+        assert_eq!((left.x, left.y), (dialog.x - GAP + TIP_GAP, 385));
+        let right = tip_rect(dialog, screen, &tip(RailSide::Right, TipAnchor::Bottom(26)));
+        assert_eq!(right.right(), dialog.right() + GAP - TIP_GAP);
+        assert_eq!(right.y + right.h / 2, dialog.bottom() - 26);
     }
 
     fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {

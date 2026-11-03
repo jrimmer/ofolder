@@ -31,7 +31,12 @@ impl LeftRail {
 }
 
 impl Render for LeftRail {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The pointer leaving the window says nothing to the icon it left,
+        // but the window is drawn again, so the change is noticed here.
+        let hovered = window.is_window_hovered();
+        self.shared
+            .update(cx, |s, cx| s.rail_hovered(RailSide::Left, hovered, cx));
         let (busy, back, forward, up, open) = {
             let s = self.shared.read(cx);
             (
@@ -71,7 +76,7 @@ impl Render for LeftRail {
                 } else {
                     IconLook::Enabled
                 };
-                rail_icon(button, slot.y, look, tooltip, None).on_click(cx.listener(
+                rail_icon(button, slot.y, look, tooltip, None, &self.shared).on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.shared.update(cx, |s, cx| s.click_menu(kind, cx));
                     },
@@ -88,7 +93,7 @@ impl Render for LeftRail {
                 } else {
                     IconLook::Disabled
                 };
-                rail_icon(button, slot.y, look, tooltip, None).when(allowed, |b| {
+                rail_icon(button, slot.y, look, tooltip, None, &self.shared).when(allowed, |b| {
                     b.on_click(cx.listener(move |this, _, _, cx| {
                         this.shared.update(cx, |s, cx| {
                             s.close_menu(cx);

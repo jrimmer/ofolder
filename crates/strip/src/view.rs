@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyView, App, Context, ElementId, MouseButton, Render, Stateful, Window, WindowHandle,
+    AnyView, App, Context, ElementId, Entity, MouseButton, Render, Stateful, Window, WindowHandle,
     WindowId, div, prelude::*, px, rgb,
 };
 
@@ -17,12 +17,13 @@ use ofolder_core::{browse, search};
 
 use crate::colors::colors;
 use crate::expand::{RowKey, Section};
+use crate::hint::{self, Hint, Hints, Step, TipAnchor, TipWindow};
 use crate::menu::RowAction;
 use crate::model::{Effect, Job, Mode, ViewModel};
 use crate::popup::MenuWindow;
 use crate::rail::{self, Change, MenuKind, Menus};
 use crate::sources::RecentsRead;
-use crate::{MenuRequest, StripActions, menu_options};
+use crate::{MenuRequest, StripActions, TipRequest, menu_options, tip_options};
 
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
@@ -35,6 +36,8 @@ const PLACES_EVERY: u32 = 15;
 /// menu closes. Moving from a rail to its menu passes through a moment when
 /// neither is active, and that must not close it.
 const LEAVE_GRACE: Duration = Duration::from_millis(350);
+/// How long the pointer must stay off a rail before its tooltip goes.
+const POINTER_GRACE: Duration = Duration::from_millis(200);
 /// Where the message window's top goes: past the rail's foot, which places
 /// it at the bottom of the right rail.
 const TOAST_ANCHOR: i32 = 100_000;
@@ -109,6 +112,14 @@ pub struct Shared {
     leave_check: u64,
     /// The short backend name, e.g. "flea", for the About menu.
     pub label: String,
+    /// Which rail icon's tooltip is wanted or showing.
+    hints: Hints,
+    /// The tooltip's window, once it has opened.
+    tip_window: Option<WindowHandle<TipWindow>>,
+    /// Counts tooltips opened and closed, so a late window is taken down.
+    tip_serial: u64,
+    /// Whether the pointer is over the left and the right rail.
+    hovered: [bool; 2],
 }
 
 impl Shared {
@@ -123,6 +134,10 @@ impl Shared {
             active: [false; 3],
             leave_check: 0,
             label: String::new(),
+            hints: Hints::default(),
+            tip_window: None,
+            tip_serial: 0,
+            hovered: [false; 2],
         };
         shared.start_polling(cx);
         shared
@@ -159,9 +174,128 @@ impl Shared {
         }
     }
 
+    // ---- tooltips ---------------------------------------------------------
+
+    /// The pointer entered (`hovered`) or left a rail icon.
+    pub fn hover_tip(&mut self, hint: Hint, hovered: bool, cx: &mut Context<Self>) {
+        let step = if hovered {
+            self.hints.enter(hint)
+        } else {
+            self.hints.leave(hint.key)
+        };
+        match step {
+            Step::Wait(serial) => {
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(hint::DELAY_MS))
+                        .await;
+                    this.update(cx, |s, cx| {
+                        if let Some(hint) = s.hints.due(serial).cloned() {
+                            s.show_tip(hint, cx);
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+            Step::ShowNow => {
+                if let Some(hint) = self.hints.wanted().cloned() {
+                    self.show_tip(hint, cx);
+                }
+            }
+            Step::Hide => self.close_tip_window(cx),
+            Step::Nothing => {}
+        }
+    }
+
+    /// Whether the pointer is over the rail on `side`. When it has left and
+    /// not come back a moment later, that rail's tooltip goes: a window
+    /// opening nearby can take the pointer away and give it back at once.
+    pub fn rail_hovered(&mut self, side: rail::RailSide, hovered: bool, cx: &mut Context<Self>) {
+        let slot = match side {
+            rail::RailSide::Left => 0,
+            rail::RailSide::Right => 1,
+        };
+        if self.hovered[slot] == hovered {
+            return;
+        }
+        self.hovered[slot] = hovered;
+        if hovered {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(POINTER_GRACE).await;
+            this.update(cx, |s, cx| {
+                if !s.hovered[slot] && s.hints.wanted().is_some_and(|h| h.side == side) {
+                    s.hide_tip(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// No tooltip, and none pending: after a click, when a menu opens, or
+    /// when the keyboard leaves the rails.
+    pub fn hide_tip(&mut self, cx: &mut Context<Self>) {
+        self.hints.clear();
+        self.close_tip_window(cx);
+    }
+
+    fn show_tip(&mut self, hint: Hint, cx: &mut Context<Self>) {
+        self.close_tip_window(cx);
+        let lines = hint::lines(&hint.text);
+        let size = hint::size(&lines);
+        // The placement rule must be in force before the window maps.
+        self.actions.place_tip(Some(TipRequest {
+            side: hint.side,
+            anchor: hint.anchor,
+            width: size.0,
+            height: size.1,
+        }));
+        self.hints.shown();
+        let serial = self.tip_serial;
+        let shared = cx.entity();
+        cx.defer(move |cx| {
+            let options = tip_options(size, cx);
+            let opened = cx.open_window(options, move |_, cx| cx.new(|_| TipWindow::new(lines)));
+            shared.update(cx, |s, cx| match opened {
+                Ok(handle) if s.tip_serial == serial => s.tip_window = Some(handle),
+                // Taken down before its window came up.
+                Ok(handle) => {
+                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                }
+                Err(error) => eprintln!("ofolder: could not open a tooltip: {error}"),
+            });
+        });
+    }
+
+    fn close_tip_window(&mut self, cx: &mut Context<Self>) {
+        self.tip_serial += 1;
+        if let Some(handle) = self.tip_window.take() {
+            cx.defer(move |cx| {
+                handle.update(cx, |_, w, _| w.remove_window()).ok();
+            });
+        }
+        self.actions.place_tip(None);
+    }
+
+    /// Called when any window closes: a tooltip window the compositor closed
+    /// is forgotten.
+    pub fn tip_window_closed(&mut self, open: &[WindowId]) {
+        if self
+            .tip_window
+            .is_some_and(|h| !open.contains(&h.window_id()))
+        {
+            self.tip_window = None;
+            self.hints.clear();
+        }
+    }
+
     /// A click on a rail icon that has a menu: opens it, or closes it when
     /// it is the one open.
     pub fn click_menu(&mut self, kind: MenuKind, cx: &mut Context<Self>) {
+        self.hide_tip(cx);
         match self.menus.click(kind) {
             Change::Open(kind) => {
                 self.cancel_prompt();
@@ -307,6 +441,10 @@ impl Shared {
             Which::Right => self.active[1] = active,
             Which::Menu(serial) if serial == self.menu_serial => self.active[2] = active,
             Which::Menu(_) => return,
+        }
+        // A tooltip belongs to a rail the user is pointing at.
+        if matches!(which, Which::Left | Which::Right) && !active {
+            self.hide_tip(cx);
         }
         self.leave_check += 1;
         if self.active.iter().any(|a| *a)
@@ -580,7 +718,14 @@ pub fn rail_icon(
     look: IconLook,
     tooltip: String,
     icon: Option<&'static str>,
+    shared: &Entity<Shared>,
 ) -> Stateful<gpui::Div> {
+    let hint = Hint {
+        key: button.id(),
+        side: button.side(),
+        anchor: TipAnchor::Top((y + rail::BUTTON / 2.).round() as i32),
+        text: tooltip,
+    };
     let inset = (rail::RAIL_WIDTH - rail::BUTTON) / 2.;
     let (color, bg) = match look {
         IconLook::Enabled => (colors().text, None),
@@ -601,8 +746,8 @@ pub fn rail_icon(
         .when_some(bg, |d, bg| d.bg(rgb(bg)))
         // A press on an icon is not a press on the dead space around it,
         // which closes an open menu.
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .tooltip(tip(tooltip))
+        .on_mouse_down(MouseButton::Left, press_hides_tip(shared))
+        .on_hover(hover_shows_tip(shared, hint))
         .child(
             gpui::svg()
                 .path(icon.unwrap_or(button.icon()))
@@ -615,6 +760,30 @@ pub fn rail_icon(
             base.cursor_pointer().hover(|s| s.bg(rgb(colors().hover)))
         }
         IconLook::Open => base.cursor_pointer(),
+    }
+}
+
+/// Shows `hint` while the pointer rests on the element it is attached to.
+pub fn hover_shows_tip(
+    shared: &Entity<Shared>,
+    hint: Hint,
+) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+    let shared = shared.clone();
+    move |hovered, _, cx| {
+        let hint = hint.clone();
+        shared.update(cx, |s, cx| s.hover_tip(hint, *hovered, cx));
+    }
+}
+
+/// A press on a rail icon: it is not a press on the rail's empty space,
+/// and it takes the icon's tooltip down.
+pub fn press_hides_tip(
+    shared: &Entity<Shared>,
+) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static {
+    let shared = shared.clone();
+    move |_, _, cx| {
+        cx.stop_propagation();
+        shared.update(cx, |s, cx| s.hide_tip(cx));
     }
 }
 

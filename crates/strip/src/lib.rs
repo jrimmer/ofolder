@@ -14,6 +14,7 @@ pub mod expand;
 pub mod favorites;
 mod field;
 mod finder;
+mod hint;
 mod icons;
 mod left;
 mod lines;
@@ -39,6 +40,7 @@ use gpui::{
 pub use demo::{DemoActions, demo_setup};
 pub use error::StripError;
 
+pub use hint::TipAnchor;
 use left::LeftRail;
 use model::ViewModel;
 pub use rail::{MenuKind, RailSide};
@@ -53,6 +55,8 @@ pub const APP_ID_RIGHT: &str = "ofolder.strip.right";
 /// The window class of a rail's menu, and of the message shown while no menu
 /// is open.
 pub const APP_ID_MENU: &str = "ofolder.strip.menu";
+/// The window class of a rail icon's tooltip.
+pub const APP_ID_TIP: &str = "ofolder.strip.tip";
 
 /// The left rail's width in logical pixels.
 pub const LEFT_WIDTH: f32 = rail::RAIL_WIDTH;
@@ -79,6 +83,16 @@ pub struct MenuRequest {
     pub away_from_dialog: bool,
 }
 
+/// A rail icon's tooltip about to open beside its rail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TipRequest {
+    pub side: RailSide,
+    /// The icon's centre on its rail.
+    pub anchor: TipAnchor,
+    pub width: i32,
+    pub height: i32,
+}
+
 /// The height the window opens with; the caller may resize it.
 const HEIGHT: f32 = 480.0;
 
@@ -100,6 +114,10 @@ pub trait StripActions: Send + Sync + 'static {
     /// changes size, `None` once it is closed. Called on the UI thread, so
     /// it must return quickly.
     fn place_menu(&self, menu: Option<MenuRequest>);
+    /// Where a tooltip window goes: `Some` just before one opens, `None`
+    /// once it is closed. It must never take the keyboard. Called on the UI
+    /// thread, so it must return quickly.
+    fn place_tip(&self, tip: Option<TipRequest>);
 }
 
 pub struct StripOptions {
@@ -160,6 +178,16 @@ pub(crate) fn menu_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
     )
 }
 
+/// The options for a tooltip window of `size`.
+pub(crate) fn tip_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
+    window_options(
+        APP_ID_TIP,
+        "ofolder tip",
+        (size.0 as f32, size.1 as f32),
+        cx,
+    )
+}
+
 /// Opens both panels and runs until the dialog is gone or either window is
 /// closed.
 pub fn run_strip(options: StripOptions, actions: Arc<dyn StripActions>) -> anyhow::Result<()> {
@@ -215,7 +243,10 @@ pub fn run_strip_preview(
                 cx.quit();
                 return;
             }
-            watched.update(cx, |s, cx| s.menu_window_closed(&open, cx));
+            watched.update(cx, |s, cx| {
+                s.menu_window_closed(&open, cx);
+                s.tip_window_closed(&open);
+            });
         })
         .detach();
         if let Some(kind) = open_first {

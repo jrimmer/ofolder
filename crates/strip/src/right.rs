@@ -9,8 +9,14 @@ use gpui::{
 };
 
 use crate::colors::colors;
+use crate::hint::{Hint, TipAnchor};
 use crate::rail::{self, Button, Entry, MenuKind, RailSide};
-use crate::view::{IconLook, Shared, Which, rail_divider, rail_icon, tip};
+use crate::view::{
+    IconLook, Shared, Which, hover_shows_tip, press_hides_tip, rail_divider, rail_icon,
+};
+
+/// The About mark's distance from the rail's foot.
+const MARK_BOTTOM: f32 = 8.0;
 
 pub struct RightRail {
     shared: Entity<Shared>,
@@ -33,7 +39,12 @@ impl RightRail {
 }
 
 impl Render for RightRail {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The pointer leaving the window says nothing to the icon it left,
+        // but the window is drawn again, so the change is noticed here.
+        let hovered = window.is_window_hovered();
+        self.shared
+            .update(cx, |s, cx| s.rail_hovered(RailSide::Right, hovered, cx));
         let (known, busy, favorite, full, open) = {
             let s = self.shared.read(cx);
             (
@@ -82,7 +93,7 @@ impl Render for RightRail {
                     (false, true) => IconLook::Enabled,
                     (false, false) => IconLook::Disabled,
                 };
-                rail_icon(button, slot.y, look, tooltip, None).when(
+                rail_icon(button, slot.y, look, tooltip, None, &self.shared).when(
                     allowed || open == Some(kind),
                     |b| {
                         b.on_click(cx.listener(move |this, _, _, cx| {
@@ -98,7 +109,7 @@ impl Render for RightRail {
                     (true, false) => IconLook::Enabled,
                 };
                 let icon = on.then_some("icons/star-filled.svg");
-                rail_icon(button, slot.y, look, tooltip, icon).when(allowed, |b| {
+                rail_icon(button, slot.y, look, tooltip, icon, &self.shared).when(allowed, |b| {
                     b.on_click(cx.listener(move |this, _, _, cx| {
                         let copied = this.shared.update(cx, |s, cx| {
                             s.close_menu(cx);
@@ -144,7 +155,7 @@ impl Render for RightRail {
             div()
                 .id("rail-mark")
                 .absolute()
-                .bottom(px(8.))
+                .bottom(px(MARK_BOTTOM))
                 .left(px((rail::RAIL_WIDTH - rail::BUTTON) / 2.))
                 .size(px(rail::BUTTON))
                 .flex()
@@ -152,10 +163,18 @@ impl Render for RightRail {
                 .justify_center()
                 .rounded(px(6.))
                 .cursor_pointer()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_mouse_down(MouseButton::Left, press_hides_tip(&self.shared))
                 .when(about_open, |d| d.bg(rgb(colors().chosen)))
                 .hover(|s| s.bg(rgb(colors().hover)))
-                .tooltip(tip(mark_tip))
+                .on_hover(hover_shows_tip(
+                    &self.shared,
+                    Hint {
+                        key: "rail-mark",
+                        side: RailSide::Right,
+                        anchor: TipAnchor::Bottom((MARK_BOTTOM + rail::BUTTON / 2.).round() as i32),
+                        text: mark_tip,
+                    },
+                ))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.shared
                         .update(cx, |s, cx| s.click_menu(MenuKind::About, cx));
