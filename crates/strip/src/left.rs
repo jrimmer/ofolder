@@ -91,15 +91,7 @@ impl Render for LeftRail {
                 };
                 rail_icon(button, slot.y, look, tooltip, None, &self.shared).when(allowed, |b| {
                     b.on_click(cx.listener(move |this, _, _, cx| {
-                        this.shared.update(cx, |s, cx| {
-                            s.close_menu(cx);
-                            let job = match button {
-                                Button::Back => s.vm.go_back(),
-                                Button::Forward => s.vm.go_forward(),
-                                _ => s.vm.go_up(),
-                            };
-                            s.start(job, cx);
-                        });
+                        this.shared.update(cx, |s, cx| s.press(button, cx));
                     }))
                 })
             };

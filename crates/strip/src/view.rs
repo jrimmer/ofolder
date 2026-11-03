@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyView, App, Context, ElementId, Entity, MouseButton, Render, Stateful, Window, WindowHandle,
-    WindowId, div, prelude::*, px, rgb,
+    AnyView, App, ClipboardItem, Context, ElementId, Entity, MouseButton, Render, Stateful, Window,
+    WindowHandle, WindowId, div, prelude::*, px, rgb,
 };
 
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ use crate::hint::{self, Hint, Hints, Step, TipAnchor, TipWindow};
 use crate::menu::RowAction;
 use crate::model::{Effect, Job, Mode, ViewModel};
 use crate::popup::MenuWindow;
-use crate::rail::{self, Change, Layout, MenuKind, Menus};
+use crate::rail::{self, Button, Change, Layout, MenuKind, Menus, RailSide};
 use crate::settings_window::{self, SettingsWindow};
 use crate::sources::RecentsRead;
 use crate::{
@@ -29,9 +29,13 @@ use crate::{
     tip_options,
 };
 use ofolder_core::rails::RailLayout;
+use ofolder_core::shortcuts::{Combo, Shortcuts};
 
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
+/// How often commands from shortcuts are picked up: soon enough to feel
+/// immediate.
+const LISTEN: Duration = Duration::from_millis(40);
 /// Favorites are checked for existence and the recents reread every this
 /// many polls (two seconds), because a stat on a slow mount can take a while.
 const RECENTS_EVERY: u32 = 10;
@@ -133,6 +137,8 @@ pub struct Shared {
     tip_window: Option<WindowHandle<TipWindow>>,
     /// Counts tooltips opened and closed, so a late window is taken down.
     tip_serial: u64,
+    /// Shortcuts that could not be bound, by command id, with why.
+    pub shortcut_problems: Vec<(String, String)>,
 }
 
 impl Shared {
@@ -145,7 +151,7 @@ impl Shared {
     ) -> Self {
         let rails = vm.rails().clone();
         let layout = Layout::from_core(&rails);
-        let shared = Shared {
+        let mut shared = Shared {
             vm,
             actions,
             menus: Menus::default(),
@@ -165,8 +171,11 @@ impl Shared {
             hints: Hints::default(),
             tip_window: None,
             tip_serial: 0,
+            shortcut_problems: Vec::new(),
         };
+        shared.shortcut_problems = shared.actions.shortcut_problems();
         shared.start_polling(cx);
+        shared.start_listening(cx);
         shared
     }
 
@@ -202,6 +211,110 @@ impl Shared {
             fresh,
             away_from_dialog: kind == MenuKind::Toast,
         }
+    }
+
+    // ---- commands: icon clicks and shortcuts ---------------------------------
+
+    /// A rail icon was pressed, by click or by shortcut. Does what the icon
+    /// does, unless the icon is switched off now (folder unknown, busy, no
+    /// history).
+    pub fn press(&mut self, button: Button, cx: &mut Context<Self>) {
+        let known = self.vm.folder().is_some();
+        let busy = self.vm.busy();
+        if let Some(kind) = button.menu() {
+            let allowed = match button.side() {
+                RailSide::Left => true,
+                RailSide::Right => known && !(busy && button == Button::NewFolder),
+            };
+            if allowed || self.open_menu() == Some(kind) {
+                self.click_menu(kind, cx);
+            }
+            return;
+        }
+        match button {
+            Button::Back | Button::Forward | Button::Parent => {
+                let can = match button {
+                    Button::Back => self.vm.can_go_back(),
+                    Button::Forward => self.vm.can_go_forward(),
+                    _ => self.vm.can_go_up(),
+                };
+                if busy || !can {
+                    return;
+                }
+                self.close_menu(cx);
+                let job = match button {
+                    Button::Back => self.vm.go_back(),
+                    Button::Forward => self.vm.go_forward(),
+                    _ => self.vm.go_up(),
+                };
+                self.start(job, cx);
+            }
+            _ if !known => {}
+            _ => {
+                self.close_menu(cx);
+                let copied = match button {
+                    Button::Favorite => {
+                        self.vm.toggle_current_favorite();
+                        None
+                    }
+                    Button::CopyPath => self.vm.copy_path(),
+                    Button::FileManager => {
+                        let job = self.vm.open_current(false);
+                        self.start(job, cx);
+                        None
+                    }
+                    _ => {
+                        let job = self.vm.open_current(true);
+                        self.start(job, cx);
+                        None
+                    }
+                };
+                self.changed(cx);
+                if let Some(text) = copied {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
+            }
+        }
+    }
+
+    /// Runs a shortcut's command: an icon's, or `settings` for the gear.
+    pub fn run_command(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.hide_tip(cx);
+        if id == "settings" {
+            self.toggle_settings(cx);
+        } else if let Some(button) = Button::from_key(id) {
+            self.press(button, cx);
+        }
+    }
+
+    /// Picks up commands from keyboard shortcuts as they arrive.
+    fn start_listening(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(LISTEN).await;
+                let alive = this.update(cx, |s, cx| {
+                    for id in s.actions.take_commands() {
+                        s.run_command(id, cx);
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Binds `shortcuts` in place of the current ones and keeps what could
+    /// not be bound, for the settings window.
+    pub fn rebind(&mut self, shortcuts: &Shortcuts, cx: &mut Context<Self>) {
+        self.shortcut_problems = self.actions.rebind(shortcuts);
+        cx.notify();
+    }
+
+    /// What the user's own configuration does with `combo`, if it binds it.
+    pub fn taken_by(&self, combo: &Combo) -> Option<String> {
+        self.actions.taken_by(combo)
     }
 
     // ---- the settings window and the layout --------------------------------

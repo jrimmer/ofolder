@@ -4,8 +4,8 @@
 //! dialog's folder cannot be read.
 
 use gpui::{
-    ClipboardItem, Context, Entity, IntoElement, MouseButton, Render, Subscription, Window, div,
-    prelude::*, px, rgb, svg,
+    Context, Entity, IntoElement, MouseButton, Render, Subscription, Window, div, prelude::*, px,
+    rgb, svg,
 };
 
 use crate::colors::colors;
@@ -107,31 +107,7 @@ impl Render for RightRail {
                 let icon = on.then_some("icons/star-filled.svg");
                 rail_icon(button, slot.y, look, tooltip, icon, &self.shared).when(allowed, |b| {
                     b.on_click(cx.listener(move |this, _, _, cx| {
-                        let copied = this.shared.update(cx, |s, cx| {
-                            s.close_menu(cx);
-                            let copied = match button {
-                                Button::Favorite => {
-                                    s.vm.toggle_current_favorite();
-                                    None
-                                }
-                                Button::CopyPath => s.vm.copy_path(),
-                                Button::FileManager => {
-                                    let job = s.vm.open_current(false);
-                                    s.start(job, cx);
-                                    None
-                                }
-                                _ => {
-                                    let job = s.vm.open_current(true);
-                                    s.start(job, cx);
-                                    None
-                                }
-                            };
-                            s.changed(cx);
-                            copied
-                        });
-                        if let Some(text) = copied {
-                            cx.write_to_clipboard(ClipboardItem::new_string(text));
-                        }
+                        this.shared.update(cx, |s, cx| s.press(button, cx));
                     }))
                 })
             };

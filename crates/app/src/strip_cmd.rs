@@ -11,6 +11,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
+
+use crate::keys;
 use ofolder_adapters::flea::{FleaAdapter, find_new_picker};
 use ofolder_adapters::gtk::GtkAdapter;
 use ofolder_adapters::hyprctl::Hyprctl;
@@ -19,8 +21,10 @@ use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
 use ofolder_core::geometry::{Panels, Rect, centre_in, place_menu, place_panels, place_tip};
+use ofolder_core::keybind::taken_by;
 use ofolder_core::launch::{self, Command};
 use ofolder_core::settings;
+use ofolder_core::shortcuts::{Combo, Shortcuts};
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
     APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP, LEFT_WIDTH, MenuRequest,
@@ -125,6 +129,12 @@ struct Actions {
     home: PathBuf,
     compositor: Arc<dyn Compositor>,
     dock: Mutex<Dock>,
+    /// Binds the shortcuts; None without a runtime folder to record them in.
+    binder: Option<keys::Binder>,
+    /// Commands from shortcuts, as the socket receives them.
+    commands: keys::Queue,
+    /// Shortcuts that could not be bound when the strip started.
+    problems: Mutex<keys::Problems>,
 }
 
 /// What the docking thread and the strip's menu share. The docker keeps the
@@ -343,6 +353,47 @@ impl StripActions for Actions {
             self.compositor
                 .install_tip_rule(RULE_TIP, APP_ID_TIP, (rect.w, rect.h), (rect.x, rect.y))
                 .ok();
+        }
+    }
+
+    fn take_commands(&self) -> Vec<&'static str> {
+        self.commands
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    fn shortcut_problems(&self) -> Vec<(String, String)> {
+        self.problems.lock().map(|p| p.clone()).unwrap_or_default()
+    }
+
+    fn rebind(&self, shortcuts: &Shortcuts) -> Vec<(String, String)> {
+        let problems = match &self.binder {
+            Some(binder) => binder.apply(shortcuts),
+            None => shortcuts
+                .iter()
+                .map(|(def, _)| {
+                    (
+                        def.id.to_owned(),
+                        "not bound: there is no runtime folder to record bindings in".to_owned(),
+                    )
+                })
+                .collect(),
+        };
+        if let Ok(mut p) = self.problems.lock() {
+            p.clone_from(&problems);
+        }
+        problems
+    }
+
+    fn taken_by(&self, combo: &Combo) -> Option<String> {
+        match self.compositor.binds() {
+            Ok(binds) => taken_by(combo, &binds),
+            // Unknown is treated as taken: a shortcut must never shadow one
+            // of the user's own.
+            Err(e) => Some(format!(
+                "possibly bound: the key bindings could not be read ({e})"
+            )),
         }
     }
 
@@ -603,12 +654,27 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
         &home,
     );
+    let runtime = keys::runtime_dir()
+        .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
+        .ok();
+    let binder = runtime.as_ref().and_then(|dir| {
+        let exe = crate::own_exe().ok()?;
+        Some(keys::Binder::new(
+            compositor.clone(),
+            dir.clone(),
+            exe,
+            std::process::id(),
+        ))
+    });
     let actions = Arc::new(Actions {
         adapter: Mutex::new(adapter),
         settings_path: settings_path.clone(),
         home: home.clone(),
         compositor: compositor.clone(),
         dock: Mutex::new(Dock::default()),
+        binder,
+        commands: keys::Queue::default(),
+        problems: Mutex::new(Vec::new()),
     });
 
     let window = wait_for(Duration::from_secs(8), || actions.window()).context(
@@ -672,6 +738,21 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
         &home,
     );
+    // Shortcuts: a socket for `ofolder do`, and the user's keys bound while
+    // this dialog is open. Bindings a dead strip left behind go first.
+    let _server = runtime.as_ref().and_then(|dir| {
+        keys::clean_stale(&*compositor, dir, &keys::ofolder_alive);
+        keys::serve(dir, std::process::id(), actions.commands.clone())
+            .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
+            .ok()
+    });
+    let shortcuts = settings::load(&settings_path, &home).settings.shortcuts;
+    if !shortcuts.is_empty() {
+        let problems = actions.rebind(&shortcuts);
+        for (id, why) in &problems {
+            note(&format!("shortcut {id}: {why}"));
+        }
+    }
     note("opening the strip window");
     let result = ofolder_strip::run_strip(
         StripOptions {
@@ -692,9 +773,12 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
             ),
             home,
         },
-        actions,
+        actions.clone(),
     );
     note(&format!("strip window closed: {result:?}"));
+    if let Some(binder) = &actions.binder {
+        binder.release();
+    }
     // Remember where the dialog was when it closed, for the next time this app opens one.
     let left_at = last_seen.lock().ok().and_then(|seen| *seen);
     if let Some(rect) = left_at {

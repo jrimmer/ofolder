@@ -6,6 +6,8 @@ use ofolder_core::hypr::{
     Client, Monitor, float_rule_lua, is_plain_identifier, is_window_address, parse_clients,
     parse_monitors, remove_rule_lua, tip_rule_lua,
 };
+use ofolder_core::keybind::{Bind, bind_lua, parse_binds, unbind_lua};
+use ofolder_core::shortcuts::Combo;
 use ofolder_core::system::{Compositor, SystemError};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -205,6 +207,21 @@ impl Compositor for Hyprctl {
             "rule",
             &remove_rule_lua(name).map_err(|e| failure("rule", e))?,
         )
+    }
+
+    fn binds(&self) -> Result<Vec<Bind>, SystemError> {
+        parse_binds(&Self::run(&["binds", "-j"])?).map_err(|e| failure("binds", e))
+    }
+
+    fn bind_key(&self, combo: &Combo, command_line: &str, title: &str) -> Result<(), SystemError> {
+        Self::eval(
+            "bind",
+            &bind_lua(combo, command_line, title).map_err(|e| failure("bind", e))?,
+        )
+    }
+
+    fn unbind_key(&self, combo: &Combo) -> Result<(), SystemError> {
+        Self::eval("unbind", &unbind_lua(combo))
     }
 }
 

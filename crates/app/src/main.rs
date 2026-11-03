@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod hooks;
+mod keys;
 mod live;
 mod pause;
 mod recording;
@@ -25,6 +26,9 @@ commands:
                switch every dialog back to untouched, switch ofolder on again, or show the state
   strip --backend <id> --title <t>
                the strip for one open dialog (the proxy starts these)
+  do <command>  run a rail command in the open dialog's strip (what a shortcut runs),
+               e.g. places, find, new_folder, copy_path, settings
+  unbind-all   remove every key binding ofolder made, if a crash left any
   live-check [flea|gtk|strata]
                run an adapter against the real dialog (opens a window briefly)
   version      print the version";
@@ -41,6 +45,8 @@ fn main() -> anyhow::Result<()> {
         Some("resume") => set_paused(false),
         Some("status") => status(),
         Some("strip") => strip_cmd::run(&env::args().skip(2).collect::<Vec<_>>()),
+        Some("do") => do_command(env::args().nth(2).as_deref()),
+        Some("unbind-all") => unbind_all(),
         Some("live-check") => live::run(env::args().nth(2).as_deref().unwrap_or("flea")),
         Some("version" | "--version") => {
             println!("ofolder {}", env!("CARGO_PKG_VERSION"));
@@ -236,11 +242,41 @@ fn status() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `ofolder do <command>`: hands the command to the newest strip. Paused,
+/// it does nothing; with no strip running it cleans up after any that died
+/// and fails quietly, so a shortcut pressed with no dialog open is harmless.
+fn do_command(id: Option<&str>) -> anyhow::Result<()> {
+    let id = id.ok_or_else(|| anyhow::anyhow!("usage: ofolder do <command>"))?;
+    let def =
+        ofolder_core::shortcuts::command(id).ok_or_else(|| anyhow::anyhow!("no command {id:?}"))?;
+    let (path, home) = settings_file()?;
+    if ofolder_core::settings::load(&path, &home).settings.paused {
+        return Ok(());
+    }
+    let dir = keys::runtime_dir()?;
+    if keys::send(&dir, def.id, &keys::ofolder_alive)? {
+        return Ok(());
+    }
+    keys::clean_stale(
+        &ofolder_adapters::hyprctl::Hyprctl,
+        &dir,
+        &keys::ofolder_alive,
+    );
+    std::process::exit(1);
+}
+
+fn unbind_all() -> anyhow::Result<()> {
+    let dir = keys::runtime_dir()?;
+    let removed = keys::clear_ours(&ofolder_adapters::hyprctl::Hyprctl, &dir);
+    println!("removed {removed} key binding(s) ofolder had made");
+    Ok(())
+}
+
 /// The path to start this program again with. When the binary was replaced
 /// while the portal was running, Linux reports the old file as
 /// "<path> (deleted)", which cannot be started: the same path now holds the
 /// new build, so use that.
-fn own_exe() -> std::io::Result<PathBuf> {
+pub(crate) fn own_exe() -> std::io::Result<PathBuf> {
     Ok(without_deleted_suffix(env::current_exe()?))
 }
 

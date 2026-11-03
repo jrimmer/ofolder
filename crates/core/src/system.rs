@@ -2,6 +2,8 @@
 //! when it is safe to act can be tested with fakes instead of a desktop.
 
 use crate::hypr::{Client, Monitor};
+use crate::keybind::Bind;
+use crate::shortcuts::Combo;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -75,6 +77,26 @@ pub trait Compositor: Send + Sync {
     /// Switches a rule off. A rule that does not exist is not an error.
     fn remove_rule(&self, _name: &str) -> Result<(), SystemError> {
         Err(unsupported("remove a window rule"))
+    }
+
+    /// Every key binding the compositor holds now.
+    fn binds(&self) -> Result<Vec<Bind>, SystemError> {
+        Err(unsupported("list key bindings"))
+    }
+
+    /// Binds `combo` to run `command_line`, described as `title`.
+    fn bind_key(
+        &self,
+        _combo: &Combo,
+        _command_line: &str,
+        _title: &str,
+    ) -> Result<(), SystemError> {
+        Err(unsupported("bind a key"))
+    }
+
+    /// Removes the bindings of `combo`. One that is not bound is not an error.
+    fn unbind_key(&self, _combo: &Combo) -> Result<(), SystemError> {
+        Err(unsupported("unbind a key"))
     }
 }
 

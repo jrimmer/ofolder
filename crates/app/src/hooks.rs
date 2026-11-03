@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ofolder_adapters::flea::picker_pids;
 use ofolder_adapters::strata;
@@ -16,6 +16,7 @@ use ofolder_core::system::Compositor;
 use ofolder_portal::hooks::{Call, Hooks, Options};
 use ofolder_portal::preseed;
 
+use crate::keys;
 use crate::recording::Recorder;
 
 pub struct StripHooks {
@@ -73,12 +74,31 @@ struct DialogGuard {
     strata_rule: bool,
 }
 
+/// How long a strip has to notice its dialog closed and end by itself,
+/// removing its key bindings, before it is stopped.
+const STRIP_GRACE: Duration = Duration::from_millis(1500);
+
 impl Drop for DialogGuard {
     fn drop(&mut self) {
-        if let Some(strip) = self.strip.as_mut() {
-            // The strip exits by itself when the dialog closes; this covers a crash or a hang.
-            strip.kill().ok();
-            strip.wait().ok();
+        if let Some(mut strip) = self.strip.take() {
+            // The strip exits by itself when the dialog closes; stopping it
+            // covers a crash or a hang. Waited for off this thread, so the
+            // application gets its answer at once.
+            let compositor = self.compositor.clone();
+            std::thread::spawn(move || {
+                let start = Instant::now();
+                while matches!(strip.try_wait(), Ok(None)) && start.elapsed() < STRIP_GRACE {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                if matches!(strip.try_wait(), Ok(None)) {
+                    strip.kill().ok();
+                }
+                strip.wait().ok();
+                // A strip that was stopped could not remove its key bindings.
+                if let Ok(dir) = keys::runtime_dir() {
+                    keys::release_for(&*compositor, &dir, strip.id());
+                }
+            });
         }
         if self.strata_rule {
             strata::remove_float_rule(&*self.compositor);

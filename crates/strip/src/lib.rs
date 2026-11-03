@@ -33,6 +33,8 @@ mod view;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ofolder_core::shortcuts::{Combo, Shortcuts};
+
 use gpui::{
     AnyWindowHandle, App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
     prelude::*, px, size,
@@ -136,6 +138,27 @@ pub trait StripActions: Send + Sync + 'static {
     /// Where the settings window goes: `Some` just before it opens, `None`
     /// once it is closed. Called on the UI thread, so it must return quickly.
     fn place_settings(&self, settings: Option<SettingsRequest>);
+    /// Commands from keyboard shortcuts that arrived since the last call,
+    /// oldest first, by command id. Called on the UI thread many times a
+    /// second, so it must return at once. Without shortcuts, none.
+    fn take_commands(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+    /// The shortcuts that could not be bound when the strip started, by
+    /// command id, with why.
+    fn shortcut_problems(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// Binds `shortcuts` in place of the ones bound now, after the settings
+    /// window changed them; returns those that could not be bound.
+    fn rebind(&self, _shortcuts: &Shortcuts) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    /// What the user's own compositor configuration does with `combo`, when
+    /// it binds it, so a shortcut never shadows it.
+    fn taken_by(&self, _combo: &Combo) -> Option<String> {
+        None
+    }
 }
 
 pub struct StripOptions {
