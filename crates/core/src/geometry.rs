@@ -157,6 +157,44 @@ pub fn place_panels(
     }
 }
 
+/// Where a rail's popup menu goes: flush against the rail on the side that
+/// faces the dialog (or the side away from it, for a message that must not
+/// cover the dialog's buttons), its top level with the clicked icon
+/// (`anchor_y` below the rail's top), moved up to keep its bottom within the
+/// rail and then kept on the monitor. When that side has no room it opens on
+/// the other side.
+pub fn place_menu(
+    rail: Rect,
+    dialog: Rect,
+    bounds: Option<Rect>,
+    anchor_y: i32,
+    size: (i32, i32),
+    face_dialog: bool,
+) -> Rect {
+    let (w, h) = size;
+    let rail_centre = rail.x + rail.w / 2;
+    let dialog_centre = dialog.x + dialog.w / 2;
+    let toward_right = (rail_centre <= dialog_centre) == face_dialog;
+    let right_x = rail.right();
+    let left_x = rail.x - w;
+    let mut x = if toward_right { right_x } else { left_x };
+    let mut y = rail.y + anchor_y.clamp(0, rail.h.max(0));
+    y = y.min(rail.bottom() - h).max(rail.y);
+    if let Some(b) = bounds {
+        let fits = |x: i32| x >= b.x && x + w <= b.right();
+        if !fits(x) {
+            let other = if toward_right { left_x } else { right_x };
+            x = if fits(other) {
+                other
+            } else {
+                x.min(b.right() - w).max(b.x)
+            };
+        }
+        y = y.min(b.bottom() - h).max(b.y);
+    }
+    Rect { x, y, w, h }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +353,85 @@ mod tests {
         assert_eq!(p.arrangement, Arrangement::Split);
         assert_eq!(p.left.x, 3200 - 6 - 200);
         assert_eq!(p.right.x, 3200 + 875 + 6);
+    }
+
+    fn rail(x: i32) -> Rect {
+        Rect {
+            x,
+            y: 200,
+            w: 52,
+            h: 600,
+        }
+    }
+
+    fn screen() -> Option<Rect> {
+        Some(Rect {
+            x: 0,
+            y: 0,
+            w: 4096,
+            h: 1152,
+        })
+    }
+
+    #[test]
+    fn a_left_rails_menu_opens_flush_to_its_right_over_the_dialog_at_the_icon() {
+        let dialog = dialog_at(1000);
+        let m = place_menu(rail(940), dialog, screen(), 96, (280, 300), true);
+        assert_eq!((m.x, m.y, m.w, m.h), (992, 296, 280, 300));
+    }
+
+    #[test]
+    fn a_right_rails_menu_opens_flush_to_its_left() {
+        let dialog = dialog_at(1000);
+        let r = rail(dialog.right() + 6);
+        let m = place_menu(r, dialog, screen(), 0, (280, 300), true);
+        assert_eq!((m.x, m.y), (r.x - 280, 200));
+    }
+
+    #[test]
+    fn a_menu_near_the_rails_foot_is_lifted_to_end_with_the_rail() {
+        let m = place_menu(rail(940), dialog_at(1000), screen(), 560, (280, 300), true);
+        assert_eq!(m.bottom(), 800);
+    }
+
+    #[test]
+    fn a_menu_without_room_on_the_facing_side_opens_on_the_other_side() {
+        // The rail stands against the right edge and the dialog lies to its
+        // right only notionally: no room for the menu there.
+        let r = Rect {
+            x: 4096 - 52,
+            y: 200,
+            w: 52,
+            h: 600,
+        };
+        let dialog = Rect {
+            x: 4096,
+            y: 200,
+            w: 10,
+            h: 600,
+        };
+        let m = place_menu(r, dialog, screen(), 0, (280, 300), true);
+        assert_eq!(m.x, r.x - 280);
+    }
+
+    #[test]
+    fn a_message_opens_on_the_rails_outer_side_so_the_dialog_stays_clear() {
+        let dialog = dialog_at(1000);
+        let r = rail(dialog.right() + 6);
+        let m = place_menu(r, dialog, screen(), 100_000, (300, 64), false);
+        assert_eq!(m.x, r.right());
+        assert_eq!(m.bottom(), r.bottom());
+    }
+
+    #[test]
+    fn a_menu_stays_on_the_monitor_even_when_the_rail_does_not() {
+        let r = Rect {
+            x: 940,
+            y: 1000,
+            w: 52,
+            h: 600,
+        };
+        let m = place_menu(r, dialog_at(1000), screen(), 0, (280, 300), true);
+        assert_eq!(m.bottom(), 1152);
     }
 }
