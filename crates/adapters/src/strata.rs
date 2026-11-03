@@ -22,6 +22,7 @@ use crate::a11y::{Node, Role, Tree, find_named, labels};
 use crate::atspi_bus::AtspiTree;
 use crate::guard::{KeyGuard, backend};
 use crate::resident::ResidentDialog;
+use crate::selection::{name_in_folder, strata_selected_name};
 
 pub const BACKEND: &str = "org.freedesktop.impl.portal.desktop.strata";
 pub const WINDOW_CLASS: &str = "io.github.lgse.Strata.FileChooser";
@@ -197,6 +198,17 @@ impl Adapter for StrataAdapter {
 
     fn read_folder(&self) -> Option<PathBuf> {
         folder(&self.root()?, &self.home).filter(|p| p.is_dir())
+    }
+
+    /// Read twice around the folder, so an item read while the dialog moved
+    /// is not joined to the wrong folder.
+    fn selection(&self) -> Option<PathBuf> {
+        let root = self.root()?;
+        let before = folder(&root, &self.home).filter(|p| p.is_dir())?;
+        let name = strata_selected_name(&root, &before)?;
+        (folder(&root, &self.home)? == before)
+            .then(|| name_in_folder(&before, &name))
+            .flatten()
     }
 
     fn goto(&mut self, target: &Path) -> Result<(), AdapterError> {

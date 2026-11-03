@@ -18,6 +18,7 @@ use ofolder_core::system::Compositor;
 use crate::a11y::{ACTIVATE_GAP, Node, Role, Tree, find, find_named};
 use crate::atspi_bus::AtspiTree;
 use crate::resident::ResidentDialog;
+use crate::selection::{gtk_selected_name, name_in_folder};
 
 pub const APP: &str = "xdg-desktop-portal-gtk";
 pub const BACKEND: &str = "org.freedesktop.impl.portal.desktop.gtk";
@@ -153,6 +154,17 @@ impl Adapter for GtkAdapter {
         // Keep the first suggestion if moves overlap: a later read would see the path we typed.
         self.saved_name.get_or_insert(saved);
         Ok(())
+    }
+
+    /// Read twice around the folder, so a row read while the dialog moved
+    /// is not joined to the wrong folder.
+    fn selection(&self) -> Option<PathBuf> {
+        let chooser = self.chooser()?;
+        let before = folder(&chooser).filter(|p| p.is_dir())?;
+        let name = gtk_selected_name(&chooser)?;
+        (folder(&chooser)? == before)
+            .then(|| name_in_folder(&before, &name))
+            .flatten()
     }
 
     fn after_arrival(&mut self) {

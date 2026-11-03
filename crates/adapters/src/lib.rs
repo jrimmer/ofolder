@@ -10,5 +10,6 @@ pub mod guard;
 pub mod hyprctl;
 pub mod procfs;
 pub mod resident;
+pub mod selection;
 pub mod strata;
 pub mod wtype;

@@ -23,6 +23,7 @@ use serde_json::json;
 
 use crate::guard::KeyGuard;
 use crate::procfs::ProcFs;
+use crate::selection::{PickerIpc, QsIpc, flea_candidate};
 
 /// The window class of Flea's picker.
 pub const PICKER_CLASS: &str = "com.thisisgm.flea.picker";
@@ -102,6 +103,8 @@ pub struct FleaAdapter {
     reply_dir: Option<PathBuf>,
     /// A picker this adapter did not start, for tests and adoption.
     adopted_pid: Option<u32>,
+    /// The picker's read-only IPC, for the selected item.
+    ipc: Arc<dyn PickerIpc>,
 }
 
 impl FleaAdapter {
@@ -129,6 +132,7 @@ impl FleaAdapter {
             child: RefCell::new(None),
             reply_dir: None,
             adopted_pid: None,
+            ipc: Arc::new(QsIpc),
         }
     }
 
@@ -157,6 +161,12 @@ impl FleaAdapter {
     }
 
     /// Treats a picker already running as pid `pid` as this adapter's own.
+    #[must_use]
+    pub fn with_ipc(mut self, ipc: Arc<dyn PickerIpc>) -> Self {
+        self.ipc = ipc;
+        self
+    }
+
     #[must_use]
     pub fn adopting(mut self, pid: u32) -> Self {
         self.adopted_pid = Some(pid);
@@ -289,6 +299,14 @@ impl Adapter for FleaAdapter {
             Some(child) => matches!(child.try_wait(), Ok(None)),
             None => self.adopted_pid.is_some(),
         }
+    }
+
+    /// From the picker's own read-only `snapshot` call, which answers the
+    /// folder, the cursor row and the marks at one instant.
+    fn selection(&self) -> Option<PathBuf> {
+        let pid = self.picker_pid().filter(|_| self.alive())?;
+        let candidate = flea_candidate(&self.ipc.snapshot(pid)?)?;
+        candidate.symlink_metadata().ok().map(|_| candidate)
     }
 }
 
@@ -572,6 +590,35 @@ mod tests {
         let mut pids = picker_pids(&*r.compositor);
         pids.sort_unstable();
         assert_eq!(pids, [PID, 9999]);
+    }
+
+    struct FakeIpc(Option<String>);
+
+    impl PickerIpc for FakeIpc {
+        fn snapshot(&self, pid: u32) -> Option<String> {
+            assert_eq!(pid, PID, "the call goes to the picker's own process");
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn the_selection_is_the_cursor_row_the_picker_reports_when_it_exists() {
+        let tmp = TempDir::new("flea-selection");
+        fs::write(tmp.0.join("alpha.txt"), "x").expect("file");
+        let snap =
+            |name: &str| Some(json!({"path": tmp.0, "cursorName": name, "marks": []}).to_string());
+        let adapter = rig(None, true, None)
+            .adapter
+            .with_ipc(Arc::new(FakeIpc(snap("alpha.txt"))));
+        assert_eq!(adapter.selection(), Some(tmp.0.join("alpha.txt")));
+        let gone = rig(None, true, None)
+            .adapter
+            .with_ipc(Arc::new(FakeIpc(snap("deleted.txt"))));
+        assert_eq!(gone.selection(), None);
+        let silent = rig(None, true, None)
+            .adapter
+            .with_ipc(Arc::new(FakeIpc(None)));
+        assert_eq!(silent.selection(), None);
     }
 
     #[test]
