@@ -11,6 +11,11 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Whether the point lies inside, counting the left and top edges.
+    pub fn contains(&self, (x, y): (i32, i32)) -> bool {
+        x >= self.x && x < self.right() && y >= self.y && y < self.bottom()
+    }
+
     pub fn right(&self) -> i32 {
         self.x + self.w
     }
@@ -504,5 +509,20 @@ mod tests {
         let r = rail(dialog.right() + 6);
         let t = place_tip(r, dialog, screen(), 1150, (200, 60), 4);
         assert_eq!(t.bottom(), 1152);
+    }
+
+    #[test]
+    fn a_rect_contains_its_top_left_edge_but_not_its_far_edges() {
+        let r = Rect {
+            x: 10,
+            y: 20,
+            w: 52,
+            h: 600,
+        };
+        assert!(r.contains((10, 20)));
+        assert!(r.contains((61, 619)));
+        assert!(!r.contains((62, 300)));
+        assert!(!r.contains((30, 620)));
+        assert!(!r.contains((9, 300)));
     }
 }

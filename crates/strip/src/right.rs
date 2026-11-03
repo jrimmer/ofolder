@@ -39,12 +39,7 @@ impl RightRail {
 }
 
 impl Render for RightRail {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The pointer leaving the window says nothing to the icon it left,
-        // but the window is drawn again, so the change is noticed here.
-        let hovered = window.is_window_hovered();
-        self.shared
-            .update(cx, |s, cx| s.rail_hovered(RailSide::Right, hovered, cx));
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (known, busy, favorite, full, open) = {
             let s = self.shared.read(cx);
             (

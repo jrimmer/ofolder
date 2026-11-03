@@ -118,6 +118,10 @@ pub trait StripActions: Send + Sync + 'static {
     /// once it is closed. It must never take the keyboard. Called on the UI
     /// thread, so it must return quickly.
     fn place_tip(&self, tip: Option<TipRequest>);
+    /// Whether the pointer is over the rail on `side`, or None when that
+    /// cannot be told. Called from a background thread while a tooltip is
+    /// up, about five times a second.
+    fn pointer_on_rail(&self, side: RailSide) -> Option<bool>;
 }
 
 pub struct StripOptions {

@@ -36,8 +36,6 @@ const PLACES_EVERY: u32 = 15;
 /// menu closes. Moving from a rail to its menu passes through a moment when
 /// neither is active, and that must not close it.
 const LEAVE_GRACE: Duration = Duration::from_millis(350);
-/// How long the pointer must stay off a rail before its tooltip goes.
-const POINTER_GRACE: Duration = Duration::from_millis(200);
 /// Where the message window's top goes: past the rail's foot, which places
 /// it at the bottom of the right rail.
 const TOAST_ANCHOR: i32 = 100_000;
@@ -118,8 +116,6 @@ pub struct Shared {
     tip_window: Option<WindowHandle<TipWindow>>,
     /// Counts tooltips opened and closed, so a late window is taken down.
     tip_serial: u64,
-    /// Whether the pointer is over the left and the right rail.
-    hovered: [bool; 2],
 }
 
 impl Shared {
@@ -137,7 +133,6 @@ impl Shared {
             hints: Hints::default(),
             tip_window: None,
             tip_serial: 0,
-            hovered: [false; 2],
         };
         shared.start_polling(cx);
         shared
@@ -206,33 +201,6 @@ impl Shared {
             Step::Hide => self.close_tip_window(cx),
             Step::Nothing => {}
         }
-    }
-
-    /// Whether the pointer is over the rail on `side`. When it has left and
-    /// not come back a moment later, that rail's tooltip goes: a window
-    /// opening nearby can take the pointer away and give it back at once.
-    pub fn rail_hovered(&mut self, side: rail::RailSide, hovered: bool, cx: &mut Context<Self>) {
-        let slot = match side {
-            rail::RailSide::Left => 0,
-            rail::RailSide::Right => 1,
-        };
-        if self.hovered[slot] == hovered {
-            return;
-        }
-        self.hovered[slot] = hovered;
-        if hovered {
-            return;
-        }
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(POINTER_GRACE).await;
-            this.update(cx, |s, cx| {
-                if !s.hovered[slot] && s.hints.wanted().is_some_and(|h| h.side == side) {
-                    s.hide_tip(cx);
-                }
-            })
-            .ok();
-        })
-        .detach();
     }
 
     /// No tooltip, and none pending: after a click, when a menu opens, or
@@ -478,7 +446,9 @@ impl Shared {
                 let lists = tick.is_multiple_of(RECENTS_EVERY);
                 let places = tick.is_multiple_of(PLACES_EVERY);
                 tick = tick.wrapping_add(1);
-                let Ok(paths) = this.update(cx, |t, _| t.vm.favorite_paths()) else {
+                let Ok((paths, tip_side)) = this.update(cx, |t, _| {
+                    (t.vm.favorite_paths(), t.hints.wanted().map(|h| h.side))
+                }) else {
                     return;
                 };
                 let actions = actions.clone();
@@ -499,12 +469,17 @@ impl Shared {
                         });
                         let recents = (lists && read_recents).then(|| sources.read_recents());
                         let places = places.then(|| sources.read_places());
+                        // A rail is not told when the pointer leaves it for
+                        // good, so a tooltip asks where the pointer is.
+                        let off_rail =
+                            tip_side.filter(|side| actions.pointer_on_rail(*side) == Some(false));
                         Polled {
                             folder,
                             alive,
                             seen,
                             recents,
                             places,
+                            off_rail,
                         }
                     })
                     .await;
@@ -512,6 +487,11 @@ impl Shared {
                     if !read.alive {
                         cx.quit();
                         return;
+                    }
+                    if let Some(side) = read.off_rail
+                        && t.hints.wanted().is_some_and(|h| h.side == side)
+                    {
+                        t.hide_tip(cx);
                     }
                     let mut changed = t.vm.set_folder(read.folder);
                     if let Some(seen) = read.seen {
@@ -696,6 +676,8 @@ struct Polled {
     seen: Option<Vec<(PathBuf, bool)>>,
     recents: Option<RecentsRead>,
     places: Option<Vec<ofolder_core::places::Place>>,
+    /// The rail whose tooltip is up, when the pointer is no longer on it.
+    off_rail: Option<rail::RailSide>,
 }
 
 /// How a rail icon looks.

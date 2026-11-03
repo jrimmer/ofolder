@@ -31,12 +31,7 @@ impl LeftRail {
 }
 
 impl Render for LeftRail {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The pointer leaving the window says nothing to the icon it left,
-        // but the window is drawn again, so the change is noticed here.
-        let hovered = window.is_window_hovered();
-        self.shared
-            .update(cx, |s, cx| s.rail_hovered(RailSide::Left, hovered, cx));
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (busy, back, forward, up, open) = {
             let s = self.shared.read(cx);
             (

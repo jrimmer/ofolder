@@ -333,6 +333,16 @@ impl StripActions for Actions {
         }
     }
 
+    fn pointer_on_rail(&self, side: RailSide) -> Option<bool> {
+        let (dialog, bounds) = self.dock.lock().ok().map(|d| (d.dialog, d.bounds))?;
+        let panels = place_panels(dialog?, bounds, LEFT_WIDTH as i32, RIGHT_WIDTH as i32, GAP);
+        let rail = match side {
+            RailSide::Left => panels.left,
+            RailSide::Right => panels.right,
+        };
+        Some(rail.contains(self.compositor.cursor().ok()?))
+    }
+
     fn dialog_alive(&self) -> bool {
         let alive = self.adapter.lock().is_ok_and(|a| a.alive());
         if !alive {

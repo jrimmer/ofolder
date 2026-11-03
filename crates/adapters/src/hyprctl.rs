@@ -63,11 +63,11 @@ impl Hyprctl {
 }
 
 /// The pointer position from `hyprctl cursorpos -j`, in layout pixels.
-fn parse_cursor(json: &str) -> Option<(i64, i64)> {
+fn parse_cursor(json: &str) -> Option<(i32, i32)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     Some((
-        value.get("x")?.as_f64()? as i64,
-        value.get("y")?.as_f64()? as i64,
+        value.get("x")?.as_f64()? as i32,
+        value.get("y")?.as_f64()? as i32,
     ))
 }
 
@@ -89,6 +89,12 @@ impl Compositor for Hyprctl {
             .map(str::to_owned))
     }
 
+    fn cursor(&self) -> Result<(i32, i32), SystemError> {
+        let json = Self::run(&["cursorpos", "-j"])?;
+        parse_cursor(&json)
+            .ok_or_else(|| failure("cursorpos", format!("unreadable reply {json:?}")))
+    }
+
     fn focus(&self, address: &str) -> Result<(), SystemError> {
         Self::checked(address).map_err(|_| {
             failure(
@@ -99,9 +105,7 @@ impl Compositor for Hyprctl {
         // Focusing a window warps the pointer to its centre, which pulls it
         // off the rail icon the user just clicked. Put it back afterwards;
         // moving it by dispatcher does not hand focus to the window under it.
-        let pointer = Self::run(&["cursorpos", "-j"])
-            .ok()
-            .and_then(|json| parse_cursor(&json));
+        let pointer = self.cursor().ok();
         let focused = Self::dispatch(
             "focus",
             &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"),

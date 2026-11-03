@@ -37,6 +37,11 @@ pub trait Compositor: Send + Sync {
         Err(unsupported("move a window"))
     }
 
+    /// Where the pointer is, in layout pixels.
+    fn cursor(&self) -> Result<(i32, i32), SystemError> {
+        Err(unsupported("read the pointer position"))
+    }
+
     /// Sends the window to a workspace without following it there.
     fn send_to_workspace(&self, _address: &str, _workspace: &str) -> Result<(), SystemError> {
         Err(unsupported("send a window to a workspace"))

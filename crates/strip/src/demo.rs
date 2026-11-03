@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use ofolder_core::recents::{self, RecentFile, RecentFolder, Recents};
 use ofolder_core::theme::Palette;
 
-use crate::{MenuRequest, StripActions, StripOptions, TipRequest, favorites};
+use crate::{MenuRequest, RailSide, StripActions, StripOptions, TipRequest, favorites};
 
 /// A fake dialog sitting in a real folder. `go` and `new_folder` act on the
 /// real filesystem below whatever folder it is given, so give it a scratch
@@ -85,6 +85,10 @@ impl StripActions for DemoActions {
     fn place_menu(&self, _: Option<MenuRequest>) {}
 
     fn place_tip(&self, _: Option<TipRequest>) {}
+
+    fn pointer_on_rail(&self, _: RailSide) -> Option<bool> {
+        None
+    }
 }
 
 /// Writes sample favorites, recents, settings, user folders and drives under
