@@ -13,6 +13,7 @@ impl Typist for Wtype {
             Keys::CtrlL => vec!["-M", "ctrl", "l", "-m", "ctrl"],
             // `--` so a path that starts with a dash is text, not an option.
             Keys::Text(text) => vec!["--", text.as_str()],
+            Keys::Tab => vec!["-k", "Tab"],
             Keys::Return => vec!["-k", "Return"],
             Keys::Escape => vec!["-k", "Escape"],
         };

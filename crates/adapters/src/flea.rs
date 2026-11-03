@@ -23,7 +23,9 @@ use serde_json::json;
 
 use crate::guard::KeyGuard;
 use crate::procfs::ProcFs;
-use crate::selection::{PickerIpc, QsIpc, flea_candidate, flea_snapshot_folder};
+use crate::selection::{
+    AutoIpc, PickerIpc, flea_candidate, flea_path_bar_open, flea_snapshot_folder,
+};
 
 /// The window class of Flea's picker.
 pub const PICKER_CLASS: &str = "com.thisisgm.flea.picker";
@@ -132,6 +134,14 @@ fn same_folder(a: &Path, b: &Path) -> bool {
         )
 }
 
+/// Whether a command line is a Flea picker: the 0.3 Quickshell window
+/// (`qs -p …/picker.qml`) or the 0.4 native one (`flea-gui --pick <reply>`).
+/// The reply path is not looked at, because only the portal's names it after
+/// the picker.
+fn is_picker_cmdline(cmdline: &str) -> bool {
+    cmdline.contains("picker.qml") || cmdline.split_whitespace().any(|arg| arg == "--pick")
+}
+
 impl FleaAdapter {
     pub fn new(compositor: Arc<dyn Compositor>, typist: Arc<dyn Typist>) -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -157,7 +167,7 @@ impl FleaAdapter {
             child: RefCell::new(None),
             reply_dir: None,
             adopted_pid: None,
-            ipc: Arc::new(QsIpc),
+            ipc: Arc::new(AutoIpc::default()),
             snapshot: Mutex::new(None),
         }
     }
@@ -325,8 +335,13 @@ impl Adapter for FleaAdapter {
     }
 
     fn goto(&mut self, folder: &Path) -> Result<(), AdapterError> {
+        // Asked afresh each time: a cached snapshot could still say "closed".
+        let bar_open = || {
+            let pid = self.picker_pid()?;
+            flea_path_bar_open(&self.ipc.snapshot(pid)?)
+        };
         self.guard
-            .type_path(&|| self.window().map(|w| w.address), folder)
+            .type_path_via_open_bar(&|| self.window().map(|w| w.address), folder, &bar_open)
     }
 
     fn close(&mut self) -> Result<(), AdapterError> {
@@ -356,7 +371,7 @@ impl Adapter for FleaAdapter {
                     && self
                         .procfs
                         .cmdline(pid)
-                        .is_some_and(|c| c.contains("picker"))
+                        .is_some_and(|c| is_picker_cmdline(&c))
             }),
         }
     }
@@ -428,15 +443,49 @@ mod tests {
         }
     }
 
+    /// The dialog's path bar, as the picker reports it.
+    #[derive(Default)]
+    struct Bar {
+        open: std::sync::atomic::AtomicBool,
+        tab_seen: std::sync::atomic::AtomicBool,
+        /// A file name field that swallows Ctrl+L until Tab moves on.
+        swallows_ctrl_l: bool,
+        /// A dialog that never opens its path bar.
+        never_opens: bool,
+        /// A dialog whose snapshot does not say.
+        silent: bool,
+    }
+
+    struct BarIpc(Arc<Bar>);
+
+    impl PickerIpc for BarIpc {
+        fn snapshot(&self, _pid: u32) -> Option<String> {
+            use std::sync::atomic::Ordering::Relaxed;
+            (!self.0.silent).then(|| format!(r#"{{"pathBarOpen":{}}}"#, self.0.open.load(Relaxed)))
+        }
+    }
+
     struct FakeTypist {
         sent: Mutex<Vec<Keys>>,
         compositor: Arc<FakeCompositor>,
         /// After this many keys, another window takes focus.
         steal_focus_after: Option<usize>,
+        bar: Arc<Bar>,
     }
 
     impl Typist for FakeTypist {
         fn send(&self, keys: &Keys) -> Result<(), SystemError> {
+            use std::sync::atomic::Ordering::Relaxed;
+            match keys {
+                Keys::Tab => self.bar.tab_seen.store(true, Relaxed),
+                Keys::CtrlL => {
+                    let swallowed = self.bar.swallows_ctrl_l && !self.bar.tab_seen.load(Relaxed);
+                    if !swallowed && !self.bar.never_opens {
+                        self.bar.open.store(true, Relaxed);
+                    }
+                }
+                _ => {}
+            }
             let mut sent = self.sent.lock().expect("lock");
             sent.push(keys.clone());
             if self.steal_focus_after == Some(sent.len()) {
@@ -453,6 +502,16 @@ mod tests {
     }
 
     fn rig(active: Option<&str>, focus_works: bool, steal_focus_after: Option<usize>) -> Rig {
+        rig_with_bar(active, focus_works, steal_focus_after, Bar::default())
+    }
+
+    fn rig_with_bar(
+        active: Option<&str>,
+        focus_works: bool,
+        steal_focus_after: Option<usize>,
+        bar: Bar,
+    ) -> Rig {
+        let bar = Arc::new(bar);
         let compositor = FakeCompositor::new(
             vec![
                 client("0xaaa", PICKER_CLASS, PID),
@@ -465,9 +524,11 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after,
+            bar: bar.clone(),
         });
         let adapter = FleaAdapter::new(compositor.clone(), typist.clone())
             .with_pace(Duration::ZERO)
+            .with_ipc(Arc::new(BarIpc(bar)))
             .adopting(PID);
         Rig {
             adapter,
@@ -513,6 +574,62 @@ mod tests {
     }
 
     #[test]
+    fn goto_in_a_save_dialog_tabs_out_of_the_name_field_before_typing_the_path() {
+        let bar = Bar {
+            swallows_ctrl_l: true,
+            ..Bar::default()
+        };
+        let mut r = rig_with_bar(Some("0xaaa"), true, None, bar);
+        r.adapter.goto(Path::new("/home/j/Work")).expect("goto");
+        assert_eq!(
+            sent(&r),
+            [
+                Keys::CtrlL,
+                Keys::Tab,
+                Keys::CtrlL,
+                Keys::Text("/home/j/Work".to_owned()),
+                Keys::Return
+            ],
+            "the name field must never receive the path"
+        );
+    }
+
+    #[test]
+    fn goto_types_nothing_when_the_path_bar_never_opens() {
+        let bar = Bar {
+            never_opens: true,
+            ..Bar::default()
+        };
+        let mut r = rig_with_bar(Some("0xaaa"), true, None, bar);
+        let err = r
+            .adapter
+            .goto(Path::new("/home/j/Work"))
+            .expect_err("refuse");
+        assert!(matches!(err, AdapterError::Refused(_)), "{err:?}");
+        assert_eq!(sent(&r), [Keys::CtrlL, Keys::Tab, Keys::CtrlL]);
+    }
+
+    #[test]
+    fn goto_types_nothing_when_the_dialog_does_not_say_whether_the_bar_is_open() {
+        let bar = Bar {
+            silent: true,
+            ..Bar::default()
+        };
+        let mut r = rig_with_bar(Some("0xaaa"), true, None, bar);
+        let err = r
+            .adapter
+            .goto(Path::new("/home/j/Work"))
+            .expect_err("refuse");
+        assert!(matches!(err, AdapterError::Refused(_)), "{err:?}");
+        assert!(
+            !sent(&r)
+                .iter()
+                .any(|k| matches!(k, Keys::Text(_) | Keys::Return)),
+            "no path and no Return when the state is unknown"
+        );
+    }
+
+    #[test]
     fn goto_stops_the_moment_focus_leaves_the_picker() {
         let mut r = rig(Some("0xaaa"), true, Some(1));
         let err = r
@@ -546,12 +663,31 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after: None,
+            bar: Arc::default(),
         });
         let mut adapter = FleaAdapter::new(compositor, typist)
             .with_pace(Duration::ZERO)
             .adopting(PID);
         let err = adapter.goto(Path::new("/home/j")).expect_err("no window");
         assert!(matches!(err, AdapterError::NotRunning), "{err:?}");
+    }
+
+    #[test]
+    fn both_generations_of_picker_are_recognised_by_their_command_line() {
+        // 0.3: a Quickshell window.
+        assert!(is_picker_cmdline(
+            "qs -p /usr/share/flea/ui/boot/picker.qml"
+        ));
+        // 0.4: a native window; the reply path here has no "picker" in it.
+        assert!(is_picker_cmdline(
+            "/usr/bin/flea-gui --pick /run/user/1000/ofolder-flea-9/reply.json"
+        ));
+        // The helper, the main window and other programs are not pickers.
+        assert!(!is_picker_cmdline("/usr/bin/flea --backend"));
+        assert!(!is_picker_cmdline("/usr/bin/flea-gui /home/me"));
+        assert!(!is_picker_cmdline(
+            "/usr/bin/python3 /home/me/picker_notes.py"
+        ));
     }
 
     #[test]
@@ -806,6 +942,7 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after: None,
+            bar: Arc::default(),
         });
         let adapter = FleaAdapter::new(compositor, typist);
         assert_eq!(adapter.read_folder(), None);

@@ -105,6 +105,7 @@ pub trait Compositor: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Keys {
     CtrlL,
+    Tab,
     Text(String),
     Return,
     Escape,

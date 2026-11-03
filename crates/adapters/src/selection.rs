@@ -64,51 +64,163 @@ pub fn flea_snapshot_folder(snapshot: &str) -> Option<PathBuf> {
     (folder.is_absolute() && folder.is_dir()).then_some(folder)
 }
 
+/// Whether the picker's path bar is open, from its `snapshot`. `None` when
+/// the snapshot does not say, which is never read as either answer.
+pub fn flea_path_bar_open(snapshot: &str) -> Option<bool> {
+    serde_json::from_str::<Value>(snapshot)
+        .ok()?
+        .get("pathBarOpen")?
+        .as_bool()
+}
+
 /// Asks a running Flea picker for its `snapshot`. The picker answers this
-/// read-only call on its own IPC socket; nothing about the dialog changes.
+/// read-only call on its own IPC; nothing about the dialog changes.
 pub trait PickerIpc: Send + Sync {
     fn snapshot(&self, pid: u32) -> Option<String>;
 }
-
-/// The picker's IPC through `qs ipc`, Quickshell's own client.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct QsIpc;
 
 /// Longer than a call has ever taken (about 18 ms), short enough that a
 /// stuck picker cannot hold the poll up.
 const IPC_LIMIT: Duration = Duration::from_millis(800);
 
+/// Runs `command` and returns its output when it succeeds within
+/// [`IPC_LIMIT`]; a stuck client is killed.
+fn run_limited(mut command: Command) -> Option<String> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if start.elapsed() > IPC_LIMIT => {
+                child.kill().ok();
+                child.wait().ok();
+                return None;
+            }
+            Ok(None) => sleep(Duration::from_millis(5)),
+        }
+    }
+    let output = child.wait_with_output().ok()?;
+    String::from_utf8(output.stdout).ok()
+}
+
+/// The picker's IPC through `qs ipc`, Quickshell's own client. This is how
+/// Flea 0.3.x's picker, a Quickshell window, is reached.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct QsIpc;
+
 impl PickerIpc for QsIpc {
     fn snapshot(&self, pid: u32) -> Option<String> {
-        let mut child = Command::new("qs")
-            .args([
-                "ipc",
-                "--pid",
-                &pid.to_string(),
-                "call",
-                "fleapicker",
-                "snapshot",
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        let start = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) if status.success() => break,
-                Ok(Some(_)) | Err(_) => return None,
-                Ok(None) if start.elapsed() > IPC_LIMIT => {
-                    child.kill().ok();
-                    child.wait().ok();
-                    return None;
-                }
-                Ok(None) => sleep(Duration::from_millis(5)),
-            }
+        let mut command = Command::new("qs");
+        command.args([
+            "ipc",
+            "--pid",
+            &pid.to_string(),
+            "call",
+            "fleapicker",
+            "snapshot",
+        ]);
+        run_limited(command)
+    }
+}
+
+/// The picker's IPC through `flea ipc`, Flea's own client. Flea 0.4's picker
+/// is a native window that serves the same call on its own socket.
+#[derive(Debug, Clone)]
+pub struct FleaIpc {
+    program: PathBuf,
+}
+
+impl FleaIpc {
+    pub fn new(program: impl Into<PathBuf>) -> Self {
+        Self {
+            program: program.into(),
         }
-        let output = child.wait_with_output().ok()?;
-        String::from_utf8(output.stdout).ok()
+    }
+}
+
+impl Default for FleaIpc {
+    fn default() -> Self {
+        Self::new("flea")
+    }
+}
+
+impl PickerIpc for FleaIpc {
+    fn snapshot(&self, pid: u32) -> Option<String> {
+        let mut command = Command::new(&self.program);
+        command.args([
+            "ipc",
+            "--pid",
+            &pid.to_string(),
+            "call",
+            "fleapicker",
+            "snapshot",
+        ]);
+        run_limited(command)
+    }
+}
+
+/// Reaches whichever picker is running. A 0.4 picker binds
+/// `$XDG_RUNTIME_DIR/flea-ipc/picker-<pid>.sock`; a 0.3 picker does not, so
+/// the socket for this very pid decides, and no version is ever guessed. A
+/// dead picker leaves its socket file behind, which is harmless because the
+/// caller only asks for a pid it has found alive.
+pub struct AutoIpc {
+    sockets: PathBuf,
+    native: Box<dyn PickerIpc>,
+    quickshell: Box<dyn PickerIpc>,
+}
+
+impl AutoIpc {
+    pub fn new(sockets: impl Into<PathBuf>) -> Self {
+        Self {
+            sockets: sockets.into(),
+            native: Box::new(FleaIpc::default()),
+            quickshell: Box::new(QsIpc),
+        }
+    }
+
+    /// The two clients replaced, for tests.
+    #[must_use]
+    pub fn with_clients(
+        mut self,
+        native: Box<dyn PickerIpc>,
+        quickshell: Box<dyn PickerIpc>,
+    ) -> Self {
+        self.native = native;
+        self.quickshell = quickshell;
+        self
+    }
+
+    fn has_native_socket(&self, pid: u32) -> bool {
+        use std::os::unix::fs::FileTypeExt;
+        self.sockets
+            .join(format!("picker-{pid}.sock"))
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_socket())
+    }
+}
+
+impl Default for AutoIpc {
+    fn default() -> Self {
+        let runtime =
+            std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+        Self::new(runtime.join("flea-ipc"))
+    }
+}
+
+impl PickerIpc for AutoIpc {
+    fn snapshot(&self, pid: u32) -> Option<String> {
+        if self.has_native_socket(pid) {
+            self.native.snapshot(pid)
+        } else {
+            self.quickshell.snapshot(pid)
+        }
     }
 }
 
@@ -196,6 +308,93 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ofolder-sel-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Answers with its own name, so a test can see which client was asked.
+    struct Named(&'static str);
+
+    impl PickerIpc for Named {
+        fn snapshot(&self, _pid: u32) -> Option<String> {
+            Some(self.0.to_owned())
+        }
+    }
+
+    fn auto(dir: &Path) -> AutoIpc {
+        AutoIpc::new(dir).with_clients(Box::new(Named("native")), Box::new(Named("qs")))
+    }
+
+    #[test]
+    fn the_path_bar_state_is_read_only_when_the_snapshot_states_it() {
+        assert_eq!(flea_path_bar_open(r#"{"pathBarOpen":true}"#), Some(true));
+        assert_eq!(flea_path_bar_open(r#"{"pathBarOpen":false}"#), Some(false));
+        for unsaid in [
+            r#"{"path":"/x"}"#,
+            r#"{"pathBarOpen":null}"#,
+            r#"{"pathBarOpen":"yes"}"#,
+            "nope",
+            "",
+        ] {
+            assert_eq!(flea_path_bar_open(unsaid), None, "{unsaid}");
+        }
+    }
+
+    #[test]
+    fn a_picker_with_a_native_socket_is_asked_through_flea() {
+        let dir = scratch("ipc-native");
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("picker-42.sock")).unwrap();
+        assert_eq!(auto(&dir).snapshot(42).as_deref(), Some("native"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_picker_without_a_native_socket_is_asked_through_quickshell() {
+        let dir = scratch("ipc-qs");
+        assert_eq!(auto(&dir).snapshot(42).as_deref(), Some("qs"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn only_the_socket_of_that_very_pid_decides_the_transport() {
+        let dir = scratch("ipc-pid");
+        let _socket = std::os::unix::net::UnixListener::bind(dir.join("picker-41.sock")).unwrap();
+        assert_eq!(auto(&dir).snapshot(42).as_deref(), Some("qs"));
+        assert_eq!(auto(&dir).snapshot(41).as_deref(), Some("native"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_plain_file_named_like_a_socket_does_not_count() {
+        let dir = scratch("ipc-file");
+        std::fs::write(dir.join("picker-42.sock"), "").unwrap();
+        assert_eq!(auto(&dir).snapshot(42).as_deref(), Some("qs"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_socket_folder_means_quickshell() {
+        let missing = std::env::temp_dir().join("ofolder-sel-no-such-dir");
+        assert_eq!(auto(&missing).snapshot(42).as_deref(), Some("qs"));
+    }
+
+    #[test]
+    fn flea_ipc_gives_nothing_when_the_client_is_missing() {
+        let ipc = FleaIpc::new("/nonexistent/flea-for-ofolder-test");
+        assert_eq!(ipc.snapshot(42), None);
+    }
+
+    #[test]
+    fn a_client_that_fails_gives_nothing_and_one_that_hangs_is_cut_off() {
+        let mut fails = Command::new("sh");
+        fails.args(["-c", "echo partial; exit 3"]);
+        assert_eq!(run_limited(fails), None);
+        let mut hangs = Command::new("sh");
+        hangs.args(["-c", "sleep 5"]);
+        let started = Instant::now();
+        assert_eq!(run_limited(hangs), None);
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let mut works = Command::new("sh");
+        works.args(["-c", "printf '{\"path\":\"/x\"}'"]);
+        assert_eq!(run_limited(works).as_deref(), Some("{\"path\":\"/x\"}"));
     }
 
     #[test]

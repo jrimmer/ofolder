@@ -84,6 +84,67 @@ impl KeyGuard {
         Ok(())
     }
 
+    /// Like [`type_path`](Self::type_path), but the path is typed only once
+    /// `bar_open` says the path bar is open. Some dialogs keep the keyboard in
+    /// a file name field that swallows Ctrl+L, and a path typed there would
+    /// replace the name. So: Ctrl+L, look; if still closed, Tab (which hands
+    /// the keyboard to the list) and Ctrl+L once more, look again. A bar that
+    /// is still closed, or a dialog that does not say, ends in a refusal with
+    /// nothing typed.
+    pub fn type_path_via_open_bar(
+        &self,
+        window: &dyn Fn() -> Option<String>,
+        folder: &Path,
+        bar_open: &dyn Fn() -> Option<bool>,
+    ) -> Result<(), AdapterError> {
+        check_typeable(folder).map_err(|r| AdapterError::Refused(r.to_string()))?;
+        let text = folder
+            .to_str()
+            .ok_or_else(|| AdapterError::Refused("the path is not valid UTF-8".to_owned()))?
+            .to_owned();
+        self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, true)?;
+        let send = |keys: &Keys| -> Result<(), AdapterError> {
+            self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, false)?;
+            self.typist.send(keys).map_err(backend)
+        };
+        let mut seen = None;
+        for attempt in [&[Keys::CtrlL][..], &[Keys::Tab, Keys::CtrlL][..]] {
+            for keys in attempt {
+                send(keys)?;
+                sleep(self.pace);
+            }
+            for _ in 0..6 {
+                seen = bar_open();
+                if seen == Some(true) {
+                    break;
+                }
+                sleep(self.pace / 2);
+            }
+            if seen == Some(true) {
+                break;
+            }
+        }
+        match seen {
+            Some(true) => {}
+            Some(false) => {
+                return Err(AdapterError::Refused(
+                    "the dialog's path bar did not open, so no path was typed".to_owned(),
+                ));
+            }
+            None => {
+                return Err(AdapterError::Refused(
+                    "the dialog does not say whether its path bar is open, so no path was typed"
+                        .to_owned(),
+                ));
+            }
+        }
+        for keys in [Keys::Text(text), Keys::Return] {
+            send(&keys)?;
+            sleep(self.pace);
+        }
+        Ok(())
+    }
+
     /// Escape, if and only if the dialog is the active window.
     pub fn escape(&self, address: &str) -> Result<(), AdapterError> {
         self.ensure_active(address, true)?;

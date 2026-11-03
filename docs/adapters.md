@@ -2,7 +2,7 @@
 
 ofolder docks a strip of chrome (favorites, new folder, go-to-folder) beside a save/open dialog and drives it.
 There is no supported API for that, so each dialog needs an **adapter** that says honestly what it can do.
-Everything below was measured on host (Hyprland 0.56.2, Flea 0.3.12, xdg-desktop-portal-gtk 1.15.3, Strata 1.1.1) on 2026-11-01.
+Everything below was measured on host (Hyprland 0.56.2, Flea 0.3.12 unless a section says 0.4, xdg-desktop-portal-gtk 1.15.3, Strata 1.1.1) on 2026-11-01.
 Evidence: `spike/runs/` (logs, screenshots). Code: `spike/`.
 
 ## Scope: portal dialogs only (decided 2026-11-01)
@@ -83,6 +83,26 @@ Evidence: `spike/runs/selection/` (notes and probe output). Probe: `cargo run -p
 - **AT-SPI objects vanish mid-move** (the path bar is rebuilt). Treat any accessibility error as "no reading yet" and retry.
 - Symlinks report their resolved path (Flea); the "new folder" lands in the real folder, which is correct.
 - A running Flea or GTK portal can be older than its package (`(deleted)` binary); the fd and AT-SPI behaviour may differ after a restart.
+
+
+## Flea 0.3 and 0.4 (2026-11-03)
+
+Both are supported. The launch contract is the same (`flea --pick <reply>` with `FLEA_PICKER`, window class `com.thisisgm.flea.picker`, the portal script and its D-Bus service byte for byte the same). What differs is how the picker is reached.
+
+| | 0.3.x | 0.4.x |
+|---|---|---|
+| The picker is | a Quickshell window (`qs -p …/boot/picker.qml`) | a native window (`flea-gui --pick <reply>`, same pid as `flea --pick`) |
+| Read-only `snapshot` | `qs ipc --pid N call fleapicker snapshot` (~20 ms) | `flea ipc --pid N call fleapicker snapshot` (~7 ms) |
+| How ofolder chooses | no `$XDG_RUNTIME_DIR/flea-ipc/picker-N.sock` for that pid | that socket exists for that pid |
+| Cancel from outside | none (the window is killed) | `fleapicker.quit` writes `{"response":1}` (not used yet) |
+
+The transport is chosen per picker by its own socket, never by a version string. A closed picker leaves its socket file behind, which is harmless because only a pid found alive is asked.
+
+**The Save-dialog trap.** In a 0.4 Save dialog the file name field has the keyboard and swallows Ctrl+L; the typed path then replaces the file name and the folder never changes. Only the list handles Ctrl+L, and Tab in the name field hands the keyboard to it. So goto sends Ctrl+L and reads `pathBarOpen` from the snapshot; if it is closed it sends Tab and Ctrl+L once more; it types the path only once the bar reads open, and refuses (typing nothing) when the bar stays closed or the snapshot does not say. A 0.3 dialog opens the bar on the first Ctrl+L, so it never sees the Tab.
+
+The liveness test for an adopted picker looks for `picker.qml` or a `--pick` argument in the command line. It used to look for the word "picker", which a 0.4 command line contains only when the portal's temporary folder happens to be named after it.
+
+Measured 2026-11-03 against the installed 0.4.0 and an isolated copy of 0.3.12 (with its `XDG_*` folders redirected): `ofolder live-check flea`, a Save dialog, 7 of 7 on each. Before the change 0.4.0 passed 2 of 7: the `qs` call could not reach the picker, and goto typed the path into the file name field.
 
 ## Fragility and the self-check
 
