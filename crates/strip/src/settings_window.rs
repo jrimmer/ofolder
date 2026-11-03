@@ -428,7 +428,9 @@ impl SettingsWindow {
                             },
                         )),
                     )
-                    .child(last)
+                    // A fixed width keeps the arrows lined up whether the
+                    // last button says Hide or Remove.
+                    .child(div().w(px(68.)).flex().justify_end().child(last))
                     .into_any_element(),
             );
         }
@@ -477,38 +479,35 @@ impl SettingsWindow {
 
     fn rails(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let default = self.shared.read(cx).rails.is_default();
+        // Reset sits at the top, where it is seen without scrolling.
+        let reset =
+            button("rails-reset", "Reset to default layout", !default).when(!default, |b| {
+                b.on_click(cx.listener(|this, _, _, cx| {
+                    this.change_rails(
+                        |l| {
+                            *l = RailLayout::default();
+                            true
+                        },
+                        cx,
+                    );
+                }))
+            });
         let mut out = vec![
-            Self::hint(
-                "Changes show on the rails at once. An icon stays on its own rail: \
-                 the left one goes somewhere, the right one does something here.",
-            ),
+            div()
+                .flex()
+                .items_start()
+                .gap_3()
+                .child(div().flex_1().min_w(px(0.)).child(Self::hint(
+                    "Changes show on the rails at once. An icon stays on its own rail: \
+                     the left one goes somewhere, the right one does something here.",
+                )))
+                .child(div().flex_none().child(reset))
+                .into_any_element(),
             Self::heading("Left rail"),
         ];
         out.extend(self.rail_rows(RailSide::Left, cx));
         out.push(Self::heading("Right rail"));
         out.extend(self.rail_rows(RailSide::Right, cx));
-        out.push(
-            div()
-                .pt_3()
-                .flex()
-                .child(
-                    button("rails-reset", "Reset to default layout", !default).when(
-                        !default,
-                        |b| {
-                            b.on_click(cx.listener(|this, _, _, cx| {
-                                this.change_rails(
-                                    |l| {
-                                        *l = RailLayout::default();
-                                        true
-                                    },
-                                    cx,
-                                );
-                            }))
-                        },
-                    ),
-                )
-                .into_any_element(),
-        );
         out
     }
 
