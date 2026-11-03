@@ -534,6 +534,19 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Priority**: Baseline
 - **Depends on**: NONE
 
+### R-105 Preview the selected picture or video
+- **User need**: Before I pick an image or a video in a dialog, I want to see it.
+- **Behavior**:
+  - While the item selected in the dialog is an image or a video, a panel under the dialog shows the picture, or a still from the video, with its name, size and date.
+  - Anything else selected, or nothing, hides the panel. It has no on and off control of its own beyond the settings; it is always available.
+  - Moving through a folder with the arrow keys does not make the panel flicker.
+- **Acceptance**:
+  - Selecting an image shows it under the dialog; selecting a text file or a folder hides it.
+  - The panel never takes the keyboard when it appears.
+- **Priority**: Baseline
+- **Decision**: added by the maintainer on 2026-11-03 ("it just shows when an image/video is selected, that way it can always be on").
+- **Depends on**: reading the dialog's selection (see `docs/adapters.md`, Selection)
+
 ## Not requirements
 
 - Menu-bar or status-area menu with its own copy of every list: the panel is tied to dialogs; a launcher or file manager covers the rest.
@@ -586,7 +599,8 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 | R-101 data local and recoverable | Partly met | Plain TOML and JSON under the user's folders, atomic writes, a corrupt file renamed aside; the settings window keeps comments and unknown keys and leaves a file it cannot parse alone (`settings_write` tests). The settings keys are listed in `packaging/README.md`; the JSON formats are not yet written up for users |
 | R-102 pause | Partly met | `ofolder pause` live: with it on, a real dialog opened with no panels and finished normally, on Flea, GTK and Strata; `resume` restores them. No keyboard shortcut |
 | R-103 appearance follows the desktop | Partly met | The active theme's `colors.toml` is read per dialog with a default fallback (`theme` tests), mapped in one place (8 `colors` tests); in live runs the panels took the desktop theme's accent. Not covered: a live theme change, and a check against more themes |
-| R-104 fail visibly | Partly met | Errors show in a message window beside the right rail (or at the top of an open menu) and on stderr. There is no log file |
+| R-104 fail visibly | Partly met | Errors show in a message window beside the right rail, sized to their text, held while the pointer rests on them, and on stderr; every message is logged to `~/.local/state/ofolder/messages.log` (last 200 lines) and listed in the settings window's Messages pane (`messages` and `model` tests; live: a launcher failure shown in full beside the gear, logged, and listed). Not covered: a selectable verbosity, and failures to read the dialog state, which show as "folder unknown" rather than a message |
+| R-105 preview the selected picture or video | Partly met | Live on Flea: PNG, JPEG, GIF and an MP4 still shown under the dialog; a text file hid it; three fast Down presses over two images showed it once, after settling; it followed a dialog move and hid when no room was left below; the settings switch and the `preview` shortcut hid and showed it; the active window did not change when it appeared (`preview` tests in core and strip). Not covered: GTK and Strata, a click on the caption (synthetic clicks did not reach it), SVG, WebP, BMP and TIFF files |
 
 The panels became icon rails with menu windows on 2026-11-02 (see `docs/decisions.md`). That layout was checked live on Flea only, through the real portal frontend with real clicks: menus open beside their rail at the icon and float; Places and Favorites rows, a Find result, Back and Parent each moved the dialog and closed the menu; Find took the keyboard, Escape cleared and then closed it; New folder created a folder in a scratch folder and moved into it; Copy path, the favorite toggle and the Terminal launcher acted at once; clicking a menu's icon again closed it; giving the dialog the keyboard closed the open menu. GTK and Strata were not rerun with the rails. The click offsets in `spike/real_portal_check.py` belong to the old wide panels.
 

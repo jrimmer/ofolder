@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use ofolder_core::messages;
+use ofolder_core::preview::{MAX_MB_CHOICES, PreviewSettings};
 use ofolder_core::rails::{Item, RailLayout};
 use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
 use ofolder_core::settings_write::{self, Edit};
@@ -38,17 +39,25 @@ pub fn is_error_line(line: &str) -> bool {
 pub enum Pane {
     General,
     Rails,
+    Preview,
     Messages,
     Shortcuts,
 }
 
 impl Pane {
-    const ALL: [Pane; 4] = [Pane::General, Pane::Rails, Pane::Messages, Pane::Shortcuts];
+    const ALL: [Pane; 5] = [
+        Pane::General,
+        Pane::Rails,
+        Pane::Preview,
+        Pane::Messages,
+        Pane::Shortcuts,
+    ];
 
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
             Pane::Rails => "Rails",
+            Pane::Preview => "Preview",
             Pane::Messages => "Messages",
             Pane::Shortcuts => "Shortcuts",
         }
@@ -334,6 +343,95 @@ impl SettingsWindow {
                     .rounded(px(7.))
                     .bg(rgb(if on { colors().bg } else { colors().muted })),
             )
+    }
+
+    /// A switch for one of the preview's settings, saved under `[preview]`
+    /// and applied to the open dialog at once.
+    fn preview_toggle(
+        &self,
+        id: &'static str,
+        label: &str,
+        on: bool,
+        flip: fn(&mut PreviewSettings),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .gap_3()
+            .min_h(px(30.))
+            .cursor_pointer()
+            .child(Self::switch(on))
+            .child(label.to_owned())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let mut preview = this.settings.preview;
+                flip(&mut preview);
+                this.save_preview(preview, cx);
+            }))
+            .into_any_element()
+    }
+
+    fn save_preview(&mut self, preview: PreviewSettings, cx: &mut Context<Self>) {
+        self.save(vec![Edit::Preview(preview)], cx);
+        if self.error.is_none() {
+            let saved = self.settings.preview;
+            self.shared
+                .update(cx, |s, cx| s.set_preview_settings(saved, cx));
+        }
+    }
+
+    /// The Preview pane: whether the panel under the dialog shows, video
+    /// stills, and the largest file it reads.
+    fn preview(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let p = self.settings.preview;
+        let sizes = div().flex().gap_1().children(MAX_MB_CHOICES.map(|mb| {
+            let chosen = p.max_mb == mb;
+            let b = button(("preview-mb", mb as usize), &format!("{mb} MB"), true);
+            let b = if chosen {
+                b.bg(rgb(colors().chosen)).text_color(rgb(colors().text))
+            } else {
+                b
+            };
+            b.when(!chosen, |b| {
+                b.on_click(cx.listener(move |this, _, _, cx| {
+                    let mut preview = this.settings.preview;
+                    preview.max_mb = mb;
+                    this.save_preview(preview, cx);
+                }))
+            })
+        }));
+        let ffmpeg = std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| dir.join("ffmpeg").is_file())
+        });
+        vec![
+            self.preview_toggle(
+                "preview-enabled",
+                "Show a preview under the dialog when an image or video is selected",
+                p.enabled,
+                |p| p.enabled = !p.enabled,
+                cx,
+            ),
+            Self::hint(
+                "Images (png, jpg, gif, webp, bmp, tiff, svg) and videos (mp4, mkv, webm, mov, \
+                 avi, m4v). Anything else, or no selection, hides it. It needs at least 140 \
+                 pixels free below the dialog. A click on its caption copies the file's path.",
+            ),
+            self.preview_toggle(
+                "preview-video",
+                "Show a still from a selected video",
+                p.video_thumbnails,
+                |p| p.video_thumbnails = !p.video_thumbnails,
+                cx,
+            ),
+            Self::hint(if ffmpeg {
+                "Stills are made with ffmpeg, which is installed."
+            } else {
+                "Stills need ffmpeg, which was not found; videos show their details only."
+            }),
+            Self::row("Largest file", sizes),
+            Self::hint("Larger files are described, not opened."),
+        ]
     }
 
     /// A switch with its label; a click anywhere on the line flips it.
@@ -932,6 +1030,7 @@ impl Render for SettingsWindow {
         let body = match self.pane {
             Pane::General => self.general(cx),
             Pane::Rails => self.rails(cx),
+            Pane::Preview => self.preview(cx),
             Pane::Messages => self.recent_messages(cx),
             Pane::Shortcuts => self.shortcuts(cx),
         };

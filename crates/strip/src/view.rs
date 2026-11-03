@@ -4,6 +4,7 @@
 //! [`crate::right`], [`crate::popup`]) only draws and forwards clicks.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -21,16 +22,20 @@ use crate::hint::{self, Hint, Hints, Step, TipAnchor, TipWindow};
 use crate::menu::RowAction;
 use crate::model::{Effect, Job, Mode, ViewModel};
 use crate::popup::MenuWindow;
+use crate::preview::{self as panel, Content, PreviewWindow};
 use crate::rail::{self, Button, Change, Layout, MenuKind, Menus, RailSide};
 use crate::settings_window::{self, SettingsWindow};
 use crate::sources::RecentsRead;
 use crate::{
-    MenuRequest, SettingsRequest, StripActions, TipRequest, menu_options, settings_options,
-    tip_options,
+    MenuRequest, SettingsRequest, StripActions, TipRequest, menu_options, preview_options,
+    settings_options, tip_options,
 };
+use ofolder_core::preview::{PreviewSettings, Settle, classify};
 use ofolder_core::rails::RailLayout;
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 
+/// Polls between two reads of the selection for a dialog whose answer is slow.
+const SELECTION_EVERY: u32 = 3;
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
 /// How often commands from shortcuts are picked up: soon enough to feel
@@ -141,6 +146,21 @@ pub struct Shared {
     pub shortcut_problems: Vec<(String, String)>,
     /// The message log, when one is kept.
     pub messages_path: Option<PathBuf>,
+    /// What the preview panel shows, once loaded; `None` while loading.
+    pub preview_content: Option<Content>,
+    preview_settings: PreviewSettings,
+    /// Follows the selection, letting the panel change only once it holds.
+    preview_settle: Settle,
+    /// The panel's window, once it has opened; `preview_open` is set as soon
+    /// as it is asked for.
+    preview_window: Option<WindowHandle<PreviewWindow>>,
+    preview_open: bool,
+    /// Counts panel windows opened and closed, so a late one is taken down.
+    preview_serial: u64,
+    /// Counts loads, so one the selection moved on from is dropped.
+    preview_generation: Arc<AtomicU64>,
+    /// Hidden for this dialog by the `preview` shortcut.
+    preview_hidden: bool,
 }
 
 impl Shared {
@@ -152,6 +172,7 @@ impl Shared {
         cx: &mut Context<Self>,
     ) -> Self {
         let rails = vm.rails().clone();
+        let preview_settings = vm.preview_settings();
         let layout = Layout::from_core(&rails);
         let mut shared = Shared {
             vm,
@@ -175,6 +196,14 @@ impl Shared {
             tip_serial: 0,
             shortcut_problems: Vec::new(),
             messages_path: None,
+            preview_content: None,
+            preview_settings,
+            preview_settle: Settle::default(),
+            preview_window: None,
+            preview_open: false,
+            preview_serial: 0,
+            preview_generation: Arc::new(AtomicU64::new(0)),
+            preview_hidden: false,
         };
         shared.shortcut_problems = shared.actions.shortcut_problems();
         shared.start_polling(cx);
@@ -299,6 +328,8 @@ impl Shared {
         self.hide_tip(cx);
         if id == "settings" {
             self.toggle_settings(cx);
+        } else if id == "preview" {
+            self.toggle_preview(cx);
         } else if let Some(button) = Button::from_key(id) {
             self.press_from(button, true, cx);
         }
@@ -650,6 +681,158 @@ impl Shared {
         }
     }
 
+    // ---- the preview panel --------------------------------------------------
+
+    /// Whether this poll reads the dialog's selection: every poll for Flea,
+    /// whose answer costs about 20 ms and comes with the folder's, and every
+    /// third for the others, whose answer costs more.
+    fn selection_due(&self, tick: u32) -> bool {
+        let wanted = self.preview_settings.enabled && !self.preview_hidden;
+        wanted && (self.label == "flea" || tick.is_multiple_of(SELECTION_EVERY))
+    }
+
+    /// Shows, changes or hides the panel as the selection settles.
+    fn follow_selection(&mut self, selection: Option<PathBuf>, cx: &mut Context<Self>) {
+        let wanted = selection.filter(|p| classify(p).is_some());
+        match self.preview_settle.observe(wanted, Instant::now()) {
+            Some(Some(path)) => self.show_preview(path, cx),
+            Some(None) => self.close_preview(cx),
+            None => {}
+        }
+    }
+
+    fn show_preview(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let Some(kind) = classify(&path) else {
+            return;
+        };
+        if !self.preview_open {
+            let Some(size) = self.actions.preview_size() else {
+                // No room under the dialog: try again when the selection changes.
+                self.preview_settle.reset();
+                return;
+            };
+            self.open_preview(size, cx);
+        }
+        let mine = self.preview_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.preview_content = None;
+        let generation = self.preview_generation.clone();
+        let settings = self.preview_settings;
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move { panel::load(&path, kind, settings, &generation, mine) })
+                .await;
+            this.update(cx, |s, cx| {
+                if let Some(content) = loaded
+                    && s.preview_generation.load(Ordering::Relaxed) == mine
+                {
+                    s.preview_content = Some(content);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn open_preview(&mut self, size: (i32, i32), cx: &mut Context<Self>) {
+        self.preview_open = true;
+        self.preview_serial += 1;
+        let serial = self.preview_serial;
+        // The placement rule must be in force before the window maps.
+        self.actions.place_preview(true);
+        let shared = cx.entity();
+        cx.defer(move |cx| {
+            let options = preview_options(size, cx);
+            let inner = shared.clone();
+            let opened = cx.open_window(options, move |_, cx| {
+                cx.new(|cx| PreviewWindow::new(inner, cx))
+            });
+            shared.update(cx, |s, cx| match opened {
+                Ok(handle) if s.preview_serial == serial && s.preview_open => {
+                    s.preview_window = Some(handle);
+                }
+                // Closed before its window came up.
+                Ok(handle) => {
+                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                }
+                Err(error) => {
+                    s.preview_open = false;
+                    eprintln!("ofolder: could not open the preview: {error}");
+                }
+            });
+        });
+    }
+
+    /// Takes the panel down and forgets what it showed.
+    fn close_preview(&mut self, cx: &mut Context<Self>) {
+        // Any load still running is no longer wanted.
+        self.preview_generation.fetch_add(1, Ordering::Relaxed);
+        self.preview_content = None;
+        if !self.preview_open {
+            return;
+        }
+        self.preview_open = false;
+        self.preview_serial += 1;
+        if let Some(handle) = self.preview_window.take() {
+            cx.defer(move |cx| {
+                handle.update(cx, |_, w, _| w.remove_window()).ok();
+            });
+        }
+        self.actions.place_preview(false);
+    }
+
+    /// Called when any window closes: a panel the compositor closed is
+    /// forgotten until the selection changes.
+    pub fn preview_window_closed(&mut self, open: &[WindowId], cx: &mut Context<Self>) {
+        if self
+            .preview_window
+            .is_some_and(|h| !open.contains(&h.window_id()))
+        {
+            self.preview_window = None;
+            self.close_preview(cx);
+        }
+    }
+
+    /// The `preview` shortcut: hides the panel for this dialog, or lets it
+    /// show again.
+    pub fn toggle_preview(&mut self, cx: &mut Context<Self>) {
+        self.preview_hidden = !self.preview_hidden;
+        self.preview_settle.reset();
+        if self.preview_hidden {
+            self.close_preview(cx);
+        }
+        cx.notify();
+    }
+
+    /// The settings window changed the preview's settings.
+    pub fn set_preview_settings(&mut self, settings: PreviewSettings, cx: &mut Context<Self>) {
+        self.preview_settings = settings;
+        self.preview_settle.reset();
+        self.close_preview(cx);
+        cx.notify();
+    }
+
+    /// A click on the panel's caption copies the file's full path.
+    pub fn copy_preview_path(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.preview_content.as_ref().map(|c| c.path.clone()) else {
+            return;
+        };
+        match path.to_str() {
+            Some(text) => match self.actions.copy_text(text) {
+                Ok(()) => self.vm.show_info("preview", "Path copied"),
+                Err(why) => self
+                    .vm
+                    .show_error("preview", &format!("Could not copy: {why}")),
+            },
+            None => self
+                .vm
+                .show_error("preview", "Cannot copy: the path is not valid text"),
+        }
+        self.changed(cx);
+    }
+
     /// Notes which window holds the keyboard. When none of the strip's does
     /// for a moment (the user went back to the dialog or elsewhere), the open
     /// menu closes. The message window is left to time out instead.
@@ -696,14 +879,18 @@ impl Shared {
                 let lists = tick.is_multiple_of(RECENTS_EVERY);
                 let places = tick.is_multiple_of(PLACES_EVERY);
                 tick = tick.wrapping_add(1);
-                let Ok((paths, tip_side, shown, log)) = this.update(cx, |t, _| {
-                    (
-                        t.vm.favorite_paths(),
-                        t.hints.wanted().map(|h| h.side),
-                        t.vm.take_shown(),
-                        t.messages_path.clone(),
-                    )
-                }) else {
+                let Ok((paths, tip_side, shown, log, want_selection, preview_open)) =
+                    this.update(cx, |t, _| {
+                        (
+                            t.vm.favorite_paths(),
+                            t.hints.wanted().map(|h| h.side),
+                            t.vm.take_shown(),
+                            t.messages_path.clone(),
+                            t.selection_due(tick),
+                            t.preview_open,
+                        )
+                    })
+                else {
                     return;
                 };
                 let actions = actions.clone();
@@ -716,6 +903,8 @@ impl Shared {
                         }
                         let folder = actions.current_folder();
                         let alive = actions.dialog_alive();
+                        let selection = want_selection.then(|| actions.selection());
+                        let room = preview_open.then(|| actions.preview_size().is_some());
                         let seen = lists.then(|| {
                             paths
                                 .into_iter()
@@ -734,6 +923,8 @@ impl Shared {
                         Polled {
                             folder,
                             alive,
+                            selection,
+                            room,
                             seen,
                             recents,
                             places,
@@ -762,6 +953,14 @@ impl Shared {
                         changed |= t.vm.set_places(places);
                     }
                     changed |= t.vm.expire_message(Instant::now());
+                    if read.room == Some(false) {
+                        // The dialog moved where nothing fits below it.
+                        t.close_preview(cx);
+                        t.preview_settle.reset();
+                    }
+                    if let Some(selection) = read.selection {
+                        t.follow_selection(selection, cx);
+                    }
                     if changed {
                         t.changed(cx);
                     }
@@ -936,6 +1135,10 @@ struct Polled {
     places: Option<Vec<ofolder_core::places::Place>>,
     /// The rail whose tooltip is up, when the pointer is no longer on it.
     off_rail: Option<rail::RailSide>,
+    /// The dialog's selection, when it was read this time.
+    selection: Option<Option<PathBuf>>,
+    /// Whether the open preview still fits under the dialog.
+    room: Option<bool>,
 }
 
 /// How a rail icon looks.

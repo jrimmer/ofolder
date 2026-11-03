@@ -20,15 +20,18 @@ use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
-use ofolder_core::geometry::{Panels, Rect, centre_in, place_menu, place_panels, place_tip};
+use ofolder_core::geometry::{
+    Panels, Rect, centre_in, place_below, place_menu, place_panels, place_tip,
+};
 use ofolder_core::keybind::taken_by;
 use ofolder_core::launch::{self, Command};
 use ofolder_core::settings;
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
-    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP, LEFT_WIDTH, MenuRequest,
-    RIGHT_WIDTH, RailSide, SettingsRequest, StripActions, StripOptions, TipAnchor, TipRequest,
+    APP_ID_LEFT, APP_ID_MENU, APP_ID_PREVIEW, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP,
+    LEFT_WIDTH, MenuRequest, RIGHT_WIDTH, RailSide, SettingsRequest, StripActions, StripOptions,
+    TipAnchor, TipRequest,
 };
 
 /// The space between the dialog and a rail: enough to keep the two readable as
@@ -38,6 +41,11 @@ const RULE_LEFT: &str = "ofolder-strip-left";
 const RULE_RIGHT: &str = "ofolder-strip-right";
 const RULE_MENU: &str = "ofolder-strip-menu";
 const RULE_TIP: &str = "ofolder-strip-tip";
+const RULE_PREVIEW: &str = "ofolder-strip-preview";
+/// The preview panel's tallest, and the least room below the dialog it
+/// needs; with less it is not shown.
+const PREVIEW_MAX_H: i32 = 280;
+const PREVIEW_MIN_H: i32 = 140;
 const RULE_SETTINGS: &str = "ofolder-strip-settings";
 /// The space between a rail and its tooltip.
 const TIP_GAP: i32 = 4;
@@ -154,6 +162,14 @@ struct Dock {
     /// The settings window was just asked for: give it the keyboard once
     /// it appears, as for a menu that is typed into.
     focus_settings: bool,
+    /// The preview panel is open under the dialog.
+    preview: bool,
+}
+
+/// Where the preview panel goes: under the dialog, as wide as it, when
+/// there is room.
+fn preview_rect(dialog: Rect, bounds: Option<Rect>) -> Option<Rect> {
+    place_below(dialog, bounds, GAP, PREVIEW_MAX_H, PREVIEW_MIN_H)
 }
 
 /// Where the settings window opens: centred on the dialog's monitor, or on
@@ -360,6 +376,37 @@ impl StripActions for Actions {
         copy_with_wl_copy(text)
     }
 
+    fn selection(&self) -> Option<PathBuf> {
+        self.adapter.lock().ok()?.selection()
+    }
+
+    fn preview_size(&self) -> Option<(i32, i32)> {
+        let dock = self.dock.lock().ok()?;
+        preview_rect(dock.dialog?, dock.bounds).map(|r| (r.w, r.h))
+    }
+
+    fn place_preview(&self, open: bool) {
+        let placed = self.dock.lock().ok().and_then(|mut dock| {
+            dock.preview = open;
+            open.then_some(())?;
+            preview_rect(dock.dialog?, dock.bounds)
+        });
+        // In force before the window maps, and it does not take the keyboard
+        // when it appears. Unlike a tooltip it must take the pointer, for the
+        // click on its caption, so it is focusable the way the rails are.
+        if let Some(rect) = placed {
+            self.compositor
+                .install_float_rule(
+                    RULE_PREVIEW,
+                    APP_ID_PREVIEW,
+                    (rect.w, rect.h),
+                    (rect.x, rect.y),
+                    false,
+                )
+                .ok();
+        }
+    }
+
     fn take_commands(&self) -> Vec<&'static str> {
         self.commands
             .lock()
@@ -530,7 +577,7 @@ fn dock_forever(
             *seen = Some(dialog.rect());
         }
         let bounds = bounds_for(&*compositor, dialog);
-        let (menu, focus_menu, tip, settings, focus_settings) = actions
+        let (menu, focus_menu, tip, settings, focus_settings, preview) = actions
             .dock
             .lock()
             .ok()
@@ -543,9 +590,10 @@ fn dock_forever(
                     dock.tip,
                     dock.settings,
                     dock.focus_settings,
+                    dock.preview,
                 )
             })
-            .unwrap_or((None, false, None, None, false));
+            .unwrap_or((None, false, None, None, false, false));
         let left = clients
             .iter()
             .find(|c| c.class == APP_ID_LEFT && c.pid == me);
@@ -609,11 +657,18 @@ fn dock_forever(
             .iter()
             .find(|c| c.class == APP_ID_TIP && c.pid == me);
         let tip_place = tip.map(|t| tip_rect(dialog.rect(), bounds, &t));
+        let preview_window = clients
+            .iter()
+            .find(|c| c.class == APP_ID_PREVIEW && c.pid == me);
+        let preview_place = preview
+            .then(|| preview_rect(dialog.rect(), bounds))
+            .flatten();
         for (panel, wanted) in [
             (left, Some(panels.left)),
             (right, Some(panels.right)),
             (menu_window, menu_place),
             (tip_window, tip_place),
+            (preview_window, preview_place),
         ] {
             let (Some(panel), Some(wanted)) = (panel, wanted) else {
                 continue;
@@ -829,6 +884,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     compositor.remove_rule(RULE_MENU).ok();
     compositor.remove_rule(RULE_TIP).ok();
     compositor.remove_rule(RULE_SETTINGS).ok();
+    compositor.remove_rule(RULE_PREVIEW).ok();
     note("cleanup done: dialog place remembered, window rules removed");
     result
 }
@@ -897,6 +953,27 @@ mod tests {
         let right = tip_rect(dialog, screen, &tip(RailSide::Right, TipAnchor::Bottom(26)));
         assert_eq!(right.right(), dialog.right() + GAP - TIP_GAP);
         assert_eq!(right.y + right.h / 2, dialog.bottom() - 26);
+    }
+
+    #[test]
+    fn the_preview_sits_a_gap_under_the_dialog_and_is_left_out_without_room() {
+        let screen = Some(Rect {
+            x: 0,
+            y: 0,
+            w: 4096,
+            h: 1152,
+        });
+        let dialog = Rect {
+            x: 1611,
+            y: 289,
+            w: 875,
+            h: 600,
+        };
+        let below = preview_rect(dialog, screen).expect("room below");
+        assert_eq!((below.x, below.y, below.w), (1611, 289 + 600 + GAP, 875));
+        assert_eq!(below.bottom(), 1152, "cut short at the monitor's foot");
+        let low = Rect { y: 480, ..dialog };
+        assert_eq!(preview_rect(low, screen), None);
     }
 
     fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {

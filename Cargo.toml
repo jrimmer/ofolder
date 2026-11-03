@@ -24,6 +24,8 @@ anyhow = "1"
 atspi = { version = "0.30", default-features = false, features = ["connection", "proxies"] }
 async-io = "2.6"
 gpui = "=0.2.2"
+# The same release gpui decodes pictures with; previews are shrunk with it.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
 # Pinned: gpui's xattr dependency does not build with newer libc.
 libc = "=0.2.186"
 serde = { version = "1", features = ["derive"] }

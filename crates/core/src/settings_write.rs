@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{Array, DocumentMut, Item, Table, Value, value};
 
+use crate::preview::PreviewSettings;
 use crate::rails::{RailLayout, Side};
 use crate::shortcuts::{COMMANDS, Shortcuts};
 
@@ -29,6 +30,8 @@ pub enum Edit {
     /// Every shortcut: a command without one has its key removed. Keys
     /// under `[shortcuts]` this version does not know are left alone.
     Shortcuts(Shortcuts),
+    /// The preview panel's settings; the defaults remove the table.
+    Preview(PreviewSettings),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -101,6 +104,37 @@ fn set_shortcuts(doc: &mut DocumentMut, shortcuts: &Shortcuts) {
     }
 }
 
+fn set_preview(doc: &mut DocumentMut, preview: &PreviewSettings) {
+    if *preview == PreviewSettings::default() {
+        if let Some(table) = doc.get_mut("preview").and_then(Item::as_table_mut) {
+            for key in ["enabled", "video_thumbnails", "max_mb"] {
+                table.remove(key);
+            }
+            if table.is_empty() {
+                doc.remove("preview");
+            }
+        }
+        return;
+    }
+    if !doc.get("preview").is_some_and(Item::is_table) {
+        doc.insert("preview", Item::Table(Table::new()));
+    }
+    let Some(table) = doc.get_mut("preview").and_then(Item::as_table_mut) else {
+        return;
+    };
+    set(table, "enabled", Value::from(preview.enabled));
+    set(
+        table,
+        "video_thumbnails",
+        Value::from(preview.video_thumbnails),
+    );
+    set(
+        table,
+        "max_mb",
+        Value::from(i64::try_from(preview.max_mb).unwrap_or(i64::MAX)),
+    );
+}
+
 /// `text` with `edits` applied.
 pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
     let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
@@ -118,6 +152,7 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
             }
             Edit::Rails(layout) => set_rails(&mut doc, layout),
             Edit::Shortcuts(shortcuts) => set_shortcuts(&mut doc, shortcuts),
+            Edit::Preview(preview) => set_preview(&mut doc, preview),
         }
     }
     Ok(doc.to_string())
@@ -261,6 +296,32 @@ mod tests {
         assert!(!bare.contains("shortcuts"), "{bare}");
         assert_eq!(
             apply("", &[Edit::Shortcuts(Shortcuts::default())]).unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn preview_settings_round_trip_keeping_comments_and_the_defaults_remove_the_table() {
+        let text = "# mine\npaused = false\n\n[preview]\n# keep this\nenabled = true\nshiny = 1\n";
+        let off = PreviewSettings {
+            enabled: false,
+            video_thumbnails: false,
+            max_mb: 16,
+        };
+        let written = apply(text, &[Edit::Preview(off)]).unwrap();
+        assert!(
+            written.contains("# keep this") && written.contains("shiny = 1"),
+            "{written}"
+        );
+        let read = crate::settings::parse(&written, std::path::Path::new("/home/j"));
+        assert_eq!(read.settings.preview, off);
+        let back = apply(&written, &[Edit::Preview(PreviewSettings::default())]).unwrap();
+        assert!(
+            back.contains("shiny = 1") && !back.contains("max_mb"),
+            "{back}"
+        );
+        assert_eq!(
+            apply("", &[Edit::Preview(PreviewSettings::default())]).unwrap(),
             ""
         );
     }

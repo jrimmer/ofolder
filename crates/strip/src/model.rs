@@ -143,6 +143,8 @@ pub struct ViewModel {
     last_recents_warning: Option<String>,
     /// Messages shown and not yet written to the log.
     shown: Vec<Shown>,
+    /// The preview panel's settings, as read when the dialog opened.
+    preview: ofolder_core::preview::PreviewSettings,
 }
 
 /// Characters of path that fit a panel's width.
@@ -167,6 +169,7 @@ impl ViewModel {
             recents: Recents::default(),
             recents_enabled: settings.recents_enabled,
             rails: settings.rails,
+            preview: settings.preview,
             scope: Scope::AllApps,
             app_key: options.app_key.clone(),
             expansion: Expansion::default(),
@@ -647,6 +650,15 @@ impl ViewModel {
     /// The rail layout read when the dialog opened.
     pub fn rails(&self) -> &ofolder_core::rails::RailLayout {
         &self.rails
+    }
+
+    pub fn preview_settings(&self) -> ofolder_core::preview::PreviewSettings {
+        self.preview
+    }
+
+    /// Shows a note that arose outside the view-model.
+    pub fn show_info(&mut self, context: &'static str, text: &str) {
+        self.info(context, text);
     }
 
     pub fn scope(&self) -> Scope {

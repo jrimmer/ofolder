@@ -18,6 +18,7 @@ pub mod naming;
 pub mod pathsafe;
 pub mod places;
 pub mod portal;
+pub mod preview;
 pub mod rails;
 pub mod readers;
 pub mod recents;

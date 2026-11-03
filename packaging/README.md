@@ -61,6 +61,9 @@ still apply.
 | `paused` | Set by `ofolder pause`: every dialog passes through untouched | `false` |
 | `[rails]` `left`, `right` | The icons of each rail, top to bottom. `"-"` is a divider line, and an icon left out is hidden | as below |
 | `[shortcuts]` | A table of command to key combination, such as `places = "SUPER+ALT+P"`. Set in the settings window's Shortcuts pane | none |
+| `[preview]` `enabled` | Show a panel under the dialog while an image or video is selected | `true` |
+| `[preview]` `video_thumbnails` | Show a still from a selected video, made with `ffmpeg` when it is installed | `true` |
+| `[preview]` `max_mb` | Files larger than this many MB are described, not opened (1 to 4096) | `64` |
 
 ```
 [rails]
@@ -75,7 +78,7 @@ rail's default.
 
 The commands are the rail icons' ids, `back`, `forward`, `parent`, `favorites`, `places`,
 `recent_folders`, `recent_files`, `new_folder`, `find`, `favorite`, `copy_path`, `file_manager`,
-`terminal`, plus `settings`:
+`terminal`, plus `settings` and `preview` (hides or shows the preview panel for the open dialog):
 
 ```
 [shortcuts]

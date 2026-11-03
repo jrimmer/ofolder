@@ -233,6 +233,27 @@ pub fn place_tip(
     Rect { x, y, w, h }
 }
 
+/// The preview panel's place under `dialog`: same left edge and width,
+/// `gap` below its bottom edge, at most `max_h` tall and cut short at the
+/// monitor's bottom. `None` when less than `min_h` fits there.
+pub fn place_below(
+    dialog: Rect,
+    bounds: Option<Rect>,
+    gap: i32,
+    max_h: i32,
+    min_h: i32,
+) -> Option<Rect> {
+    let y = dialog.bottom() + gap;
+    let room = bounds.map_or(max_h, |b| b.bottom() - y);
+    let h = max_h.min(room);
+    (h >= min_h && dialog.w > 0).then_some(Rect {
+        x: dialog.x,
+        y,
+        w: dialog.w,
+        h,
+    })
+}
+
 /// A window of `size` centred in `area`, kept inside it when it is larger.
 pub fn centre_in(area: Rect, (w, h): (i32, i32)) -> Rect {
     let w = w.min(area.w);
@@ -563,6 +584,39 @@ mod tests {
                 w: 1000,
                 h: 100
             }
+        );
+    }
+
+    #[test]
+    fn the_preview_sits_under_the_dialog_as_wide_as_it_and_stops_at_the_monitor_bottom() {
+        let dialog = Rect {
+            x: 100,
+            y: 100,
+            w: 800,
+            h: 500,
+        };
+        let below = place_below(dialog, Some(MONITOR), 3, 280, 140).expect("room");
+        assert_eq!(
+            below,
+            Rect {
+                x: 100,
+                y: 603,
+                w: 800,
+                h: 280
+            }
+        );
+        let low = Rect { y: 500, ..dialog };
+        let cut = place_below(low, Some(MONITOR), 3, 280, 140).expect("some room");
+        assert_eq!(cut.bottom(), MONITOR.bottom());
+        assert!(cut.h < 280);
+        let lower = Rect {
+            y: MONITOR.bottom() - 600,
+            ..dialog
+        };
+        assert_eq!(place_below(lower, Some(MONITOR), 3, 280, 140), None);
+        assert_eq!(
+            place_below(dialog, None, 3, 280, 140).map(|r| r.h),
+            Some(280)
         );
     }
 }

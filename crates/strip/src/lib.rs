@@ -23,6 +23,7 @@ pub mod model;
 pub mod naming;
 pub mod paths;
 mod popup;
+mod preview;
 pub mod rail;
 mod right;
 mod rows;
@@ -62,6 +63,8 @@ pub const APP_ID_MENU: &str = "ofolder.strip.menu";
 pub const APP_ID_TIP: &str = "ofolder.strip.tip";
 /// The window class of the settings window the gear opens.
 pub const APP_ID_SETTINGS: &str = "ofolder.strip.settings";
+/// The window class of the preview panel under the dialog.
+pub const APP_ID_PREVIEW: &str = "ofolder.strip.preview";
 
 /// The settings window about to open: its size, centred on the dialog's
 /// monitor. It takes the keyboard, since the user clicked for it.
@@ -162,6 +165,21 @@ pub trait StripActions: Send + Sync + 'static {
     /// Puts `text` on the clipboard without a window of the strip's own: a
     /// shortcut comes with no input event, and a Wayland window may only set
     /// the clipboard in answer to one.
+    /// The item selected in the dialog, when the dialog can say; for the
+    /// preview panel. Called from a background thread a few times a second.
+    fn selection(&self) -> Option<PathBuf> {
+        None
+    }
+    /// The preview panel's size if it were shown under the dialog now, or
+    /// `None` when there is no room below the dialog. Called from a
+    /// background thread.
+    fn preview_size(&self) -> Option<(i32, i32)> {
+        None
+    }
+    /// The preview panel is about to open (`true`), so its placement must be
+    /// in force before it maps, or it has closed (`false`). It never takes
+    /// the keyboard. Called on the UI thread, so it must return quickly.
+    fn place_preview(&self, _open: bool) {}
     fn copy_text(&self, _text: &str) -> Result<(), String> {
         Err("the clipboard cannot be set from a shortcut here".to_owned())
     }
@@ -233,6 +251,16 @@ pub(crate) fn tip_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
     window_options(
         APP_ID_TIP,
         "ofolder tip",
+        (size.0 as f32, size.1 as f32),
+        cx,
+    )
+}
+
+/// The options for the preview panel of `size`.
+pub(crate) fn preview_options(size: (i32, i32), cx: &mut App) -> WindowOptions {
+    window_options(
+        APP_ID_PREVIEW,
+        "ofolder preview",
         (size.0 as f32, size.1 as f32),
         cx,
     )
@@ -311,6 +339,7 @@ pub fn run_strip_preview(
                 s.menu_window_closed(&open, cx);
                 s.tip_window_closed(&open);
                 s.settings_window_closed(&open, cx);
+                s.preview_window_closed(&open, cx);
             });
         })
         .detach();

@@ -20,6 +20,7 @@ cargo run -p ofolder -- adapters     # which installed file choosers can be deco
 cargo run -p ofolder -- strip-demo   # open a sample strip window
 ```
 
-Status: the Flea adapter and the portal proxy are ported to Rust and proven against
-the real Flea and the real GTK dialog (see `docs/adapters.md`). The GTK and Strata
-adapters and the strip wiring are still the Python spike.
+Status: the portal proxy, the Flea, GTK and Strata adapters and the rails are in Rust and
+proven against the real dialogs (see `docs/adapters.md` and the coverage table in
+`docs/requirements.md`). The Python spike in `spike/` is kept only as evidence and as the live
+test harness.

@@ -14,7 +14,7 @@ HOME = os.path.expanduser("~")
 if len(sys.argv) > 2 and sys.argv[1] == "--app":
     import gi
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk, GLib
+    from gi.repository import Gtk, GLib, Gio
     out = sys.argv[2]
     app = Gtk.Application(application_id=APP_ID)
 
@@ -26,6 +26,11 @@ if len(sys.argv) > 2 and sys.argv[1] == "--app":
         def ask():
             dialog = Gtk.FileDialog()
             dialog.set_initial_name("real.txt")
+            # A folder the app itself names, so the dialog opens there
+            # whichever window has the keyboard when it is asked for.
+            start = os.environ.get("OFOLDER_TEST_FOLDER")
+            if start:
+                dialog.set_initial_folder(Gio.File.new_for_path(start))
 
             def done(d, res):
                 try:

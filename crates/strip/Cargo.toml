@@ -12,6 +12,7 @@ workspace = true
 ofolder-core.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
+image.workspace = true
 # Held at the pinned version: gpui's xattr dependency does not build with newer libc.
 libc.workspace = true
 serde.workspace = true

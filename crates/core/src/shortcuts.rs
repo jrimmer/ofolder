@@ -66,6 +66,7 @@ pub const COMMANDS: &[CommandDef] = &[
     act("file_manager", "Open in file manager"),
     act("terminal", "Open in terminal"),
     act("settings", "Settings"),
+    act("preview", "Show or hide the preview"),
 ];
 
 pub fn command(id: &str) -> Option<&'static CommandDef> {

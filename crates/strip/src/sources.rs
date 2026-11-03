@@ -48,6 +48,8 @@ pub struct SettingsRead {
     pub recents_enabled: bool,
     pub rails: ofolder_core::rails::RailLayout,
     pub warnings: Vec<String>,
+    /// The preview panel's settings.
+    pub preview: ofolder_core::preview::PreviewSettings,
 }
 
 pub fn read_settings(path: &Path, home: &Path) -> SettingsRead {
@@ -55,6 +57,7 @@ pub fn read_settings(path: &Path, home: &Path) -> SettingsRead {
     SettingsRead {
         recents_enabled: loaded.settings.recents_enabled,
         rails: loaded.settings.rails,
+        preview: loaded.settings.preview,
         warnings: loaded.warnings,
     }
 }

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use toml::{Table, Value};
 
+use crate::preview::PreviewSettings;
 use crate::rails::{RailLayout, Side};
 use crate::shortcuts::Shortcuts;
 
@@ -41,6 +42,8 @@ pub struct Settings {
     pub rails: RailLayout,
     /// Keyboard shortcuts for the rail icons; none until the user sets one.
     pub shortcuts: Shortcuts,
+    /// The preview panel under the dialog.
+    pub preview: PreviewSettings,
 }
 
 impl Default for Settings {
@@ -58,6 +61,7 @@ impl Default for Settings {
             swap_sides: false,
             rails: RailLayout::default(),
             shortcuts: Shortcuts::default(),
+            preview: PreviewSettings::default(),
         }
     }
 }
@@ -69,7 +73,7 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 12] = [
+const KNOWN: [&str; 13] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
@@ -82,6 +86,7 @@ const KNOWN: [&str; 12] = [
     "swap_sides",
     "rails",
     "shortcuts",
+    "preview",
 ];
 
 /// `~` and `~/...` mean the home folder. Anything else must already be absolute.
@@ -267,6 +272,14 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
             );
         }
         Some(_) => r.warn("shortcuts", "expected a table of command to keys"),
+    }
+
+    match table.get("preview") {
+        None => {}
+        Some(Value::Table(preview)) => {
+            out.preview = PreviewSettings::from_table(preview, &mut r.warnings);
+        }
+        Some(_) => r.warn("preview", "expected a table"),
     }
 
     for key in table.keys().filter(|k| !KNOWN.contains(&k.as_str())) {
