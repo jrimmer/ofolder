@@ -10,6 +10,9 @@ use gpui::{
 use ofolder_core::rails::{Item, RailLayout};
 use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
 use ofolder_core::settings_write::{self, Edit};
+use ofolder_core::shortcuts::{
+    COMMANDS, Combo, ComboError, Group, Held, Shortcuts, from_keystroke,
+};
 
 use crate::colors::colors;
 use crate::field::{FieldEvent, TextField};
@@ -27,17 +30,37 @@ const LABEL: f32 = 160.;
 pub enum Pane {
     General,
     Rails,
+    Shortcuts,
 }
 
 impl Pane {
-    const ALL: [Pane; 2] = [Pane::General, Pane::Rails];
+    const ALL: [Pane; 3] = [Pane::General, Pane::Rails, Pane::Shortcuts];
 
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
             Pane::Rails => "Rails",
+            Pane::Shortcuts => "Shortcuts",
         }
     }
+}
+
+/// A combination recorded for one command that another command already has:
+/// the user says whether to swap the two or take it from the other.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Conflict {
+    id: &'static str,
+    combo: Combo,
+    other: &'static str,
+}
+
+/// Whether a command is listed for the text typed in the filter: its title
+/// or its keys contain it, ignoring case.
+pub fn matches_filter(title: &str, keys: Option<&Combo>, filter: &str) -> bool {
+    let filter = filter.trim().to_lowercase();
+    filter.is_empty()
+        || title.to_lowercase().contains(&filter)
+        || keys.is_some_and(|k| k.label().to_lowercase().contains(&filter))
 }
 
 /// The number of recent items kept after a press of minus or plus: steps of
@@ -64,6 +87,13 @@ pub struct SettingsWindow {
     terminal: Entity<TextField>,
     /// Why the last change could not be saved.
     error: Option<String>,
+    filter: Entity<TextField>,
+    filter_text: String,
+    /// The command whose keys are being recorded.
+    recording: Option<&'static str>,
+    /// Why the last recorded keys were not taken.
+    notice: Option<String>,
+    conflict: Option<Conflict>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -103,9 +133,19 @@ impl SettingsWindow {
                 FieldEvent::Submit(_) | FieldEvent::Up | FieldEvent::Down => {}
             }
         };
+        let filter = cx.new(TextField::new);
+        filter.update(cx, |f, cx| f.reset("", "Filter shortcuts", cx));
         let subscriptions = vec![
             cx.subscribe(&file_manager, command_events("file_manager")),
             cx.subscribe(&terminal, command_events("terminal")),
+            cx.subscribe(&filter, |this, _, event: &FieldEvent, cx| match event {
+                FieldEvent::Changed(text) => {
+                    this.filter_text = text.clone();
+                    cx.notify();
+                }
+                FieldEvent::Cancel => this.close(cx),
+                FieldEvent::Submit(_) | FieldEvent::Up | FieldEvent::Down => {}
+            }),
             cx.observe(&shared, |_, _, cx| cx.notify()),
         ];
         let root = cx.focus_handle();
@@ -118,6 +158,11 @@ impl SettingsWindow {
             file_manager,
             terminal,
             error: None,
+            filter,
+            filter_text: String::new(),
+            recording: None,
+            notice: None,
+            conflict: None,
             _subscriptions: subscriptions,
         }
     }
@@ -128,10 +173,75 @@ impl SettingsWindow {
 
     fn on_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
+        if let Some(id) = self.recording {
+            // While recording, every key belongs to the recording.
+            cx.stop_propagation();
+            if ks.key == "escape" {
+                self.recording = None;
+                cx.notify();
+                return;
+            }
+            let held = Held {
+                ctrl: ks.modifiers.control,
+                alt: ks.modifiers.alt,
+                shift: ks.modifiers.shift,
+                super_key: ks.modifiers.platform,
+            };
+            match from_keystroke(held, &ks.key) {
+                // Still waiting for the key that goes with the modifiers.
+                Err(ComboError::ModifierOnly) => {}
+                Err(e) => {
+                    self.recording = None;
+                    self.notice = Some(capitalised(&e.to_string()));
+                    cx.notify();
+                }
+                Ok(combo) => self.recorded(id, combo, cx),
+            }
+            return;
+        }
         let ctrl = ks.modifiers.control || ks.modifiers.platform;
         if ks.key == "escape" || (ctrl && ks.key == "w") {
             cx.stop_propagation();
             self.close(cx);
+        }
+    }
+
+    /// Keys were recorded for `id`: refused when the user's own
+    /// configuration uses them, asked about when another command has them,
+    /// otherwise saved and bound.
+    fn recorded(&mut self, id: &'static str, combo: Combo, cx: &mut Context<Self>) {
+        self.recording = None;
+        self.notice = None;
+        self.conflict = None;
+        let current = self.settings.shortcuts.clone();
+        if current.get(id) == Some(&combo) {
+            cx.notify();
+            return;
+        }
+        if let Some(holder) = self.shared.read(cx).taken_by(&combo) {
+            self.notice = Some(format!(
+                "{} is already {holder}, so ofolder leaves it alone. Choose other keys.",
+                combo.label()
+            ));
+            cx.notify();
+            return;
+        }
+        if let Some(other) = current.holder(&combo) {
+            self.conflict = Some(Conflict { id, combo, other });
+            cx.notify();
+            return;
+        }
+        let mut next = current;
+        next.set(id, Some(combo));
+        self.save_shortcuts(next, cx);
+    }
+
+    /// Saves `shortcuts`, then binds what the file now says.
+    fn save_shortcuts(&mut self, shortcuts: Shortcuts, cx: &mut Context<Self>) {
+        self.save(vec![Edit::Shortcuts(shortcuts)], cx);
+        if self.error.is_none() {
+            let saved = self.settings.shortcuts.clone();
+            self.shared.update(cx, |s, cx| s.rebind(&saved, cx));
         }
     }
 
@@ -511,6 +621,200 @@ impl SettingsWindow {
         out
     }
 
+    fn shortcuts(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let keys = self.settings.shortcuts.clone();
+        let problems = self.shared.read(cx).shortcut_problems.clone();
+        let reset = button("shortcuts-reset", "Reset to defaults", !keys.is_empty()).when(
+            !keys.is_empty(),
+            |b| {
+                b.on_click(cx.listener(|this, _, _, cx| {
+                    this.conflict = None;
+                    this.notice = None;
+                    this.save_shortcuts(Shortcuts::default(), cx);
+                }))
+            },
+        );
+        let mut out = vec![
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(div().w(px(260.)).child(self.filter.clone()))
+                .child(div().flex_1())
+                .child(reset)
+                .into_any_element(),
+            Self::hint(
+                "Shortcuts work while a dialog is open: ofolder adds them to Hyprland for that \
+                 time only. A combination your own Hyprland configuration already uses is \
+                 refused. Click a shortcut, then press the keys; Escape cancels.",
+            ),
+        ];
+        if let Some(notice) = &self.notice {
+            out.push(
+                div()
+                    .text_color(rgb(colors().amber))
+                    .child(notice.clone())
+                    .into_any_element(),
+            );
+        }
+        if let Some(c) = self.conflict.clone() {
+            out.push(self.conflict_prompt(c, cx));
+        }
+        for group in [Group::GoSomewhere, Group::DoSomethingHere] {
+            let defs: Vec<_> = COMMANDS
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| d.group == group)
+                .filter(|(_, d)| matches_filter(d.title, keys.get(d.id), &self.filter_text))
+                .collect();
+            if defs.is_empty() {
+                continue;
+            }
+            out.push(Self::heading(group.title()));
+            for (i, def) in defs {
+                let id = def.id;
+                let combo = keys.get(id).cloned();
+                let recording = self.recording == Some(id);
+                let (text, color) = match (&combo, recording) {
+                    (_, true) => ("Press keys…".to_owned(), colors().accent),
+                    (Some(c), false) => (c.label(), colors().text),
+                    (None, false) => ("Click to set".to_owned(), colors().muted),
+                };
+                let key_button = div()
+                    .id(("shortcut-key", i))
+                    .w(px(170.))
+                    .h(px(26.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.))
+                    .border_1()
+                    .border_color(rgb(if recording {
+                        colors().accent
+                    } else {
+                        colors().field_border
+                    }))
+                    .bg(rgb(colors().panel))
+                    .text_color(rgb(color))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(colors().hover)))
+                    // A press here starts a recording; a press anywhere else ends one.
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.notice = None;
+                        this.conflict = None;
+                        this.recording = if this.recording == Some(id) {
+                            None
+                        } else {
+                            Some(id)
+                        };
+                        window.focus(&this.root);
+                        cx.notify();
+                    }))
+                    .child(text);
+                let clear = combo.is_some().then(|| {
+                    Self::icon_button(("shortcut-clear", i), "icons/close.svg", true)
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.recording = None;
+                            this.conflict = None;
+                            let mut next = this.settings.shortcuts.clone();
+                            next.set(id, None);
+                            this.save_shortcuts(next, cx);
+                        }))
+                });
+                let problem = problems
+                    .iter()
+                    .find(|(pid, _)| pid == id)
+                    .map(|(_, why)| capitalised(why));
+                out.push(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .min_h(px(32.))
+                                .child(div().flex_1().child(def.title))
+                                .child(key_button)
+                                .child(div().w(px(24.)).children(clear)),
+                        )
+                        .when_some(problem, |d, why| {
+                            d.child(
+                                div()
+                                    .pb_1()
+                                    .text_size(px(12.))
+                                    .text_color(rgb(colors().amber))
+                                    .child(why),
+                            )
+                        })
+                        .into_any_element(),
+                );
+            }
+        }
+        out
+    }
+
+    fn conflict_prompt(&self, c: Conflict, cx: &mut Context<Self>) -> AnyElement {
+        let title = |id: &str| {
+            COMMANDS
+                .iter()
+                .find(|d| d.id == id)
+                .map_or(id.to_owned(), |d| d.title.to_owned())
+        };
+        let (other_title, mine) = (title(c.other), title(c.id));
+        let swap = c.clone();
+        let take = c.clone();
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_2()
+            .rounded(px(6.))
+            .bg(rgb(colors().panel))
+            .child(format!(
+                "{} is the shortcut for {other_title}. Give it to {mine}?",
+                c.combo.label()
+            ))
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        button("conflict-swap", "Swap the two", true).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.conflict = None;
+                                let mut next = this.settings.shortcuts.clone();
+                                next.swap(swap.id, swap.combo.clone());
+                                this.save_shortcuts(next, cx);
+                            },
+                        )),
+                    )
+                    .child(
+                        button("conflict-take", &format!("Clear {other_title}"), true).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.conflict = None;
+                                let mut next = this.settings.shortcuts.clone();
+                                next.take(take.id, take.combo.clone());
+                                this.save_shortcuts(next, cx);
+                            }),
+                        ),
+                    )
+                    .child(
+                        button("conflict-cancel", "Cancel", true).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.conflict = None;
+                                cx.notify();
+                            },
+                        )),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let label = self.shared.read(cx).label.clone();
         let panes = Pane::ALL.into_iter().enumerate().map(|(i, pane)| {
@@ -577,11 +881,21 @@ impl Render for SettingsWindow {
         let body = match self.pane {
             Pane::General => self.general(cx),
             Pane::Rails => self.rails(cx),
+            Pane::Shortcuts => self.shortcuts(cx),
         };
         let error = self.error.clone();
         div()
             .track_focus(&self.root)
             .on_key_down(cx.listener(Self::on_key))
+            // A press anywhere else ends a recording.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.recording.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
             .size_full()
             .relative()
             .flex()
@@ -641,6 +955,15 @@ impl Render for SettingsWindow {
     }
 }
 
+/// The text with its first letter capitalised, for a message line.
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -654,6 +977,31 @@ mod tests {
         assert_eq!(step_recents(5, false), 4);
         assert_eq!(step_recents(1, false), 1);
         assert_eq!(step_recents(MAX_RECENTS_LIMIT, true), MAX_RECENTS_LIMIT);
+    }
+
+    #[test]
+    fn the_filter_matches_a_title_or_the_keys_ignoring_case() {
+        let keys = Combo::parse("SUPER+ALT+F9").expect("valid");
+        assert!(matches_filter("Places and drives", None, ""));
+        assert!(matches_filter("Places and drives", None, "  DRIVES "));
+        assert!(matches_filter("Places and drives", Some(&keys), "alt+f9"));
+        assert!(!matches_filter(
+            "Places and drives",
+            Some(&keys),
+            "terminal"
+        ));
+        assert!(!matches_filter("Places and drives", None, "f9"));
+    }
+
+    #[test]
+    fn a_message_starts_with_a_capital() {
+        assert_eq!(capitalised("add Super or Alt"), "Add Super or Alt");
+        assert_eq!(capitalised(""), "");
+    }
+
+    #[test]
+    fn every_pane_has_a_title_general_comes_first_and_shortcuts_last() {
+        assert_eq!(Pane::ALL.last(), Some(&Pane::Shortcuts));
     }
 
     #[test]
