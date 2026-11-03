@@ -56,6 +56,14 @@ pub fn flea_candidate(snapshot: &str) -> Option<PathBuf> {
     Some(folder.join(name))
 }
 
+/// The folder Flea's picker reports in its `snapshot`, when it is an
+/// absolute path to a folder that exists. The Recent view reports no folder.
+pub fn flea_snapshot_folder(snapshot: &str) -> Option<PathBuf> {
+    let value: Value = serde_json::from_str(snapshot).ok()?;
+    let folder = PathBuf::from(value.get("path")?.as_str()?);
+    (folder.is_absolute() && folder.is_dir()).then_some(folder)
+}
+
 /// Asks a running Flea picker for its `snapshot`. The picker answers this
 /// read-only call on its own IPC socket; nothing about the dialog changes.
 pub trait PickerIpc: Send + Sync {

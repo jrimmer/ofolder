@@ -10,9 +10,9 @@ use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ofolder_core::adapter::{
     Adapter, AdapterError, Capabilities, DialogRequest, WindowRef, known_capabilities,
@@ -23,7 +23,7 @@ use serde_json::json;
 
 use crate::guard::KeyGuard;
 use crate::procfs::ProcFs;
-use crate::selection::{PickerIpc, QsIpc, flea_candidate};
+use crate::selection::{PickerIpc, QsIpc, flea_candidate, flea_snapshot_folder};
 
 /// The window class of Flea's picker.
 pub const PICKER_CLASS: &str = "com.thisisgm.flea.picker";
@@ -103,8 +103,33 @@ pub struct FleaAdapter {
     reply_dir: Option<PathBuf>,
     /// A picker this adapter did not start, for tests and adoption.
     adopted_pid: Option<u32>,
-    /// The picker's read-only IPC, for the selected item.
+    /// The picker's read-only IPC, for the folder and the selected item.
     ipc: Arc<dyn PickerIpc>,
+    /// The last snapshot and when it was taken, so the folder and the
+    /// selection read in one poll share one call.
+    snapshot: Mutex<Option<(u32, Instant, Option<String>)>>,
+}
+
+/// How long a snapshot answers for both the folder and the selection. The
+/// strip polls every 200 ms, so one poll reuses its own call and no other.
+const SNAPSHOT_FRESH: Duration = Duration::from_millis(120);
+
+/// The folder from the picker's IPC and the folder from the helper's open
+/// descriptors, made into one answer. Either alone is used; when both answer
+/// and disagree, neither is trusted and the folder is unknown.
+pub fn reconcile_folder(ipc: Option<PathBuf>, fd: Option<PathBuf>) -> Option<PathBuf> {
+    match (ipc, fd) {
+        (Some(a), Some(b)) => same_folder(&a, &b).then_some(a),
+        (a, b) => a.or(b),
+    }
+}
+
+fn same_folder(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (fs::canonicalize(a), fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
 }
 
 impl FleaAdapter {
@@ -133,6 +158,7 @@ impl FleaAdapter {
             reply_dir: None,
             adopted_pid: None,
             ipc: Arc::new(QsIpc),
+            snapshot: Mutex::new(None),
         }
     }
 
@@ -179,6 +205,38 @@ impl FleaAdapter {
             .as_ref()
             .map(Child::id)
             .or(self.adopted_pid)
+    }
+
+    /// The picker's snapshot, reused within [`SNAPSHOT_FRESH`].
+    fn snapshot(&self, pid: u32) -> Option<String> {
+        if let Ok(cache) = self.snapshot.lock()
+            && let Some((cached_pid, at, answer)) = cache.as_ref()
+            && *cached_pid == pid
+            && at.elapsed() < SNAPSHOT_FRESH
+        {
+            return answer.clone();
+        }
+        let answer = self.ipc.snapshot(pid);
+        if let Ok(mut cache) = self.snapshot.lock() {
+            *cache = Some((pid, Instant::now(), answer.clone()));
+        }
+        answer
+    }
+
+    /// The folder Flea's `--backend` helpers hold open, read from `/proc`.
+    fn descriptor_folder(&self, pid: u32) -> Option<PathBuf> {
+        let mut tree = self.procfs.descendants(pid);
+        tree.insert(0, pid);
+        let open: Vec<PathBuf> = tree
+            .into_iter()
+            .filter(|p| {
+                self.procfs
+                    .cmdline(*p)
+                    .is_some_and(|c| c.contains("--backend"))
+            })
+            .flat_map(|p| self.procfs.open_dirs(p))
+            .collect();
+        flea_folder(&open, &self.ignore_under)
     }
 
     fn kill(&self) {
@@ -256,20 +314,14 @@ impl Adapter for FleaAdapter {
             })
     }
 
+    /// The picker's own answer first, the helper's open folders as the
+    /// fallback; see [`reconcile_folder`].
     fn read_folder(&self) -> Option<PathBuf> {
         let pid = self.picker_pid().filter(|_| self.alive())?;
-        let mut tree = self.procfs.descendants(pid);
-        tree.insert(0, pid);
-        let open: Vec<PathBuf> = tree
-            .into_iter()
-            .filter(|p| {
-                self.procfs
-                    .cmdline(*p)
-                    .is_some_and(|c| c.contains("--backend"))
-            })
-            .flat_map(|p| self.procfs.open_dirs(p))
-            .collect();
-        flea_folder(&open, &self.ignore_under)
+        let ipc = self
+            .snapshot(pid)
+            .and_then(|snap| flea_snapshot_folder(&snap));
+        reconcile_folder(ipc, self.descriptor_folder(pid))
     }
 
     fn goto(&mut self, folder: &Path) -> Result<(), AdapterError> {
@@ -313,7 +365,7 @@ impl Adapter for FleaAdapter {
     /// folder, the cursor row and the marks at one instant.
     fn selection(&self) -> Option<PathBuf> {
         let pid = self.picker_pid().filter(|_| self.alive())?;
-        let candidate = flea_candidate(&self.ipc.snapshot(pid)?)?;
+        let candidate = flea_candidate(&self.snapshot(pid)?)?;
         candidate.symlink_metadata().ok().map(|_| candidate)
     }
 }
@@ -629,6 +681,98 @@ mod tests {
         assert_eq!(gone.selection(), None);
         let silent = picker(FakeIpc(None));
         assert_eq!(silent.selection(), None);
+    }
+
+    /// Answers the snapshot calls and counts them.
+    struct CountingIpc {
+        answer: Option<String>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl PickerIpc for CountingIpc {
+        fn snapshot(&self, _pid: u32) -> Option<String> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.answer.clone()
+        }
+    }
+
+    /// A picker whose helper holds `held` open and whose IPC answers `ipc_path`.
+    fn folder_rig(
+        procs: &Path,
+        held: Option<&Path>,
+        ipc_path: Option<&Path>,
+    ) -> (FleaAdapter, Arc<CountingIpc>) {
+        let cwd = procs.join("cwd");
+        fs::create_dir_all(&cwd).expect("dir");
+        add_process(procs, PID, 1, "qs -p picker.qml", &cwd, &[]);
+        let open: Vec<&Path> = held.into_iter().collect();
+        add_process(procs, 4243, PID, "flea --backend", &cwd, &open);
+        let ipc = Arc::new(CountingIpc {
+            answer: ipc_path.map(|p| json!({"path": p, "cursorName": "", "marks": []}).to_string()),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let adapter = rig(None, true, None)
+            .adapter
+            .with_procfs(ProcFs::with_root(procs))
+            .with_ignored(Vec::new())
+            .with_ipc(ipc.clone());
+        (adapter, ipc)
+    }
+
+    #[test]
+    fn the_folder_comes_from_the_picker_when_both_ways_agree_or_only_it_answers() {
+        let tmp = TempDir::new("flea-ipc-agree");
+        let shown = tmp.0.join("shown");
+        fs::create_dir_all(&shown).expect("dir");
+        let (both, _) = folder_rig(&tmp.0, Some(&shown), Some(&shown));
+        assert_eq!(both.read_folder(), Some(shown.clone()));
+        let only = TempDir::new("flea-ipc-only");
+        let there = only.0.join("there");
+        fs::create_dir_all(&there).expect("dir");
+        // A folder under /tmp where the helper holds nothing open.
+        let (ipc_only, _) = folder_rig(&only.0, None, Some(&there));
+        assert_eq!(ipc_only.read_folder(), Some(there));
+    }
+
+    #[test]
+    fn the_descriptors_answer_when_the_picker_does_not() {
+        let tmp = TempDir::new("flea-fd-only");
+        let shown = tmp.0.join("shown");
+        fs::create_dir_all(&shown).expect("dir");
+        let (silent, _) = folder_rig(&tmp.0, Some(&shown), None);
+        assert_eq!(silent.read_folder(), Some(shown.clone()));
+        // The Recent view, or a folder that has gone, is no answer either.
+        let other = TempDir::new("flea-fd-stale");
+        let held = other.0.join("held");
+        fs::create_dir_all(&held).expect("dir");
+        let (stale, _) = folder_rig(&other.0, Some(&held), Some(&other.0.join("gone")));
+        assert_eq!(stale.read_folder(), Some(held));
+    }
+
+    #[test]
+    fn when_the_picker_and_the_descriptors_disagree_the_folder_is_unknown() {
+        let tmp = TempDir::new("flea-disagree");
+        let (a, b) = (tmp.0.join("a"), tmp.0.join("b"));
+        fs::create_dir_all(&a).expect("dir");
+        fs::create_dir_all(&b).expect("dir");
+        let (adapter, _) = folder_rig(&tmp.0, Some(&a), Some(&b));
+        assert_eq!(adapter.read_folder(), None);
+        assert_eq!(reconcile_folder(None, None), None);
+    }
+
+    #[test]
+    fn one_poll_asks_the_picker_once_for_the_folder_and_the_selection() {
+        let tmp = TempDir::new("flea-one-call");
+        let shown = tmp.0.join("shown");
+        fs::create_dir_all(&shown).expect("dir");
+        let (adapter, ipc) = folder_rig(&tmp.0, Some(&shown), Some(&shown));
+        adapter.read_folder();
+        adapter.selection();
+        assert_eq!(ipc.calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        sleep(SNAPSHOT_FRESH + Duration::from_millis(30));
+        adapter.read_folder();
+        assert_eq!(ipc.calls.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 
     #[test]
