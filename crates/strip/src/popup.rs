@@ -257,6 +257,11 @@ impl MenuWindow {
                 .text_size(px(12.))
                 .text_color(rgb(color))
                 .cursor_pointer()
+                // Resting the pointer on a message keeps it; a click dismisses it.
+                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                    let hovered = *hovered;
+                    this.shared.update(cx, |s, _| s.vm.hold_message(hovered));
+                }))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.shared.update(cx, |s, cx| {
                         s.vm.dismiss_message();

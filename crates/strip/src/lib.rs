@@ -189,6 +189,9 @@ pub struct StripOptions {
     pub user: String,
     /// The desktop theme's colours; the default palette is the built-in dark look.
     pub palette: ofolder_core::theme::Palette,
+    /// Where every message shown is logged, so one that went by can be read
+    /// again; `None` keeps no log.
+    pub messages_path: Option<PathBuf>,
 }
 
 fn window_options(
@@ -266,11 +269,13 @@ pub fn run_strip_preview(
     let label = options.label;
     let settings_path = options.settings_path.clone();
     let home = options.home.clone();
+    let messages_path = options.messages_path.clone();
     Application::new().with_assets(icons::Icons).run(move |cx| {
         let backend = label.clone();
         let shared = cx.new(|cx| {
             let mut shared = Shared::new(vm, actions, settings_path, home, cx);
             shared.label = backend;
+            shared.messages_path = messages_path;
             shared
         });
         let left_options = window_options(APP_ID_LEFT, "ofolder go", (LEFT_WIDTH, HEIGHT), cx);

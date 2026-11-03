@@ -13,6 +13,7 @@ pub mod hypr;
 pub mod identity;
 pub mod keybind;
 pub mod launch;
+pub mod messages;
 pub mod naming;
 pub mod pathsafe;
 pub mod places;

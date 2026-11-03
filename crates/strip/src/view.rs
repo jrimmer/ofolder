@@ -13,7 +13,7 @@ use gpui::{
 
 use std::path::{Path, PathBuf};
 
-use ofolder_core::{browse, search};
+use ofolder_core::{browse, messages, search};
 
 use crate::colors::colors;
 use crate::expand::{RowKey, Section};
@@ -139,6 +139,8 @@ pub struct Shared {
     tip_serial: u64,
     /// Shortcuts that could not be bound, by command id, with why.
     pub shortcut_problems: Vec<(String, String)>,
+    /// The message log, when one is kept.
+    pub messages_path: Option<PathBuf>,
 }
 
 impl Shared {
@@ -172,6 +174,7 @@ impl Shared {
             tip_window: None,
             tip_serial: 0,
             shortcut_problems: Vec::new(),
+            messages_path: None,
         };
         shared.shortcut_problems = shared.actions.shortcut_problems();
         shared.start_polling(cx);
@@ -194,7 +197,8 @@ impl Shared {
             MenuKind::RecentFolders => lines(Section::RecentFolders).max(1),
             MenuKind::RecentFiles => lines(Section::RecentFiles).max(1),
             MenuKind::Find => lines(Section::Ranked) + lines(Section::Found),
-            MenuKind::NewFolder | MenuKind::Toast => 0,
+            MenuKind::NewFolder => 0,
+            MenuKind::Toast => self.vm.message().map_or(1, |m| rail::toast_lines(&m.text)),
         }
     }
 
@@ -278,7 +282,8 @@ impl Shared {
                 if let Some(text) = copied {
                     if from_shortcut {
                         if let Err(e) = self.actions.copy_text(&text) {
-                            self.vm.show_error(&format!("Could not copy: {e}"));
+                            self.vm
+                                .show_error("copy-path", &format!("Could not copy: {e}"));
                         }
                     } else {
                         cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -691,8 +696,13 @@ impl Shared {
                 let lists = tick.is_multiple_of(RECENTS_EVERY);
                 let places = tick.is_multiple_of(PLACES_EVERY);
                 tick = tick.wrapping_add(1);
-                let Ok((paths, tip_side)) = this.update(cx, |t, _| {
-                    (t.vm.favorite_paths(), t.hints.wanted().map(|h| h.side))
+                let Ok((paths, tip_side, shown, log)) = this.update(cx, |t, _| {
+                    (
+                        t.vm.favorite_paths(),
+                        t.hints.wanted().map(|h| h.side),
+                        t.vm.take_shown(),
+                        t.messages_path.clone(),
+                    )
                 }) else {
                     return;
                 };
@@ -701,6 +711,9 @@ impl Shared {
                 let read = cx
                     .background_executor()
                     .spawn(async move {
+                        if let Some(log) = log {
+                            write_log(&log, &shown);
+                        }
                         let folder = actions.current_folder();
                         let alive = actions.dialog_alive();
                         let seen = lists.then(|| {
@@ -1023,4 +1036,47 @@ pub fn rail_divider(y: f32) -> gpui::Div {
         .w(px(rail::RAIL_WIDTH - 24.))
         .h(px(1.))
         .bg(rgb(colors().raised))
+}
+
+/// Appends the messages shown to the log. A log that cannot be written is
+/// not worth interrupting the user for; the message itself was on screen.
+fn write_log(path: &Path, shown: &[crate::model::Shown]) {
+    let entries: Vec<messages::Entry> = shown
+        .iter()
+        .map(|m| {
+            let at =
+                m.at.duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                    .unwrap_or(0);
+            messages::Entry {
+                at,
+                offset: local_offset(at),
+                kind: match m.kind {
+                    crate::model::MessageKind::Info => "info",
+                    crate::model::MessageKind::Error => "error",
+                },
+                context: m.context,
+                text: m.text.clone(),
+            }
+        })
+        .collect();
+    if let Err(e) = messages::append(path, &entries) {
+        eprintln!("ofolder: the message log could not be written: {e}");
+    }
+}
+
+/// The local time zone's offset from UTC at `at`, in seconds.
+pub fn local_offset(at: i64) -> i32 {
+    // time_t is 64 bits on every target this builds for.
+    let time: libc::time_t = at;
+    // SAFETY: `tm` is plain old data (integers and a pointer), for which all
+    // zero bits is a valid value.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `localtime_r` reads `time` and writes only into `tm`, both
+    // live on this stack frame; a null return means it could not.
+    let filled = unsafe { libc::localtime_r(&time, &mut tm) };
+    if filled.is_null() {
+        return 0;
+    }
+    i32::try_from(tm.tm_gmtoff).unwrap_or(0)
 }

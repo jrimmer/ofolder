@@ -7,6 +7,7 @@ use gpui::{
     Render, Stateful, Subscription, Window, div, prelude::*, px, rgb, svg,
 };
 
+use ofolder_core::messages;
 use ofolder_core::rails::{Item, RailLayout};
 use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
 use ofolder_core::settings_write::{self, Edit};
@@ -25,21 +26,30 @@ pub const SIZE: (i32, i32) = (780, 560);
 const SIDEBAR: f32 = 180.;
 /// The width of a row's label, before its control.
 const LABEL: f32 = 160.;
+/// Messages listed in the Messages pane.
+const RECENT_MESSAGES: usize = 30;
+
+/// Whether a log line records an error: its kind follows the date and time.
+pub fn is_error_line(line: &str) -> bool {
+    line.split_whitespace().nth(2) == Some("error")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
     General,
     Rails,
+    Messages,
     Shortcuts,
 }
 
 impl Pane {
-    const ALL: [Pane; 3] = [Pane::General, Pane::Rails, Pane::Shortcuts];
+    const ALL: [Pane; 4] = [Pane::General, Pane::Rails, Pane::Messages, Pane::Shortcuts];
 
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
             Pane::Rails => "Rails",
+            Pane::Messages => "Messages",
             Pane::Shortcuts => "Shortcuts",
         }
     }
@@ -446,6 +456,47 @@ impl SettingsWindow {
                  its comments are kept. `ofolder pause` turns ofolder off for every dialog."
             )),
         ]
+    }
+
+    /// The last messages the strips showed, newest first, so one that went
+    /// by too fast can be read here.
+    fn recent_messages(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let (path, home) = {
+            let shared = self.shared.read(cx);
+            (shared.messages_path.clone(), shared.home.clone())
+        };
+        let Some(path) = path else {
+            return Vec::new();
+        };
+        let lines = messages::read_last(&path, RECENT_MESSAGES);
+        let mut out = vec![Self::hint(
+            "What the rails said, newest first. An error stays on screen while the pointer \
+             rests on it; a click dismisses it.",
+        )];
+        if lines.is_empty() {
+            out.push(Self::hint("No messages yet."));
+        }
+        for (i, line) in lines.into_iter().enumerate() {
+            let color = if is_error_line(&line) {
+                colors().red
+            } else {
+                colors().muted
+            };
+            out.push(
+                div()
+                    .id(("message-line", i))
+                    .text_size(px(12.))
+                    .text_color(rgb(color))
+                    .child(line)
+                    .into_any_element(),
+            );
+        }
+        out.push(Self::hint(format!(
+            "The last {} are kept in {}.",
+            messages::KEEP,
+            abbreviate(&path, &home)
+        )));
+        out
     }
 
     fn rail_rows(&mut self, side: RailSide, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -881,6 +932,7 @@ impl Render for SettingsWindow {
         let body = match self.pane {
             Pane::General => self.general(cx),
             Pane::Rails => self.rails(cx),
+            Pane::Messages => self.recent_messages(cx),
             Pane::Shortcuts => self.shortcuts(cx),
         };
         let error = self.error.clone();
@@ -991,6 +1043,17 @@ mod tests {
             "terminal"
         ));
         assert!(!matches_filter("Places and drives", None, "f9"));
+    }
+
+    #[test]
+    fn an_error_line_in_the_log_is_told_from_a_note() {
+        assert!(is_error_line(
+            "2026-11-03 01:22:46 error go: did not arrive"
+        ));
+        assert!(!is_error_line(
+            "2026-11-03 01:22:46 info copy-path: Path copied"
+        ));
+        assert!(!is_error_line("garbage"));
     }
 
     #[test]

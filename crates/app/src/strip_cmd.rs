@@ -801,6 +801,11 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
                 std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
                 &home,
             ),
+            messages_path: Some(ofolder_core::messages::log_path(
+                std::env::var_os("OFOLDER_MESSAGES").map(PathBuf::from),
+                std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+                &home,
+            )),
             home,
         },
         actions.clone(),

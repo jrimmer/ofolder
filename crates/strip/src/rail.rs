@@ -278,7 +278,11 @@ impl MenuKind {
         const MAX: i32 = 520;
         let fixed = match self {
             MenuKind::NewFolder => return 120,
-            MenuKind::Toast => return 64,
+            // A message: its rows are lines of wrapped text.
+            MenuKind::Toast => {
+                let lines = i32::try_from(rows.max(1)).unwrap_or(i32::MAX / TOAST_LINE);
+                return (TOAST_PAD + lines.saturating_mul(TOAST_LINE)).clamp(64, 260);
+            }
             // The search box, the search button and a status line.
             MenuKind::Find => 144,
             // The All apps / This app switch.
@@ -288,6 +292,34 @@ impl MenuKind {
         let rows = i32::try_from(rows).unwrap_or(i32::MAX / ROW);
         (fixed + rows.saturating_mul(ROW)).clamp(MIN, MAX)
     }
+}
+
+/// One line of a message, and the space around the lines, in pixels.
+const TOAST_LINE: i32 = 17;
+const TOAST_PAD: i32 = 30;
+/// Characters of a message that fit one line of the message window.
+const TOAST_CHARS: usize = 36;
+
+/// The lines a message takes in the message window, wrapping at spaces,
+/// so the window is tall enough to show all of it.
+pub fn toast_lines(text: &str) -> usize {
+    let mut lines = 1;
+    let mut used = 0;
+    for word in text.split_whitespace() {
+        let len = word.chars().count();
+        let needed = if used == 0 { len } else { used + 1 + len };
+        if needed <= TOAST_CHARS {
+            used = needed;
+            continue;
+        }
+        if used > 0 {
+            lines += 1;
+        }
+        // A word longer than a line breaks over several.
+        lines += len.saturating_sub(1) / TOAST_CHARS;
+        used = (len.saturating_sub(1) % TOAST_CHARS) + 1;
+    }
+    lines
 }
 
 /// Where an entry sits in its rail.
@@ -561,6 +593,17 @@ mod tests {
         ] {
             assert!(!k.takes_keyboard(), "{k:?}");
         }
+    }
+
+    #[test]
+    fn a_long_message_gets_a_window_tall_enough_to_read_it() {
+        assert_eq!(toast_lines("Path copied"), 1);
+        let long = "Could not move the dialog: the folder /home/user/Projects/a did not read back within 5 s";
+        assert!(toast_lines(long) >= 3);
+        assert!(MenuKind::Toast.height(toast_lines(long)) > MenuKind::Toast.height(1));
+        assert_eq!(MenuKind::Toast.height(1), 64);
+        assert_eq!(MenuKind::Toast.height(1_000), 260);
+        assert_eq!(toast_lines(&"x".repeat(100)), 3);
     }
 
     #[test]

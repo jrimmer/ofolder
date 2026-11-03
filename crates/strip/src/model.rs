@@ -24,8 +24,14 @@ use crate::sources::{self, RecentsRead, Sources};
 
 /// How long an informational message stays.
 const INFO_TTL: Duration = Duration::from_millis(2500);
-/// How long an error stays; the user needs time to read it.
+/// The shortest time an error stays; the user needs time to read it.
 const ERROR_TTL: Duration = Duration::from_secs(10);
+/// The longest an error stays without the pointer on it.
+const ERROR_TTL_MAX: Duration = Duration::from_secs(30);
+/// Reading time added per character past the first eighty.
+const READ_PER_CHAR: Duration = Duration::from_millis(60);
+/// What is left of a message's time when the pointer leaves it, at least.
+const AFTER_HOVER: Duration = Duration::from_secs(3);
 /// How long a problem found at startup stays.
 const NOTICE_TTL: Duration = Duration::from_secs(30);
 /// Rows a recents or search list shows before "Show all".
@@ -43,6 +49,33 @@ pub struct Message {
     pub kind: MessageKind,
     created: Instant,
     ttl: Duration,
+    /// While the pointer rests on the message it does not go.
+    held: bool,
+    /// What the user was doing when it was said.
+    context: &'static str,
+}
+
+impl Message {
+    fn expired(&self, now: Instant) -> bool {
+        !self.held && now.saturating_duration_since(self.created) >= self.ttl
+    }
+}
+
+/// How long an error stays on screen: long enough to read, longer for a
+/// long one, within limits.
+pub fn error_ttl(text: &str) -> Duration {
+    let extra = u32::try_from(text.chars().count().saturating_sub(80)).unwrap_or(u32::MAX);
+    (ERROR_TTL + READ_PER_CHAR.saturating_mul(extra)).min(ERROR_TTL_MAX)
+}
+
+/// A message as shown, for the log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shown {
+    pub at: std::time::SystemTime,
+    pub kind: MessageKind,
+    /// What the user was doing, such as "copy-path".
+    pub context: &'static str,
+    pub text: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +141,8 @@ pub struct ViewModel {
     /// The last recents warning shown, so a file that stays unreadable is
     /// reported once and not at every poll.
     last_recents_warning: Option<String>,
+    /// Messages shown and not yet written to the log.
+    shown: Vec<Shown>,
 }
 
 /// Characters of path that fit a panel's width.
@@ -140,6 +175,7 @@ impl ViewModel {
             show_all: HashSet::new(),
             rename_seed: None,
             last_recents_warning: None,
+            shown: Vec::new(),
             sources: Sources {
                 user_dirs_path: options.user_dirs_path.clone(),
                 mountinfo_path: options.mountinfo_path.clone(),
@@ -150,7 +186,12 @@ impl ViewModel {
         };
         let notices: Vec<String> = loaded.notice.into_iter().chain(settings.warnings).collect();
         if !notices.is_empty() {
-            vm.say(notices.join("; "), MessageKind::Error, NOTICE_TTL);
+            vm.say(
+                "startup",
+                notices.join("; "),
+                MessageKind::Error,
+                NOTICE_TTL,
+            );
         }
         vm
     }
@@ -160,30 +201,72 @@ impl ViewModel {
         self.sources.clone()
     }
 
-    fn say(&mut self, text: String, kind: MessageKind, ttl: Duration) {
+    fn say(&mut self, context: &'static str, text: String, kind: MessageKind, ttl: Duration) {
         if kind == MessageKind::Error {
             eprintln!("ofolder: {text}");
+        }
+        self.shown.push(Shown {
+            at: std::time::SystemTime::now(),
+            kind,
+            context,
+            text: text.clone(),
+        });
+        // A note from another action does not push an error off the screen
+        // before it can be read; it is still in the log. The same action
+        // succeeding on a second try does replace its own error.
+        let error_up = self.message.as_ref().is_some_and(|m| {
+            m.kind == MessageKind::Error && m.context != context && !m.expired(Instant::now())
+        });
+        if kind == MessageKind::Info && error_up {
+            return;
         }
         self.message = Some(Message {
             text,
             kind,
             created: Instant::now(),
             ttl,
+            held: false,
+            context,
         });
     }
 
-    fn info(&mut self, text: impl Into<String>) {
-        self.say(text.into(), MessageKind::Info, INFO_TTL);
+    fn info(&mut self, context: &'static str, text: impl Into<String>) {
+        self.say(context, text.into(), MessageKind::Info, INFO_TTL);
     }
 
-    fn error(&mut self, text: impl Into<String>) {
-        self.say(text.into(), MessageKind::Error, ERROR_TTL);
+    fn error(&mut self, context: &'static str, text: impl Into<String>) {
+        let text = text.into();
+        let ttl = error_ttl(&text);
+        self.say(context, text, MessageKind::Error, ttl);
     }
 
     /// Shows an error that arose outside the view-model, such as a copy to
     /// the clipboard that failed.
-    pub fn show_error(&mut self, text: &str) {
-        self.error(text);
+    pub fn show_error(&mut self, context: &'static str, text: &str) {
+        self.error(context, text);
+    }
+
+    /// The messages shown since the last call, for the log.
+    pub fn take_shown(&mut self) -> Vec<Shown> {
+        std::mem::take(&mut self.shown)
+    }
+
+    /// The pointer came onto the message (`true`) or left it.
+    pub fn hold_message(&mut self, held: bool) {
+        if let Some(m) = self.message.as_mut() {
+            if m.held && !held {
+                // Leave a few seconds to move away and back.
+                let now = Instant::now();
+                let left = m
+                    .ttl
+                    .saturating_sub(now.saturating_duration_since(m.created));
+                if left < AFTER_HOVER {
+                    m.created = now;
+                    m.ttl = AFTER_HOVER;
+                }
+            }
+            m.held = held;
+        }
     }
 
     pub fn label(&self) -> &str {
@@ -212,10 +295,7 @@ impl ViewModel {
 
     /// Drops a message whose time is up. Returns whether one went.
     pub fn expire_message(&mut self, now: Instant) -> bool {
-        let over = self
-            .message
-            .as_ref()
-            .is_some_and(|m| now.saturating_duration_since(m.created) >= m.ttl);
+        let over = self.message.as_ref().is_some_and(|m| m.expired(now));
         if over {
             self.message = None;
         }
@@ -259,7 +339,7 @@ impl ViewModel {
     /// confirmation message. The caller writes it to the clipboard.
     pub fn copy_path(&mut self) -> Option<String> {
         let Some(folder) = self.folder.clone() else {
-            self.error("Cannot copy: the folder is unknown");
+            self.error("copy-path", "Cannot copy: the folder is unknown");
             return None;
         };
         self.copy_text(&folder)
@@ -268,11 +348,11 @@ impl ViewModel {
     /// The same for any folder.
     pub fn copy_text(&mut self, path: &Path) -> Option<String> {
         let Some(text) = path.to_str() else {
-            self.error("Cannot copy: the path is not valid text");
+            self.error("copy-path", "Cannot copy: the path is not valid text");
             return None;
         };
         let text = text.to_owned();
-        self.info("Path copied");
+        self.info("copy-path", "Path copied");
         Some(text)
     }
 
@@ -327,7 +407,7 @@ impl ViewModel {
         match favorites::save(&self.favorites_path, &self.favorites) {
             Ok(()) => true,
             Err(e) => {
-                self.error(e.to_string());
+                self.error("favorite", e.to_string());
                 false
             }
         }
@@ -342,7 +422,7 @@ impl ViewModel {
     /// Adds the current folder, or removes it when it is already a favorite.
     pub fn toggle_current_favorite(&mut self) {
         let Some(folder) = self.folder.clone() else {
-            self.error("Cannot save: the folder is unknown");
+            self.error("favorite", "Cannot save: the folder is unknown");
             return;
         };
         self.toggle_favorite(&folder);
@@ -352,12 +432,12 @@ impl ViewModel {
     pub fn toggle_favorite(&mut self, path: &Path) {
         if self.favorites.remove_path(path) {
             if self.save_favorites() {
-                self.info("Removed from favorites");
+                self.info("favorite", "Removed from favorites");
             }
             return;
         }
         if self.favorites.add(path.to_path_buf()) == AddOutcome::Added && self.save_favorites() {
-            self.info("Added to favorites");
+            self.info("favorite", "Added to favorites");
         }
     }
 
@@ -388,7 +468,7 @@ impl ViewModel {
     pub fn go_to(&mut self, path: &Path) -> Option<Job> {
         if self.is_missing(path) {
             let shown = paths::shorten_path(&paths::abbreviate(path, &self.home), 24);
-            self.error(format!("{shown}: the folder is missing"));
+            self.error("go", format!("{shown}: the folder is missing"));
             return None;
         }
         if self.busy {
@@ -408,7 +488,7 @@ impl ViewModel {
         self.busy = false;
         if let Err(why) = result {
             self.history.step_failed();
-            self.error(why);
+            self.error("go", why);
         }
     }
 
@@ -452,7 +532,10 @@ impl ViewModel {
 
     pub fn start_new_folder(&mut self) -> bool {
         if self.folder.is_none() {
-            self.error("Cannot create a folder: the folder is unknown");
+            self.error(
+                "new-folder",
+                "Cannot create a folder: the folder is unknown",
+            );
             return false;
         }
         self.mode = Mode::NewFolder;
@@ -465,7 +548,10 @@ impl ViewModel {
             return None;
         }
         if self.folder.is_none() {
-            self.error("Cannot create a folder: the folder is unknown");
+            self.error(
+                "new-folder",
+                "Cannot create a folder: the folder is unknown",
+            );
             return None;
         }
         match validate_new_folder_name(text) {
@@ -474,7 +560,7 @@ impl ViewModel {
                 Some(Job::NewFolder(name))
             }
             Err(e) => {
-                self.error(e.to_string());
+                self.error("new-folder", e.to_string());
                 None
             }
         }
@@ -486,9 +572,9 @@ impl ViewModel {
             Ok(created) => {
                 self.mode = Mode::Browse;
                 let shown = paths::shorten_path(&paths::abbreviate(&created, &self.home), 24);
-                self.info(format!("Created {shown}"));
+                self.info("new-folder", format!("Created {shown}"));
             }
-            Err(why) => self.error(why),
+            Err(why) => self.error("new-folder", why),
         }
     }
 
@@ -511,7 +597,7 @@ impl ViewModel {
     /// For the buttons that act on the dialog's folder.
     pub fn open_current(&mut self, terminal: bool) -> Option<Job> {
         let Some(folder) = self.folder.clone() else {
-            self.error("Cannot open: the folder is unknown");
+            self.error("open", "Cannot open: the folder is unknown");
             return None;
         };
         Some(if terminal {
@@ -523,8 +609,8 @@ impl ViewModel {
 
     pub fn finish_launch(&mut self, what: &str, result: Result<(), String>) {
         match result {
-            Ok(()) => self.info(format!("Opened in {what}")),
-            Err(why) => self.error(why),
+            Ok(()) => self.info("open", format!("Opened in {what}")),
+            Err(why) => self.error("open", why),
         }
     }
 
@@ -544,7 +630,7 @@ impl ViewModel {
         if read.warning != self.last_recents_warning {
             self.last_recents_warning.clone_from(&read.warning);
             if let Some(warning) = read.warning {
-                self.error(warning);
+                self.error("recents", warning);
             }
         }
         if self.recents == read.recents {
@@ -840,7 +926,7 @@ impl ViewModel {
         match self.finder.begin(self.folder.as_deref()) {
             Ok(job) => Some(job),
             Err(why) => {
-                self.error(why);
+                self.error("find", why);
                 None
             }
         }
@@ -920,6 +1006,7 @@ mod tests {
             mountinfo_path: dir.0.join("mountinfo"),
             user: "ann".into(),
             palette: Default::default(),
+            messages_path: None,
         }
     }
 
@@ -1113,6 +1200,54 @@ mod tests {
         assert_eq!(vm.mode(), Mode::NewFolder);
         assert_eq!(text(&vm), "Permission denied");
         assert!(!vm.busy());
+    }
+
+    #[test]
+    fn a_long_error_stays_longer_within_a_limit() {
+        assert_eq!(error_ttl("short"), Duration::from_secs(10));
+        assert!(error_ttl(&"word ".repeat(40)) > Duration::from_secs(10));
+        assert_eq!(error_ttl(&"x".repeat(5_000)), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn a_note_does_not_push_an_unread_error_off_the_screen_but_is_logged() {
+        let d = Dir::new("keep-error");
+        let mut vm = vm(&d);
+        vm.copy_path();
+        assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Error));
+        at(&mut vm, "/srv");
+        vm.toggle_current_favorite();
+        assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Error));
+        // The same action succeeding replaces its own error.
+        vm.copy_path();
+        assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Info));
+        let shown = vm.take_shown();
+        let contexts: Vec<_> = shown.iter().map(|m| (m.kind, m.context)).collect();
+        assert_eq!(
+            contexts,
+            [
+                (MessageKind::Error, "copy-path"),
+                (MessageKind::Info, "favorite"),
+                (MessageKind::Info, "copy-path")
+            ]
+        );
+        assert!(
+            vm.take_shown().is_empty(),
+            "each message is handed over once"
+        );
+    }
+
+    #[test]
+    fn a_message_under_the_pointer_stays_and_has_a_moment_after_it_leaves() {
+        let d = Dir::new("hold");
+        let mut vm = vm(&d);
+        at(&mut vm, "/srv");
+        vm.copy_path();
+        vm.hold_message(true);
+        assert!(!vm.expire_message(Instant::now() + Duration::from_secs(60)));
+        vm.hold_message(false);
+        assert!(!vm.expire_message(Instant::now() + Duration::from_secs(2)));
+        assert!(vm.expire_message(Instant::now() + Duration::from_secs(4)));
     }
 
     #[test]

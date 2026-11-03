@@ -89,3 +89,12 @@ Hyprland to run `ofolder do <command>`, and removes the binding when the dialog 
 combination your own Hyprland configuration already binds is skipped. `ofolder do <command>` can
 also be run by hand or from your own bindings. If a crash ever leaves a binding behind,
 `ofolder unbind-all` removes every one ofolder made.
+
+### Messages
+
+Every message the rails show is also written, one line each with its time, kind and the action
+behind it, to `~/.local/state/ofolder/messages.log` (`$XDG_STATE_HOME/ofolder/messages.log`;
+`OFOLDER_MESSAGES` overrides it). Only the last 200 lines are kept, and the file is readable by
+you alone. The settings window's Messages pane lists the most recent. On screen, an error stays
+at least 10 seconds, longer for a long one, and does not go while the pointer rests on it; a click
+dismisses it. A passing note from another action never replaces an error you have not read.

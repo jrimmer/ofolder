@@ -175,6 +175,7 @@ pub fn demo_setup(base: &Path, palette: Palette) -> anyhow::Result<(StripOptions
         mountinfo_path,
         user: "demo".to_owned(),
         palette,
+        messages_path: Some(base.join("messages.log")),
     };
     Ok((options, base.join("Work/ofolder")))
 }
