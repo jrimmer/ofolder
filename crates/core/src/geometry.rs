@@ -233,6 +233,18 @@ pub fn place_tip(
     Rect { x, y, w, h }
 }
 
+/// A window of `size` centred in `area`, kept inside it when it is larger.
+pub fn centre_in(area: Rect, (w, h): (i32, i32)) -> Rect {
+    let w = w.min(area.w);
+    let h = h.min(area.h);
+    Rect {
+        x: area.x + (area.w - w) / 2,
+        y: area.y + (area.h - h) / 2,
+        w,
+        h,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,5 +536,33 @@ mod tests {
         assert!(!r.contains((62, 300)));
         assert!(!r.contains((30, 620)));
         assert!(!r.contains((9, 300)));
+    }
+
+    #[test]
+    fn a_window_is_centred_in_an_area_and_shrunk_to_fit_it() {
+        let area = Rect {
+            x: 100,
+            y: 50,
+            w: 1000,
+            h: 800,
+        };
+        assert_eq!(
+            centre_in(area, (780, 560)),
+            Rect {
+                x: 210,
+                y: 170,
+                w: 780,
+                h: 560
+            }
+        );
+        assert_eq!(
+            centre_in(area, (2000, 100)),
+            Rect {
+                x: 100,
+                y: 400,
+                w: 1000,
+                h: 100
+            }
+        );
     }
 }

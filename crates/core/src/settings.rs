@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use toml::{Table, Value};
 
+use crate::rails::{RailLayout, Side};
+
 pub const MAX_RECENTS_LIMIT: usize = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +36,8 @@ pub struct Settings {
     pub paused: bool,
     /// Put the places panel on the right and the controls on the left.
     pub swap_sides: bool,
+    /// Which icons each rail shows, in what order, with its divider lines.
+    pub rails: RailLayout,
 }
 
 impl Default for Settings {
@@ -49,6 +53,7 @@ impl Default for Settings {
             start_folders: BTreeMap::new(),
             paused: false,
             swap_sides: false,
+            rails: RailLayout::default(),
         }
     }
 }
@@ -60,7 +65,7 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 10] = [
+const KNOWN: [&str; 11] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
@@ -71,6 +76,7 @@ const KNOWN: [&str; 10] = [
     "start_folders",
     "paused",
     "swap_sides",
+    "rails",
 ];
 
 /// `~` and `~/...` mean the home folder. Anything else must already be absolute.
@@ -208,6 +214,43 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
             "start_folders",
             "expected a table of application id to folder",
         ),
+    }
+
+    match table.get("rails") {
+        None => {}
+        Some(Value::Table(rails)) => {
+            let mut list = |side: Side| -> Option<Vec<String>> {
+                let key = format!("rails.{}", side.key());
+                match rails.get(side.key())? {
+                    Value::Array(items) => {
+                        let texts: Option<Vec<String>> = items
+                            .iter()
+                            .map(|v| v.as_str().map(str::to_owned))
+                            .collect();
+                        if texts.is_none() {
+                            r.warn(&key, "every entry must be text");
+                        }
+                        texts
+                    }
+                    _ => {
+                        r.warn(&key, "expected a list of icon names");
+                        None
+                    }
+                }
+            };
+            let left = list(Side::Left);
+            let right = list(Side::Right);
+            for key in rails
+                .keys()
+                .filter(|k| *k != Side::Left.key() && *k != Side::Right.key())
+            {
+                r.warnings.push(format!(
+                    "setting `rails.{key}` is not known and was ignored"
+                ));
+            }
+            out.rails = RailLayout::from_lists(left.as_deref(), right.as_deref(), &mut r.warnings);
+        }
+        Some(_) => r.warn("rails", "expected a table with `left` and `right` lists"),
     }
 
     for key in table.keys().filter(|k| !KNOWN.contains(&k.as_str())) {
@@ -413,5 +456,31 @@ mod tests {
             settings_path(Some(PathBuf::from("/x.toml")), None, home),
             PathBuf::from("/x.toml")
         );
+    }
+
+    #[test]
+    fn the_rail_layout_is_read_from_the_rails_table() {
+        let loaded = parse_ok("[rails]\nleft = [\"places\", \"-\", \"back\"]\n");
+        assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+        assert_eq!(
+            loaded.settings.rails.ids(Side::Left),
+            ["places", "-", "back"]
+        );
+        // The right rail was not given, so it keeps its default.
+        assert_eq!(
+            loaded.settings.rails.items(Side::Right),
+            RailLayout::default().items(Side::Right)
+        );
+    }
+
+    #[test]
+    fn a_rails_setting_of_the_wrong_shape_is_reported_and_the_default_kept() {
+        let loaded = parse_ok("rails = 3\n");
+        assert!(loaded.settings.rails.is_default());
+        assert!(loaded.warnings[0].contains("`rails` ignored"));
+        let loaded = parse_ok("[rails]\nleft = \"back\"\nright = [1]\nmiddle = []\n");
+        assert!(loaded.settings.rails.is_default());
+        assert_eq!(loaded.warnings.len(), 3, "{:?}", loaded.warnings);
+        assert!(loaded.warnings.iter().any(|w| w.contains("rails.middle")));
     }
 }
