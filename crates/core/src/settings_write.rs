@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, Item, Table, Value, value};
 
 use crate::rails::{RailLayout, Side};
+use crate::shortcuts::{COMMANDS, Shortcuts};
 
 /// One change to the settings file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +26,9 @@ pub enum Edit {
     /// The rail layout; the default layout removes the lists, so a later
     /// version's default applies.
     Rails(RailLayout),
+    /// Every shortcut: a command without one has its key removed. Keys
+    /// under `[shortcuts]` this version does not know are left alone.
+    Shortcuts(Shortcuts),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -74,6 +78,29 @@ fn set_rails(doc: &mut DocumentMut, layout: &RailLayout) {
     }
 }
 
+fn set_shortcuts(doc: &mut DocumentMut, shortcuts: &Shortcuts) {
+    if !doc.get("shortcuts").is_some_and(Item::is_table) {
+        if shortcuts.is_empty() {
+            return;
+        }
+        doc.insert("shortcuts", Item::Table(Table::new()));
+    }
+    let Some(table) = doc.get_mut("shortcuts").and_then(Item::as_table_mut) else {
+        return;
+    };
+    for def in COMMANDS {
+        match shortcuts.get(def.id) {
+            Some(combo) => set(table, def.id, Value::from(combo.to_setting())),
+            None => {
+                table.remove(def.id);
+            }
+        }
+    }
+    if table.is_empty() {
+        doc.remove("shortcuts");
+    }
+}
+
 /// `text` with `edits` applied.
 pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
     let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
@@ -90,6 +117,7 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
                 doc.remove(key);
             }
             Edit::Rails(layout) => set_rails(&mut doc, layout),
+            Edit::Shortcuts(shortcuts) => set_shortcuts(&mut doc, shortcuts),
         }
     }
     Ok(doc.to_string())
@@ -202,6 +230,39 @@ mod tests {
         )
         .unwrap();
         assert!(!bare.contains("rails"), "{bare}");
+    }
+
+    #[test]
+    fn shortcuts_round_trip_keep_unknown_keys_and_an_empty_set_removes_the_table() {
+        use crate::shortcuts::Combo;
+        let mut keys = Shortcuts::default();
+        keys.set("places", Some(Combo::parse("SUPER+ALT+P").unwrap()));
+        keys.set("find", Some(Combo::parse("super+alt+f9").unwrap()));
+        let text = "# keys\n[shortcuts]\n# mine\nback = \"SUPER+ALT+B\"\nfuture = \"x\"\n";
+        let out = apply(text, &[Edit::Shortcuts(keys.clone())]).unwrap();
+        assert!(
+            out.contains("# keys") && out.contains("future = \"x\""),
+            "{out}"
+        );
+        assert!(out.contains("places = \"SUPER+ALT+P\""), "{out}");
+        assert!(out.contains("find = \"SUPER+ALT+F9\""), "{out}");
+        assert!(
+            !out.contains("back ="),
+            "a cleared command loses its key: {out}"
+        );
+        assert_eq!(parse(&out, Path::new("/h")).settings.shortcuts, keys);
+        let cleared = apply(&out, &[Edit::Shortcuts(Shortcuts::default())]).unwrap();
+        assert!(cleared.contains("future = \"x\""), "{cleared}");
+        let bare = apply(
+            "[shortcuts]\nback = \"SUPER+ALT+B\"\n",
+            &[Edit::Shortcuts(Shortcuts::default())],
+        )
+        .unwrap();
+        assert!(!bare.contains("shortcuts"), "{bare}");
+        assert_eq!(
+            apply("", &[Edit::Shortcuts(Shortcuts::default())]).unwrap(),
+            ""
+        );
     }
 
     #[test]

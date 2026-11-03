@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use toml::{Table, Value};
 
 use crate::rails::{RailLayout, Side};
+use crate::shortcuts::Shortcuts;
 
 pub const MAX_RECENTS_LIMIT: usize = 500;
 
@@ -38,6 +39,8 @@ pub struct Settings {
     pub swap_sides: bool,
     /// Which icons each rail shows, in what order, with its divider lines.
     pub rails: RailLayout,
+    /// Keyboard shortcuts for the rail icons; none until the user sets one.
+    pub shortcuts: Shortcuts,
 }
 
 impl Default for Settings {
@@ -54,6 +57,7 @@ impl Default for Settings {
             paused: false,
             swap_sides: false,
             rails: RailLayout::default(),
+            shortcuts: Shortcuts::default(),
         }
     }
 }
@@ -65,7 +69,7 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 11] = [
+const KNOWN: [&str; 12] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
@@ -77,6 +81,7 @@ const KNOWN: [&str; 11] = [
     "paused",
     "swap_sides",
     "rails",
+    "shortcuts",
 ];
 
 /// `~` and `~/...` mean the home folder. Anything else must already be absolute.
@@ -251,6 +256,17 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
             out.rails = RailLayout::from_lists(left.as_deref(), right.as_deref(), &mut r.warnings);
         }
         Some(_) => r.warn("rails", "expected a table with `left` and `right` lists"),
+    }
+
+    match table.get("shortcuts") {
+        None => {}
+        Some(Value::Table(map)) => {
+            out.shortcuts = Shortcuts::from_entries(
+                map.iter().map(|(id, v)| (id.as_str(), v.as_str())),
+                &mut r.warnings,
+            );
+        }
+        Some(_) => r.warn("shortcuts", "expected a table of command to keys"),
     }
 
     for key in table.keys().filter(|k| !KNOWN.contains(&k.as_str())) {
@@ -482,5 +498,22 @@ mod tests {
         assert!(loaded.settings.rails.is_default());
         assert_eq!(loaded.warnings.len(), 3, "{:?}", loaded.warnings);
         assert!(loaded.warnings.iter().any(|w| w.contains("rails.middle")));
+    }
+
+    #[test]
+    fn shortcuts_are_read_from_their_table_and_mistakes_are_reported() {
+        let text = "[shortcuts]\nplaces = \"SUPER+ALT+P\"\nfind = 3\nnope = \"SUPER+ALT+N\"\n";
+        let loaded = parse(text, Path::new("/h"));
+        let places = loaded
+            .settings
+            .shortcuts
+            .get("places")
+            .map(|c| c.to_setting());
+        assert_eq!(places.as_deref(), Some("SUPER+ALT+P"));
+        assert_eq!(loaded.settings.shortcuts.get("find"), None);
+        assert_eq!(loaded.warnings.len(), 2, "{:?}", loaded.warnings);
+        let wrong = parse("shortcuts = 1\n", Path::new("/h"));
+        assert!(wrong.settings.shortcuts.is_empty());
+        assert_eq!(wrong.warnings.len(), 1);
     }
 }
