@@ -1,22 +1,28 @@
-//! What the two panels share: one view-model, one poll of the dialog, one
-//! place that runs the jobs that touch the dialog. Each panel
-//! ([`crate::left`], [`crate::right`]) only draws and forwards clicks.
+//! What the rails and their menu share: one view-model, one poll of the
+//! dialog, one place that runs the jobs that touch the dialog, and the one
+//! menu window that may be open. Each window ([`crate::left`],
+//! [`crate::right`], [`crate::popup`]) only draws and forwards clicks.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui::{AnyView, App, Context, ElementId, Render, Stateful, Window, div, prelude::*, px, rgb};
+use gpui::{
+    AnyView, App, Context, ElementId, Render, Stateful, Window, WindowHandle, WindowId, div,
+    prelude::*, px, rgb,
+};
 
 use std::path::{Path, PathBuf};
 
 use ofolder_core::{browse, search};
 
-use crate::StripActions;
 use crate::colors::colors;
-use crate::expand::RowKey;
+use crate::expand::{RowKey, Section};
 use crate::menu::RowAction;
 use crate::model::{Effect, Job, Mode, ViewModel};
+use crate::popup::MenuWindow;
+use crate::rail::{self, Change, MenuKind, Menus};
 use crate::sources::RecentsRead;
+use crate::{MenuRequest, StripActions, menu_options};
 
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
@@ -25,6 +31,22 @@ const POLL: Duration = Duration::from_millis(200);
 const RECENTS_EVERY: u32 = 10;
 /// The drives are reread every this many polls (three seconds).
 const PLACES_EVERY: u32 = 15;
+/// How long none of the strip's windows may hold the keyboard before an open
+/// menu closes. Moving from a rail to its menu passes through a moment when
+/// neither is active, and that must not close it.
+const LEAVE_GRACE: Duration = Duration::from_millis(350);
+/// Where the message window's top goes: past the rail's foot, which places
+/// it at the bottom of the right rail.
+const TOAST_ANCHOR: i32 = 100_000;
+
+/// One of the strip's windows, for tracking which holds the keyboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Which {
+    Left,
+    Right,
+    /// A menu window, by the serial it was opened with.
+    Menu(u64),
+}
 
 struct Tip(String);
 
@@ -69,17 +91,237 @@ pub fn button(id: impl Into<ElementId>, label: &str, enabled: bool) -> Stateful<
     }
 }
 
-/// The state both panels show.
+/// The state the rails and the menu show.
 pub struct Shared {
     pub vm: ViewModel,
     actions: Arc<dyn StripActions>,
+    menus: Menus,
+    /// The open menu's window, once it has opened.
+    menu_window: Option<WindowHandle<MenuWindow>>,
+    /// Counts menus opened, so a closed menu's late reports are ignored.
+    menu_serial: u64,
+    /// The size last asked for the open menu.
+    menu_size: Option<(i32, i32)>,
+    /// Whether the left rail, the right rail and the open menu hold the keyboard.
+    active: [bool; 3],
+    /// Counts changes of `active`, so a pending close is dropped when the
+    /// keyboard comes back in time.
+    leave_check: u64,
 }
 
 impl Shared {
     pub fn new(vm: ViewModel, actions: Arc<dyn StripActions>, cx: &mut Context<Self>) -> Self {
-        let shared = Shared { vm, actions };
+        let shared = Shared {
+            vm,
+            actions,
+            menus: Menus::default(),
+            menu_window: None,
+            menu_serial: 0,
+            menu_size: None,
+            active: [false; 3],
+            leave_check: 0,
+        };
         shared.start_polling(cx);
         shared
+    }
+
+    // ---- the menu ---------------------------------------------------------
+
+    pub fn open_menu(&self) -> Option<MenuKind> {
+        self.menus.open()
+    }
+
+    /// The lines a menu shows now, to size its window.
+    pub fn menu_rows(&self, kind: MenuKind) -> usize {
+        let lines = |section| self.vm.section_lines(section).len();
+        match kind {
+            MenuKind::Favorites => lines(Section::Favorites).max(1),
+            MenuKind::Places => lines(Section::Places),
+            MenuKind::RecentFolders => lines(Section::RecentFolders).max(1),
+            MenuKind::RecentFiles => lines(Section::RecentFiles).max(1),
+            MenuKind::Find => lines(Section::Ranked) + lines(Section::Found),
+            MenuKind::NewFolder | MenuKind::Toast => 0,
+        }
+    }
+
+    fn request(&self, kind: MenuKind, size: (i32, i32), fresh: bool) -> MenuRequest {
+        MenuRequest {
+            side: kind.side(),
+            anchor_y: kind.button().map(rail::anchor_y).unwrap_or(TOAST_ANCHOR),
+            width: size.0,
+            height: size.1,
+            takes_keyboard: kind.takes_keyboard(),
+            fresh,
+            away_from_dialog: kind == MenuKind::Toast,
+        }
+    }
+
+    /// A click on a rail icon that has a menu: opens it, or closes it when
+    /// it is the one open.
+    pub fn click_menu(&mut self, kind: MenuKind, cx: &mut Context<Self>) {
+        match self.menus.click(kind) {
+            Change::Open(kind) => {
+                self.cancel_prompt();
+                self.close_window(cx);
+                if kind == MenuKind::NewFolder && !self.vm.start_new_folder() {
+                    self.menus.close();
+                    self.changed(cx);
+                    return;
+                }
+                self.open_window(kind, cx);
+            }
+            Change::Close => {
+                self.shut_menu(cx);
+                self.changed(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn open_window(&mut self, kind: MenuKind, cx: &mut Context<Self>) {
+        let size = (kind.width(), kind.height(self.menu_rows(kind)));
+        self.menu_size = Some(size);
+        self.menu_serial += 1;
+        let serial = self.menu_serial;
+        self.active[2] = false;
+        // The placement rule must be in force before the window maps.
+        self.actions
+            .place_menu(Some(self.request(kind, size, true)));
+        let shared = cx.entity();
+        // Opened after this update ends: the menu's view reads the shared
+        // state as it is built.
+        cx.defer(move |cx| {
+            let options = menu_options(size, cx);
+            let menu = shared.clone();
+            let opened = cx.open_window(options, move |window, cx| {
+                cx.new(|cx| MenuWindow::new(menu, kind, serial, window, cx))
+            });
+            shared.update(cx, |s, cx| match opened {
+                // A menu closed or replaced before its window came up
+                // takes the window with it.
+                Ok(handle) if s.menu_serial == serial && s.menus.open() == Some(kind) => {
+                    s.menu_window = Some(handle);
+                }
+                Ok(handle) => {
+                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                }
+                Err(error) => {
+                    eprintln!("ofolder: could not open a menu: {error}");
+                    s.menus.close();
+                    s.actions.place_menu(None);
+                    cx.notify();
+                }
+            });
+        });
+    }
+
+    fn close_window(&mut self, cx: &mut Context<Self>) {
+        self.active[2] = false;
+        self.menu_size = None;
+        if let Some(handle) = self.menu_window.take() {
+            cx.defer(move |cx| {
+                handle.update(cx, |_, w, _| w.remove_window()).ok();
+            });
+        }
+    }
+
+    /// A prompt left open when its menu goes is abandoned.
+    fn cancel_prompt(&mut self) {
+        if self.vm.mode() != Mode::Browse {
+            self.vm.cancel();
+        }
+    }
+
+    /// Closes the open menu, if any. A message still showing then gets its
+    /// own small window.
+    pub fn close_menu(&mut self, cx: &mut Context<Self>) {
+        if self.menus.close().is_some() {
+            self.shut_menu(cx);
+        }
+        self.changed(cx);
+    }
+
+    /// Takes down the window of a menu already marked closed.
+    fn shut_menu(&mut self, cx: &mut Context<Self>) {
+        self.cancel_prompt();
+        self.close_window(cx);
+        self.actions.place_menu(None);
+    }
+
+    /// After a row, a result or a prompt was used: the menu has done its job.
+    pub fn after_choice(&mut self, cx: &mut Context<Self>) {
+        if self.menus.open().is_some_and(|k| k != MenuKind::Toast) {
+            self.close_menu(cx);
+        }
+    }
+
+    /// Opens the message window when a message waits and nothing is open,
+    /// and closes it when the message has gone; then redraws.
+    pub fn changed(&mut self, cx: &mut Context<Self>) {
+        let waiting = self.vm.message().is_some();
+        if waiting && self.menus.show_toast() {
+            self.open_window(MenuKind::Toast, cx);
+        } else if !waiting && self.menus.open() == Some(MenuKind::Toast) {
+            self.menus.close();
+            self.shut_menu(cx);
+        }
+        cx.notify();
+    }
+
+    /// The menu window grows and shrinks with its content.
+    pub fn fit_menu(&mut self) {
+        let Some(kind) = self.menus.open() else {
+            return;
+        };
+        let size = (kind.width(), kind.height(self.menu_rows(kind)));
+        if self.menu_size != Some(size) {
+            self.menu_size = Some(size);
+            self.actions
+                .place_menu(Some(self.request(kind, size, false)));
+        }
+    }
+
+    /// Called when any window closes. A menu window that went without being
+    /// asked to (closed by the compositor) leaves no menu open.
+    pub fn menu_window_closed(&mut self, open: &[WindowId], cx: &mut Context<Self>) {
+        if let Some(handle) = self.menu_window
+            && !open.contains(&handle.window_id())
+        {
+            self.menu_window = None;
+            self.menus.close();
+            self.cancel_prompt();
+            self.actions.place_menu(None);
+            cx.notify();
+        }
+    }
+
+    /// Notes which window holds the keyboard. When none of the strip's does
+    /// for a moment (the user went back to the dialog or elsewhere), the open
+    /// menu closes. The message window is left to time out instead.
+    pub fn set_active(&mut self, which: Which, active: bool, cx: &mut Context<Self>) {
+        match which {
+            Which::Left => self.active[0] = active,
+            Which::Right => self.active[1] = active,
+            Which::Menu(serial) if serial == self.menu_serial => self.active[2] = active,
+            Which::Menu(_) => return,
+        }
+        self.leave_check += 1;
+        if self.active.iter().any(|a| *a)
+            || !self.menus.open().is_some_and(|k| k != MenuKind::Toast)
+        {
+            return;
+        }
+        let check = self.leave_check;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LEAVE_GRACE).await;
+            this.update(cx, |s, cx| {
+                if s.leave_check == check && !s.active.iter().any(|a| *a) {
+                    s.after_choice(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Asks the dialog for its folder on a background thread, rereads the
@@ -142,7 +384,7 @@ impl Shared {
                     }
                     changed |= t.vm.expire_message(Instant::now());
                     if changed {
-                        cx.notify();
+                        t.changed(cx);
                     }
                 });
                 if applied.is_err() {
@@ -166,7 +408,7 @@ impl Shared {
                     .await;
                 this.update(cx, |t, cx| {
                     t.vm.finish_go(result);
-                    cx.notify();
+                    t.changed(cx);
                 })
                 .ok();
             }
@@ -177,7 +419,7 @@ impl Shared {
                     .await;
                 this.update(cx, |t, cx| {
                     t.vm.finish_new_folder(result);
-                    cx.notify();
+                    t.changed(cx);
                 })
                 .ok();
             }
@@ -188,7 +430,7 @@ impl Shared {
                     .await;
                 this.update(cx, |t, cx| {
                     t.vm.finish_launch("file manager", result);
-                    cx.notify();
+                    t.changed(cx);
                 })
                 .ok();
             }
@@ -199,7 +441,7 @@ impl Shared {
                     .await;
                 this.update(cx, |t, cx| {
                     t.vm.finish_launch("terminal", result);
-                    cx.notify();
+                    t.changed(cx);
                 })
                 .ok();
             }
@@ -269,14 +511,14 @@ impl Shared {
             Mode::Rename(_) => self.vm.submit_rename(text),
             Mode::Browse => {}
         }
-        cx.notify();
+        self.changed(cx);
     }
 
     pub fn start(&mut self, job: Option<Job>, cx: &mut Context<Self>) {
         if let Some(job) = job {
             self.run(job, cx);
         }
-        cx.notify();
+        self.changed(cx);
     }
 
     pub fn expand(&mut self, key: RowKey, cx: &mut Context<Self>) {
@@ -299,7 +541,10 @@ impl Shared {
             Effect::Copy(text) => copy = Some(text),
             Effect::None => {}
         }
-        cx.notify();
+        if !(action.keeps_menu_open() || action == RowAction::Rename) {
+            self.after_choice(cx);
+        }
+        self.changed(cx);
         copy
     }
 }
@@ -310,4 +555,70 @@ struct Polled {
     seen: Option<Vec<(PathBuf, bool)>>,
     recents: Option<RecentsRead>,
     places: Option<Vec<ofolder_core::places::Place>>,
+}
+
+/// How a rail icon looks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconLook {
+    Enabled,
+    /// Dimmed; the caller adds no click.
+    Disabled,
+    /// Its menu is open.
+    Open,
+    /// A switch that is on, such as the favorite toggle for a favorite.
+    On,
+}
+
+/// A rail icon at its slot's position, with its tooltip. `icon` overrides
+/// the button's own icon file (the favorite toggle shows a filled star).
+pub fn rail_icon(
+    button: rail::Button,
+    y: f32,
+    look: IconLook,
+    tooltip: String,
+    icon: Option<&'static str>,
+) -> Stateful<gpui::Div> {
+    let inset = (rail::RAIL_WIDTH - rail::BUTTON) / 2.;
+    let (color, bg) = match look {
+        IconLook::Enabled => (colors().text, None),
+        IconLook::Disabled => (colors().muted, None),
+        IconLook::Open => (colors().accent, Some(colors().chosen)),
+        IconLook::On => (colors().accent, None),
+    };
+    let base = div()
+        .id(button.id())
+        .absolute()
+        .top(px(y))
+        .left(px(inset))
+        .size(px(rail::BUTTON))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.))
+        .when_some(bg, |d, bg| d.bg(rgb(bg)))
+        .tooltip(tip(tooltip))
+        .child(
+            gpui::svg()
+                .path(icon.unwrap_or(button.icon()))
+                .size(px(20.))
+                .text_color(rgb(color)),
+        );
+    match look {
+        IconLook::Disabled => base.opacity(0.45),
+        IconLook::Enabled | IconLook::On => {
+            base.cursor_pointer().hover(|s| s.bg(rgb(colors().hover)))
+        }
+        IconLook::Open => base.cursor_pointer(),
+    }
+}
+
+/// A thin line across a rail between groups of icons.
+pub fn rail_divider(y: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .top(px(y + rail::DIVIDER / 2.))
+        .left(px(12.))
+        .w(px(rail::RAIL_WIDTH - 24.))
+        .h(px(1.))
+        .bg(rgb(colors().raised))
 }

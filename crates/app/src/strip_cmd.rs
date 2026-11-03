@@ -18,17 +18,19 @@ use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
-use ofolder_core::geometry::{Panels, Rect, place_panels};
+use ofolder_core::geometry::{Panels, Rect, place_menu, place_panels};
 use ofolder_core::launch::{self, Command};
 use ofolder_core::settings;
 use ofolder_core::system::{Compositor, Typist};
 use ofolder_strip::{
-    APP_ID_LEFT, APP_ID_RIGHT, LEFT_WIDTH, RIGHT_WIDTH, StripActions, StripOptions,
+    APP_ID_LEFT, APP_ID_MENU, APP_ID_RIGHT, LEFT_WIDTH, MenuRequest, RIGHT_WIDTH, RailSide,
+    StripActions, StripOptions,
 };
 
 const GAP: i32 = 6;
 const RULE_LEFT: &str = "ofolder-strip-left";
 const RULE_RIGHT: &str = "ofolder-strip-right";
+const RULE_MENU: &str = "ofolder-strip-menu";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Args {
@@ -115,6 +117,39 @@ struct Actions {
     adapter: Mutex<Box<dyn Adapter>>,
     settings_path: PathBuf,
     home: PathBuf,
+    compositor: Arc<dyn Compositor>,
+    dock: Mutex<Dock>,
+}
+
+/// What the docking thread and the strip's menu share. The docker keeps the
+/// dialog's place current, so placing a menu never waits on the adapter,
+/// which a move into another folder can hold for seconds.
+#[derive(Default)]
+struct Dock {
+    dialog: Option<Rect>,
+    bounds: Option<Rect>,
+    menu: Option<MenuRequest>,
+    /// A menu that is typed into was just asked for: give it the keyboard
+    /// once its window appears. The user clicked for it, so this is the
+    /// one time the strip takes the keyboard on its own.
+    focus_menu: bool,
+}
+
+/// Where a menu belongs: beside its rail, which stands where the docker puts it.
+fn menu_rect(dialog: Rect, bounds: Option<Rect>, menu: &MenuRequest) -> Rect {
+    let panels = place_panels(dialog, bounds, LEFT_WIDTH as i32, RIGHT_WIDTH as i32, GAP);
+    let rail = match menu.side {
+        RailSide::Left => panels.left,
+        RailSide::Right => panels.right,
+    };
+    place_menu(
+        rail,
+        dialog,
+        bounds,
+        menu.anchor_y,
+        (menu.width, menu.height),
+        !menu.away_from_dialog,
+    )
 }
 
 /// Starts `command` on its own, with no input or output attached and in its own
@@ -233,6 +268,31 @@ impl StripActions for Actions {
         spawn_detached(&command)
     }
 
+    fn place_menu(&self, menu: Option<MenuRequest>) {
+        let placed = self.dock.lock().ok().and_then(|mut dock| {
+            dock.menu = menu;
+            dock.focus_menu = menu.is_some_and(|m| m.fresh && m.takes_keyboard)
+                || (dock.focus_menu && menu.is_some());
+            let menu = menu?;
+            Some((menu, menu_rect(dock.dialog?, dock.bounds, &menu)))
+        });
+        // The rule must be in force before the window maps, or it opens tiled
+        // and then jumps. A menu that is typed into takes the keyboard.
+        if let Some((menu, rect)) = placed
+            && menu.fresh
+        {
+            self.compositor
+                .install_float_rule(
+                    RULE_MENU,
+                    APP_ID_MENU,
+                    (rect.w, rect.h),
+                    (rect.x, rect.y),
+                    menu.takes_keyboard,
+                )
+                .ok();
+        }
+    }
+
     fn dialog_alive(&self) -> bool {
         let alive = self.adapter.lock().is_ok_and(|a| a.alive());
         if !alive {
@@ -284,13 +344,18 @@ fn build_adapter(
     })
 }
 
-/// Where the two panels belong around `dialog`, on its own monitor.
-fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) -> Panels {
-    let bounds = compositor
+/// The usable area of the dialog's monitor.
+fn bounds_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) -> Option<Rect> {
+    compositor
         .monitors()
         .ok()
         .and_then(|ms| ms.into_iter().find(|m| m.id == dialog.monitor))
-        .map(|m| m.usable_bounds());
+        .map(|m| m.usable_bounds())
+}
+
+/// Where the two panels belong around `dialog`, on its own monitor.
+fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) -> Panels {
+    let bounds = bounds_for(compositor, dialog);
     place_panels(
         dialog.rect(),
         bounds,
@@ -324,6 +389,17 @@ fn dock_forever(
         if let Ok(mut seen) = last_seen.lock() {
             *seen = Some(dialog.rect());
         }
+        let bounds = bounds_for(&*compositor, dialog);
+        let (menu, focus_menu) = actions
+            .dock
+            .lock()
+            .ok()
+            .map(|mut dock| {
+                dock.dialog = Some(dialog.rect());
+                dock.bounds = bounds;
+                (dock.menu, dock.focus_menu)
+            })
+            .unwrap_or((None, false));
         let left = clients
             .iter()
             .find(|c| c.class == APP_ID_LEFT && c.pid == me);
@@ -343,8 +419,29 @@ fn dock_forever(
             }
         }
         let panels = panels_for(&*compositor, dialog);
-        for (panel, wanted) in [(left, panels.left), (right, panels.right)] {
-            let Some(panel) = panel else { continue };
+        let menu_window = clients
+            .iter()
+            .find(|c| c.class == APP_ID_MENU && c.pid == me);
+        let menu_place = menu.map(|m| menu_rect(dialog.rect(), bounds, &m));
+        // Only the menu that was asked for: one being replaced may still be on screen.
+        if focus_menu
+            && let (Some(window), Some(wanted)) = (menu_window, menu_place)
+            && (window.at[0] - wanted.x).abs() <= 2
+            && (window.at[1] - wanted.y).abs() <= 2
+        {
+            compositor.focus(&window.address).ok();
+            if let Ok(mut dock) = actions.dock.lock() {
+                dock.focus_menu = false;
+            }
+        }
+        for (panel, wanted) in [
+            (left, Some(panels.left)),
+            (right, Some(panels.right)),
+            (menu_window, menu_place),
+        ] {
+            let (Some(panel), Some(wanted)) = (panel, wanted) else {
+                continue;
+            };
             let (size, at) = ((wanted.w, wanted.h), (wanted.x, wanted.y));
             if panel.workspace.id != dialog.workspace.id {
                 compositor
@@ -389,6 +486,8 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         adapter: Mutex::new(adapter),
         settings_path: settings_path.clone(),
         home: home.clone(),
+        compositor: compositor.clone(),
+        dock: Mutex::new(Dock::default()),
     });
 
     let window = wait_for(Duration::from_secs(8), || actions.window()).context(
@@ -487,12 +586,47 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     }
     compositor.remove_rule(RULE_LEFT).ok();
     compositor.remove_rule(RULE_RIGHT).ok();
+    compositor.remove_rule(RULE_MENU).ok();
     result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn request(side: RailSide, anchor_y: i32) -> MenuRequest {
+        MenuRequest {
+            side,
+            anchor_y,
+            width: 300,
+            height: 200,
+            takes_keyboard: false,
+            fresh: true,
+            away_from_dialog: false,
+        }
+    }
+
+    #[test]
+    fn a_menu_opens_beside_its_own_rail_over_the_dialog_at_its_icon() {
+        let dialog = Rect {
+            x: 1000,
+            y: 300,
+            w: 900,
+            h: 600,
+        };
+        let screen = Some(Rect {
+            x: 0,
+            y: 0,
+            w: 4096,
+            h: 1152,
+        });
+        let left = menu_rect(dialog, screen, &request(RailSide::Left, 100));
+        // The left rail ends a gap before the dialog; the menu starts there.
+        assert_eq!((left.x, left.y), (dialog.x - GAP, 400));
+        let right = menu_rect(dialog, screen, &request(RailSide::Right, 0));
+        assert_eq!(right.right(), dialog.right() + GAP);
+        assert_eq!(right.y, 300);
+    }
 
     fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
         Command {

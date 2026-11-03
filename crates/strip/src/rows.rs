@@ -1,8 +1,10 @@
-//! Drawing the lines of a folder list. Shared by both panels; every click
-//! is forwarded to the shared state, which decides what it means.
+//! Drawing the lines of a folder list in a rail's menu; every click is
+//! forwarded to the shared state, which decides what it means. Choosing a
+//! folder or a file ends the menu's job, so it closes.
 
 use gpui::{
-    AnyElement, ClipboardItem, Entity, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, ClipboardItem, Entity, IntoElement, ParentElement, Styled, div, prelude::*, px,
+    rgb, svg,
 };
 
 use crate::colors::colors;
@@ -163,6 +165,7 @@ pub fn render_lines(
                         s.update(cx, |s, cx| {
                             let job = s.vm.go_to_file_folder(&target);
                             s.start(job, cx);
+                            s.after_choice(cx);
                         });
                     })
                     .child(file_icon())
@@ -282,13 +285,20 @@ fn folder_row(i: usize, f: FolderLine, shared: &Entity<Shared>, chars: usize) ->
             .justify_center()
             .rounded(px(4.))
             .cursor_pointer()
-            .text_size(px(10.))
-            .text_color(rgb(colors().muted))
             .hover(|s| s.bg(rgb(colors().hover)))
             .on_click(move |_, _, cx| {
                 s.update(cx, |s, cx| s.expand(key.clone(), cx));
             })
-            .child(if f.open { "v" } else { ">" })
+            .child(
+                svg()
+                    .path(if f.open {
+                        "icons/chevron-down.svg"
+                    } else {
+                        "icons/chevron-right.svg"
+                    })
+                    .size(px(12.))
+                    .text_color(rgb(colors().muted)),
+            )
     };
 
     let main = {
@@ -312,7 +322,11 @@ fn folder_row(i: usize, f: FolderLine, shared: &Entity<Shared>, chars: usize) ->
             .on_click(move |_, _, cx| {
                 s.update(cx, |s, cx| {
                     let job = s.vm.go_to(&path);
+                    let going = job.is_some();
                     s.start(job, cx);
+                    if going {
+                        s.after_choice(cx);
+                    }
                 });
             })
             .tooltip(tip(if missing {
@@ -387,16 +401,20 @@ fn folder_row(i: usize, f: FolderLine, shared: &Entity<Shared>, chars: usize) ->
             .items_center()
             .rounded(px(4.))
             .cursor_pointer()
-            .text_size(px(12.))
-            .text_color(rgb(colors().muted))
             .hover(|s| s.bg(rgb(colors().hover)))
+            .tooltip(tip("More".to_owned()))
             .on_click(move |_, _, cx| {
                 s.update(cx, |s, cx| {
                     s.vm.toggle_menu(key.clone());
                     cx.notify();
                 });
             })
-            .child("...")
+            .child(
+                svg()
+                    .path("icons/dots.svg")
+                    .size(px(16.))
+                    .text_color(rgb(colors().muted)),
+            )
     };
 
     div()

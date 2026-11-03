@@ -1,317 +1,160 @@
-//! The right panel, "do something here": the unknown-folder notice, copy
-//! path, favorite, new folder, launchers, find, and the message area.
+//! The right rail, "do something here": new folder and find open a menu;
+//! the favorite toggle, copy path and the two launchers act at once. At the
+//! foot, a mark says which dialog this is, or warns that its folder cannot
+//! be read.
 
 use gpui::{
-    ClipboardItem, Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div,
-    prelude::*, px, rgb,
+    ClipboardItem, Context, Entity, IntoElement, Render, Subscription, Window, div, prelude::*, px,
+    rgb, svg,
 };
 
 use crate::colors::colors;
-use crate::expand::Section;
-use crate::field::{FieldEvent, TextField};
-use crate::model::{MessageKind, Mode};
-use crate::rows::render_lines;
-use crate::view::{Shared, button, tip};
+use crate::rail::{self, Button, Entry, RailSide};
+use crate::view::{IconLook, Shared, Which, rail_divider, rail_icon, tip};
 
-/// Characters of a label that fit this panel at the top level.
-const LABEL_CHARS: usize = 21;
-
-pub struct RightPanel {
+pub struct RightRail {
     shared: Entity<Shared>,
-    field: Entity<TextField>,
-    find: Entity<TextField>,
     label: String,
     _subscriptions: Vec<Subscription>,
 }
 
-impl RightPanel {
-    pub fn new(shared: Entity<Shared>, label: String, cx: &mut Context<Self>) -> Self {
-        let field = cx.new(TextField::new);
+impl RightRail {
+    pub fn new(
+        shared: Entity<Shared>,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let observe = cx.observe(&shared, |_, _, cx| cx.notify());
-        let handle = cx.subscribe(&field, |this, _, event: &FieldEvent, cx| match event {
-            FieldEvent::Submit(text) => {
-                let text = text.clone();
-                this.shared.update(cx, |s, cx| s.submit(&text, cx));
-            }
-            FieldEvent::Cancel => this.shared.update(cx, |s, cx| {
-                s.vm.cancel();
-                cx.notify();
-            }),
-            FieldEvent::Changed(_) | FieldEvent::Up | FieldEvent::Down => {}
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            let active = window.is_window_active();
+            this.shared
+                .update(cx, |s, cx| s.set_active(Which::Right, active, cx));
         });
-        let find = cx.new(TextField::new);
-        find.update(cx, |f, cx| f.reset("", "Find a folder", cx));
-        let find_handle = cx.subscribe(&find, |this, _, event: &FieldEvent, cx| {
-            this.shared.update(cx, |s, cx| {
-                match event {
-                    FieldEvent::Changed(text) => s.vm.find_set_query(text),
-                    FieldEvent::Submit(_) => {
-                        let job = s.vm.find_enter();
-                        s.start(job, cx);
-                    }
-                    FieldEvent::Cancel => s.vm.find_escape(),
-                    FieldEvent::Up => s.vm.find_move(-1),
-                    FieldEvent::Down => s.vm.find_move(1),
-                }
-                cx.notify();
-            });
-            // Escape empties the box the user sees as well as the query.
-            if matches!(event, FieldEvent::Cancel) {
-                let query = this.shared.read(cx).vm.find_query().to_owned();
-                this.find
-                    .update(cx, |f, cx| f.reset(&query, "Find a folder", cx));
-            }
-        });
-        RightPanel {
+        RightRail {
             shared,
-            field,
-            find,
             label,
-            _subscriptions: vec![observe, handle, find_handle],
+            _subscriptions: vec![observe, activation],
         }
     }
 }
 
-impl Render for RightPanel {
+impl Render for RightRail {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (known, busy, mode, favorite, full, message, ranked, found, running, status, has_query) = {
+        let (known, busy, favorite, full, open) = {
             let s = self.shared.read(cx);
             (
                 s.vm.folder().is_some(),
                 s.vm.busy(),
-                s.vm.mode(),
                 s.vm.current_is_favorite(),
                 s.vm.folder_full(),
-                s.vm.message().cloned(),
-                s.vm.section_lines(Section::Ranked),
-                s.vm.section_lines(Section::Found),
-                s.vm.search_running(),
-                s.vm.search_status(),
-                !s.vm.find_query().trim().is_empty(),
+                s.open_menu(),
             )
         };
-
-        let header = div()
-            .flex_none()
-            .flex()
-            .justify_between()
-            .items_center()
-            .px_1()
-            .child(div().text_size(px(12.)).child("ofolder"))
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(rgb(colors().muted))
-                    .child(self.label.clone()),
-            );
-
-        let notice = (!known).then(|| {
-            div()
-                .flex_none()
-                .px_2()
-                .py_1()
-                .rounded(px(4.))
-                .bg(rgb(colors().panel))
-                .border_l_2()
-                .border_color(rgb(colors().amber))
-                .text_size(px(12.))
-                .text_color(rgb(colors().amber))
-                .child("Folder unknown: the dialog's folder cannot be read")
-        });
-
-        let copy = button("copy", "Copy path", known)
-            .when(known, |b| {
-                b.on_click(cx.listener(|this, _, _, cx| {
-                    let text = this.shared.update(cx, |s, cx| {
-                        cx.notify();
-                        s.vm.copy_path()
-                    });
-                    if let Some(text) = text {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text));
-                    }
-                }))
-            })
-            .when_some(full, |b, full| b.tooltip(tip(full)));
-
-        let favorite_button = button(
-            "favorite",
-            if favorite { "Unfavorite" } else { "Favorite" },
-            known,
-        )
-        .when(known, |b| {
-            b.on_click(cx.listener(|this, _, _, cx| {
-                this.shared.update(cx, |s, cx| {
-                    s.vm.toggle_current_favorite();
-                    cx.notify();
-                });
-            }))
-        });
-
-        let new_folder =
-            button("new-folder", "New folder", known && !busy).when(known && !busy, |b| {
-                b.on_click(cx.listener(|this, _, window, cx| {
-                    let started = this.shared.update(cx, |s, cx| {
-                        cx.notify();
-                        s.vm.start_new_folder()
-                    });
-                    if started {
-                        this.field
-                            .update(cx, |f, cx| f.reset("", "Folder name", cx));
-                        window.focus(&this.field.focus_handle(cx));
-                    }
-                }))
-            });
-
-        let launcher = |id: &'static str, label: &str, terminal: bool| {
-            button(id, label, known).when(known, |b| {
-                b.on_click(cx.listener(move |this, _, _, cx| {
-                    this.shared.update(cx, |s, cx| {
-                        let job = s.vm.open_current(terminal);
-                        s.start(job, cx);
-                    });
-                }))
-            })
-        };
-        let actions = div()
-            .flex_none()
-            .flex()
-            .flex_wrap()
-            .gap_1()
-            .child(copy)
-            .child(favorite_button)
-            .child(new_folder)
-            .child(launcher("open-fm", "File manager", false))
-            .child(launcher("open-term", "Terminal", true));
-
-        let search_button = if running {
-            button("search-stop", "Stop", true).on_click(cx.listener(|this, _, _, cx| {
-                this.shared.update(cx, |s, cx| s.stop_search(cx));
-            }))
-        } else {
-            button("search-go", "Search below this folder", known && has_query).when(
-                known && has_query,
-                |b| {
-                    b.on_click(cx.listener(|this, _, _, cx| {
-                        this.shared.update(cx, |s, cx| s.search(cx));
-                    }))
-                },
-            )
-        };
-        let find_box = div()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .px_1()
-                    .pt_1()
-                    .text_size(px(11.))
-                    .text_color(rgb(colors().muted))
-                    .child("FIND"),
-            )
-            .child(self.find.clone())
-            .children(render_lines(ranked, &self.shared, LABEL_CHARS, None))
-            .child(div().flex().child(search_button))
-            .children(status.map(|text| {
-                div()
-                    .px_1()
-                    .text_size(px(11.))
-                    .text_color(rgb(colors().muted))
-                    .child(text)
-            }))
-            .children(render_lines(found, &self.shared, LABEL_CHARS, None));
-
-        let message = message.map(|m| {
-            let color = match m.kind {
-                MessageKind::Info => colors().accent,
-                MessageKind::Error => colors().red,
-            };
-            div()
-                .id("message")
-                .flex_none()
-                .px_2()
-                .py_1()
-                .rounded(px(4.))
-                .bg(rgb(colors().panel))
-                .border_l_2()
-                .border_color(rgb(color))
-                .text_size(px(12.))
-                .text_color(rgb(color))
-                .cursor_pointer()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.shared.update(cx, |s, cx| {
-                        s.vm.dismiss_message();
-                        cx.notify();
-                    });
-                }))
-                .child(m.text)
-        });
-
-        let prompt = (mode == Mode::NewFolder).then(|| {
-            div()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .p_2()
-                .rounded(px(6.))
-                .bg(rgb(colors().panel))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(rgb(colors().muted))
-                        .child("New folder name (a/b makes nested folders)"),
-                )
-                .child(self.field.clone())
-                .child(
-                    div()
-                        .flex()
-                        .gap_1()
-                        .child(button("prompt-ok", "Create", !busy).when(!busy, |b| {
-                            b.on_click(cx.listener(|this, _, _, cx| {
-                                let text = this.field.read(cx).text().to_owned();
-                                this.shared.update(cx, |s, cx| s.submit(&text, cx));
-                            }))
-                        }))
-                        .child(
-                            button("prompt-cancel", "Cancel", true).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.shared.update(cx, |s, cx| {
-                                        s.vm.cancel();
-                                        cx.notify();
-                                    });
-                                },
-                            )),
-                        ),
-                )
-        });
-
-        div()
+        let mut rail = div()
             .size_full()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_2()
+            .relative()
             .overflow_hidden()
             .bg(rgb(colors().bg))
             .text_color(rgb(colors().text))
-            .text_size(px(13.))
-            .child(header)
-            .child(
-                div()
-                    .id("right-scroll")
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .children(notice)
-                    .child(actions)
-                    .children(message)
-                    .children(prompt)
-                    .child(find_box),
+            .text_size(px(13.));
+        for slot in rail::slots(RailSide::Right) {
+            let button = match slot.entry {
+                Entry::Divider => {
+                    rail = rail.child(rail_divider(slot.y));
+                    continue;
+                }
+                Entry::Button(b) => b,
+            };
+            let allowed = known && !(busy && button == Button::NewFolder);
+            let mut tooltip = button.tooltip(favorite).to_owned();
+            if button == Button::CopyPath
+                && let Some(full) = &full
+            {
+                tooltip = format!("{tooltip}\n{full}");
+            }
+            if !known {
+                tooltip = format!("{tooltip} (the folder is unknown)");
+            }
+            let element = if let Some(kind) = button.menu() {
+                let look = match (open == Some(kind), allowed) {
+                    (true, _) => IconLook::Open,
+                    (false, true) => IconLook::Enabled,
+                    (false, false) => IconLook::Disabled,
+                };
+                rail_icon(button, slot.y, look, tooltip, None).when(
+                    allowed || open == Some(kind),
+                    |b| {
+                        b.on_click(cx.listener(move |this, _, _, cx| {
+                            this.shared.update(cx, |s, cx| s.click_menu(kind, cx));
+                        }))
+                    },
+                )
+            } else {
+                let on = button == Button::Favorite && favorite;
+                let look = match (allowed, on) {
+                    (false, _) => IconLook::Disabled,
+                    (true, true) => IconLook::On,
+                    (true, false) => IconLook::Enabled,
+                };
+                let icon = on.then_some("icons/star-filled.svg");
+                rail_icon(button, slot.y, look, tooltip, icon).when(allowed, |b| {
+                    b.on_click(cx.listener(move |this, _, _, cx| {
+                        let copied = this.shared.update(cx, |s, cx| {
+                            s.close_menu(cx);
+                            let copied = match button {
+                                Button::Favorite => {
+                                    s.vm.toggle_current_favorite();
+                                    None
+                                }
+                                Button::CopyPath => s.vm.copy_path(),
+                                Button::FileManager => {
+                                    let job = s.vm.open_current(false);
+                                    s.start(job, cx);
+                                    None
+                                }
+                                _ => {
+                                    let job = s.vm.open_current(true);
+                                    s.start(job, cx);
+                                    None
+                                }
+                            };
+                            s.changed(cx);
+                            copied
+                        });
+                        if let Some(text) = copied {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text));
+                        }
+                    }))
+                })
+            };
+            rail = rail.child(element);
+        }
+        let (mark, mark_color, mark_tip) = if known {
+            (
+                "icons/info.svg",
+                colors().muted,
+                format!("ofolder on {}\n{}", self.label, full.unwrap_or_default()),
             )
+        } else {
+            (
+                "icons/warning.svg",
+                colors().amber,
+                "Folder unknown: the dialog's folder cannot be read".to_owned(),
+            )
+        };
+        rail.child(
+            div()
+                .id("rail-mark")
+                .absolute()
+                .bottom(px(8.))
+                .left(px((rail::RAIL_WIDTH - rail::BUTTON) / 2.))
+                .size(px(rail::BUTTON))
+                .flex()
+                .items_center()
+                .justify_center()
+                .tooltip(tip(mark_tip))
+                .child(svg().path(mark).size(px(18.)).text_color(rgb(mark_color))),
+        )
     }
 }

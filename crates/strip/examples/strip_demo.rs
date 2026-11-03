@@ -1,7 +1,8 @@
-//! Opens both panels against a fake dialog. Usage:
-//! `strip_demo <scratch folder> [preview [light]]`
+//! Opens both rails against a fake dialog. Usage:
+//! `strip_demo <scratch folder> [preview [light]] [favorites|places|recent|files|find|new]`
 //! The folder must exist; sample favorites, recents and settings are written
-//! inside it. With `preview` some rows are opened and a search is shown.
+//! inside it. With `preview` some rows are opened and a search is shown; a
+//! menu name opens that menu.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,7 +12,7 @@ use ofolder_core::theme::Palette;
 use ofolder_core::{browse, search};
 use ofolder_strip::expand::{RowKey, Section};
 use ofolder_strip::model::ViewModel;
-use ofolder_strip::{DemoActions, demo_setup, run_strip_preview};
+use ofolder_strip::{DemoActions, MenuKind, demo_setup, run_strip_preview};
 
 fn open(vm: &mut ViewModel, section: Section, path: PathBuf) {
     let key = RowKey::new(section, path.clone());
@@ -26,8 +27,19 @@ fn main() -> anyhow::Result<()> {
         args.next()
             .ok_or_else(|| anyhow::anyhow!("give a scratch folder"))?,
     );
-    let preview = args.next().as_deref() == Some("preview");
-    let palette = if args.next().as_deref() == Some("light") {
+    let rest: Vec<String> = args.collect();
+    let has = |word: &str| rest.iter().any(|a| a == word);
+    let preview = has("preview");
+    let menu = rest.iter().find_map(|a| match a.as_str() {
+        "favorites" => Some(MenuKind::Favorites),
+        "places" => Some(MenuKind::Places),
+        "recent" => Some(MenuKind::RecentFolders),
+        "files" => Some(MenuKind::RecentFiles),
+        "find" => Some(MenuKind::Find),
+        "new" => Some(MenuKind::NewFolder),
+        _ => None,
+    });
+    let palette = if has("light") {
         Palette {
             dark: false,
             background: 0xf5_f1_e8,
@@ -46,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     let start = work.clone();
     run_strip_preview(options, Arc::new(DemoActions::new(work)), move |vm| {
         if !preview {
-            return;
+            return menu;
         }
         vm.set_folder(Some(start.clone()));
         open(vm, Section::Favorites, start.clone());
@@ -60,5 +72,6 @@ fn main() -> anyhow::Result<()> {
             let found = outcome.found.into_iter().map(|f| f.path).collect();
             vm.finish_search(job.id, found, outcome.ended);
         }
+        menu
     })
 }
