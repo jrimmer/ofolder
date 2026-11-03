@@ -41,3 +41,31 @@ with that prefix in `~/.config/ofolder/settings.toml`:
 [start_folders]
 "class:zen" = "~/Downloads"
 ```
+
+## The settings file
+
+`~/.config/ofolder/settings.toml` is read again for every dialog. The gear at the foot of the
+right rail opens a settings window that writes the same file, keeping its comments, its order
+and any key it does not know. A value of the wrong type is reported and ignored; the rest
+still apply.
+
+| Key | Meaning | Default |
+|---|---|---|
+| `keep_dialog_after_file_manager` | Keep the dialog open after "open in file manager" | `true` |
+| `recents_enabled` | Remember recent folders and files | `true` |
+| `recents_max` | How many recent items are kept, 1 to 500 | `20` |
+| `recents_excluded` | Folders, and everything below them, never recorded as recent | none |
+| `excluded_apps` | Application ids whose dialogs are left alone | none |
+| `file_manager`, `terminal` | Commands to use instead of the desktop's own; the folder is added at the end | detected |
+| `start_folders` | A table of application id to the folder its dialogs start in, when the app gives none | none |
+| `paused` | Set by `ofolder pause`: every dialog passes through untouched | `false` |
+| `[rails]` `left`, `right` | The icons of each rail, top to bottom. `"-"` is a divider line, and an icon left out is hidden | as below |
+
+```
+[rails]
+left = ["back", "forward", "parent", "-", "favorites", "places", "recent_folders", "recent_files"]
+right = ["new_folder", "find", "-", "favorite", "copy_path", "-", "file_manager", "terminal"]
+```
+
+An icon belongs to one rail and is ignored on the other. A list that names no icon gives that
+rail's default.
