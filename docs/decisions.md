@@ -50,6 +50,8 @@ Decided by the maintainer on 2026-11-01. The left panel holds the click-to-selec
 | **Left: go somewhere** | favorites (R-30), standard locations and drives (R-22), recent folders (R-41, R-43), back, forward and parent (R-23), folders of open file managers (R-25) |
 | **Right: do something here** | the "folder unknown" notice, copy path (R-11), add or remove favorite (R-31), new folder (R-70), find (R-60, R-61), open in file manager or terminal (R-12, R-13), settings and pause (R-102) |
 
+**Rails, 2026-11-02.** Each panel is now a slim rail of icons, 52 pixels wide. Back, forward, parent, the favorite toggle, copy path and the two launchers act at once. Favorites, places, recent folders, recent files, new folder and find each open a menu window beside their rail, level with the icon, over the dialog. Messages show in a small window on the right rail's outer side, so they never cover the dialog's buttons. The maintainer kept the visible gap between the rails and the dialog.
+
 Placement rules, in order: the left panel sits left of the dialog and the right panel sits right of it. If one side has no room, both panels pack onto the other side, in the same order. If neither side has room for both, they overlap the dialog's edge. R-02 as documented ("choose which side") becomes: the roles are fixed, and a setting may swap the two sides later.
 
 ## Feasibility flags on the promoted items
