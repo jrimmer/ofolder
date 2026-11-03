@@ -117,6 +117,22 @@ pub fn float_rule_lua(
     ))
 }
 
+/// The Lua for a rule that shows every window of `class` floating at `size`
+/// and `at`, and never lets it take the keyboard: for a tooltip.
+pub fn tip_rule_lua(
+    name: &str,
+    class: &str,
+    size: (i32, i32),
+    at: (i32, i32),
+) -> Result<String, String> {
+    let rule = float_rule_lua(name, class, size, at, false)?;
+    Ok(rule.replacen(
+        ", no_initial_focus = true",
+        ", no_initial_focus = true, no_focus = true",
+        1,
+    ))
+}
+
 pub fn remove_rule_lua(name: &str) -> Result<String, String> {
     if !is_plain_identifier(name) {
         return Err(format!(
@@ -219,6 +235,24 @@ mod tests {
         let normal = float_rule_lua("n", "c", (1, 1), (0, 0), true).expect("plain");
         assert!(quiet.contains("no_initial_focus = true"), "{quiet}");
         assert!(!normal.contains("no_initial_focus"), "{normal}");
+    }
+
+    #[test]
+    fn a_tip_rule_floats_its_window_and_never_lets_it_take_focus() {
+        let lua = tip_rule_lua(
+            "ofolder-strip-tip",
+            "ofolder.strip.tip",
+            (200, 30),
+            (10, 20),
+        )
+        .expect("plain");
+        assert!(
+            lua.contains("class = \"^ofolder\\\\.strip\\\\.tip$\""),
+            "{lua}"
+        );
+        assert!(lua.contains("no_initial_focus = true"), "{lua}");
+        assert!(lua.contains("no_focus = true"), "{lua}");
+        assert!(tip_rule_lua("n", "c\") x", (1, 1), (0, 0)).is_err());
     }
 
     #[test]

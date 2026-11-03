@@ -195,6 +195,39 @@ pub fn place_menu(
     Rect { x, y, w, h }
 }
 
+/// Where a rail icon's tooltip goes: `gap` beside the rail on the side
+/// that faces the dialog, so it never sits under the pointer on the rail,
+/// centred on the icon (`centre_y`, absolute) and kept on the monitor. When
+/// that side has no room it opens on the other side.
+pub fn place_tip(
+    rail: Rect,
+    dialog: Rect,
+    bounds: Option<Rect>,
+    centre_y: i32,
+    size: (i32, i32),
+    gap: i32,
+) -> Rect {
+    let (w, h) = size;
+    let toward_right = rail.x + rail.w / 2 <= dialog.x + dialog.w / 2;
+    let right_x = rail.right() + gap;
+    let left_x = rail.x - gap - w;
+    let mut x = if toward_right { right_x } else { left_x };
+    let mut y = centre_y - h / 2;
+    if let Some(b) = bounds {
+        let fits = |x: i32| x >= b.x && x + w <= b.right();
+        if !fits(x) {
+            let other = if toward_right { left_x } else { right_x };
+            x = if fits(other) {
+                other
+            } else {
+                x.min(b.right() - w).max(b.x)
+            };
+        }
+        y = y.min(b.bottom() - h).max(b.y);
+    }
+    Rect { x, y, w, h }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,5 +466,43 @@ mod tests {
         };
         let m = place_menu(r, dialog_at(1000), screen(), 0, (280, 300), true);
         assert_eq!(m.bottom(), 1152);
+    }
+
+    #[test]
+    fn a_tip_opens_a_gap_beside_its_rail_over_the_dialog_centred_on_the_icon() {
+        let dialog = dialog_at(1000);
+        let left = rail(dialog.x - 6 - 52);
+        let t = place_tip(left, dialog, screen(), 400, (200, 30), 4);
+        assert_eq!((t.x, t.y), (left.right() + 4, 385));
+        let right = rail(dialog.right() + 6);
+        let t = place_tip(right, dialog, screen(), 400, (200, 30), 4);
+        assert_eq!(t.right(), right.x - 4);
+    }
+
+    #[test]
+    fn a_tip_with_no_room_on_the_dialog_side_opens_on_the_other_side() {
+        let r = Rect {
+            x: 0,
+            y: 200,
+            w: 52,
+            h: 600,
+        };
+        // The dialog lies to the left of a rail at the monitor's left edge.
+        let dialog = Rect {
+            x: -900,
+            y: 200,
+            w: 890,
+            h: 600,
+        };
+        let t = place_tip(r, dialog, screen(), 300, (200, 30), 4);
+        assert_eq!(t.x, r.right() + 4);
+    }
+
+    #[test]
+    fn a_tip_near_the_monitors_foot_stays_on_the_monitor() {
+        let dialog = dialog_at(1000);
+        let r = rail(dialog.right() + 6);
+        let t = place_tip(r, dialog, screen(), 1150, (200, 60), 4);
+        assert_eq!(t.bottom(), 1152);
     }
 }

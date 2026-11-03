@@ -55,6 +55,18 @@ pub trait Compositor: Send + Sync {
         Err(unsupported("install a window rule"))
     }
 
+    /// Like [`Compositor::install_float_rule`], for a window that must
+    /// never take the keyboard: a tooltip.
+    fn install_tip_rule(
+        &self,
+        _name: &str,
+        _class: &str,
+        _size: (i32, i32),
+        _at: (i32, i32),
+    ) -> Result<(), SystemError> {
+        Err(unsupported("install a window rule"))
+    }
+
     /// Switches a rule off. A rule that does not exist is not an error.
     fn remove_rule(&self, _name: &str) -> Result<(), SystemError> {
         Err(unsupported("remove a window rule"))

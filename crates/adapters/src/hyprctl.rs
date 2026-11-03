@@ -4,7 +4,7 @@ use std::process::Command;
 
 use ofolder_core::hypr::{
     Client, Monitor, float_rule_lua, is_plain_identifier, is_window_address, parse_clients,
-    parse_monitors, remove_rule_lua,
+    parse_monitors, remove_rule_lua, tip_rule_lua,
 };
 use ofolder_core::system::{Compositor, SystemError};
 
@@ -180,6 +180,19 @@ impl Compositor for Hyprctl {
         Self::eval(
             "rule",
             &float_rule_lua(name, class, size, at, take_focus).map_err(|e| failure("rule", e))?,
+        )
+    }
+
+    fn install_tip_rule(
+        &self,
+        name: &str,
+        class: &str,
+        size: (i32, i32),
+        at: (i32, i32),
+    ) -> Result<(), SystemError> {
+        Self::eval(
+            "rule",
+            &tip_rule_lua(name, class, size, at).map_err(|e| failure("rule", e))?,
         )
     }
 
