@@ -557,7 +557,7 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 | R-01 strip appears with the dialog | Partly met | Live on all three dialogs. Not covered: two dialogs open at once; the under-one-second start was not timed on the final build |
 | R-02 two panels, one each side | Met | `geometry` placement tests (split, packed, overlap); live docking on all three. The `swap_sides` setting is read but not applied, which the maintainer deferred |
 | R-04 start with the session | Partly met | `packaging/` holds the portal and D-Bus activation files; not installed, because registering the proxy is the user's decision |
-| R-05 keyboard-only operation | Held | Needs a compositor key binding |
+| R-05 keyboard-only operation | Partly met | Built 2026-11-03 as shortcuts: every rail command, and the settings window, can have a key combination, bound in Hyprland while a dialog is open (`shortcuts`, `keybind`, `keys` tests). Live on Flea: combinations recorded in the Shortcuts pane were bound and removed with the dialog, and the command a binding runs (`ofolder do`) opened menus, copied the path, moved the dialog to its parent and back. Find and New folder take the keyboard when opened this way. Not covered: an actual key press reaching a binding (synthetic keys from `wtype` do not trigger Hyprland bindings, and no other key injector is available); choosing a row in a list menu still needs the mouse; there is no single shortcut that moves focus into a rail |
 | R-06 large lists | Partly met | Row cap with "Show more", off-thread folder reads, view-model tests. Not covered: a hung mount, a real very large folder |
 | R-11 copy path | Met | Live click on the real panel: the clipboard held the dialog's folder, on Flea, GTK and Strata; model tests cover the unknown-folder refusal |
 | R-12 open in file manager | Partly met | `launch` tests with fake desktop entries; spawn test. Not covered: a click on the real button |
@@ -570,7 +570,7 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 | R-30 favorites list | Partly met | Favorites tests; missing-folder badge seen. Not covered: clicks in the final layout |
 | R-31 add current folder | Met | Live click: the button flipped to Unfavorite and the favorites file held the dialog's folder, on Flea, GTK and Strata |
 | R-32 edit, reorder, remove | Partly met | Menu actions tested; not clicked |
-| R-33 shortcut per favorite | Held | Needs compositor key bindings |
+| R-33 shortcut per favorite | Partly met | A shortcut opens the Favorites menu (and any other rail command); a combination another command holds asks to swap or clear, and one the user's own Hyprland configuration binds is refused. Not built: a combination for one particular favorite folder. Differs from the acceptance: while a dialog is open the combination is taken from every window, not only the dialog, because Hyprland bindings are global; it is released when the dialog closes |
 | R-40 remember folders used | Met | Live through the real portal frontend on Flea, GTK and Strata: a confirmed save records the folder and file, a cancel records nothing and creates nothing |
 | R-41 choose from recent folders | Partly met | Section seen in a screenshot, ranking tested. Not covered: a click |
 | R-43 recents per app | Partly met | Live: recents are tagged `class:<window class>` of the app that asked, through the real frontend. On this desktop apps send no id. Not covered: a click on This app |

@@ -13,10 +13,10 @@ Scope: the 33 Baseline requirements in `requirements.md` as ordered in `decision
 
 ## Held for the maintainer (not built)
 
+R-05 and R-33 were held here until the maintainer approved runtime key bindings on 2026-11-03; they are now built as shortcuts (see `decisions.md`, "Shortcuts").
+
 | ID | Why |
 |---|---|
-| R-05 keyboard hand-off | Needs a compositor key binding, which means changing Hyprland configuration |
-| R-33 shortcut per favorite | Same |
 | R-25 folders of open file managers | Depends on what each file manager exposes; needs a decision on which to support |
 
 ## Units

@@ -60,6 +60,7 @@ still apply.
 | `start_folders` | A table of application id to the folder its dialogs start in, when the app gives none | none |
 | `paused` | Set by `ofolder pause`: every dialog passes through untouched | `false` |
 | `[rails]` `left`, `right` | The icons of each rail, top to bottom. `"-"` is a divider line, and an icon left out is hidden | as below |
+| `[shortcuts]` | A table of command to key combination, such as `places = "SUPER+ALT+P"`. Set in the settings window's Shortcuts pane | none |
 
 ```
 [rails]
@@ -69,3 +70,22 @@ right = ["new_folder", "find", "-", "favorite", "copy_path", "-", "file_manager"
 
 An icon belongs to one rail and is ignored on the other. A list that names no icon gives that
 rail's default.
+
+### Shortcuts
+
+The commands are the rail icons' ids, `back`, `forward`, `parent`, `favorites`, `places`,
+`recent_folders`, `recent_files`, `new_folder`, `find`, `favorite`, `copy_path`, `file_manager`,
+`terminal`, plus `settings`:
+
+```
+[shortcuts]
+places = "SUPER+ALT+P"
+find = "F9"
+```
+
+A combination is modifiers (`SUPER`, `CTRL`, `ALT`, `SHIFT`) and a key, joined by `+`, and needs
+Super or Alt unless the key is F1 to F12. While a dialog is open, ofolder binds each one in
+Hyprland to run `ofolder do <command>`, and removes the binding when the dialog closes; a
+combination your own Hyprland configuration already binds is skipped. `ofolder do <command>` can
+also be run by hand or from your own bindings. If a crash ever leaves a binding behind,
+`ofolder unbind-all` removes every one ofolder made.
