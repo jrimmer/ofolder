@@ -25,6 +25,12 @@ new=target/release/ofolder
 "$new" version >/dev/null
 XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-Hyprland}" "$new" status >/dev/null
 echo "the new build starts: $("$new" version)"
+# The portal's own start-up, without claiming its name, so the running portal is not disturbed. A
+# build that fails here would stop every dialog once it replaces the installed one.
+if ! "$new" portal --check; then
+  echo "the new build fails its portal check, so the installed build was not touched" >&2
+  exit 1
+fi
 
 [ -x "$dest" ] && cp -p "$dest" "$previous"
 cp "$new" "$dest.new"
