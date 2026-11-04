@@ -88,6 +88,11 @@ pub struct Settings {
     pub shortcuts: Shortcuts,
     /// The preview panel under the dialog.
     pub preview: PreviewSettings,
+    /// Whether ofolder checks for a newer release. On unless the maintainer turns it off.
+    pub updates: bool,
+    /// Whether `omarchy update` also updates ofolder, which is a change to the
+    /// system's update step, so it is off until the maintainer turns it on.
+    pub update_with_system: bool,
 }
 
 impl Default for Settings {
@@ -108,6 +113,8 @@ impl Default for Settings {
             rails: RailLayout::default(),
             shortcuts: Shortcuts::default(),
             preview: PreviewSettings::default(),
+            updates: true,
+            update_with_system: false,
         }
     }
 }
@@ -119,7 +126,7 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 15] = [
+const KNOWN: [&str; 17] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
@@ -135,6 +142,8 @@ const KNOWN: [&str; 15] = [
     "rails",
     "shortcuts",
     "preview",
+    "updates",
+    "update_with_system",
 ];
 
 /// `~` and `~/...` mean the home folder. Anything else must already be absolute.
@@ -234,6 +243,8 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
     r.boolean("guard", &mut out.guard);
     r.boolean("paused", &mut out.paused);
     r.boolean("swap_sides", &mut out.swap_sides);
+    r.boolean("updates", &mut out.updates);
+    r.boolean("update_with_system", &mut out.update_with_system);
 
     match table.get("recents_max") {
         None => {}
@@ -431,6 +442,20 @@ mod tests {
             bad.settings.guard,
             "a bad value is ignored, so the default stands"
         );
+        assert_eq!(bad.warnings.len(), 1);
+    }
+
+    #[test]
+    fn checking_for_updates_is_on_and_registering_with_the_system_is_off_by_default() {
+        let none = parse_ok("");
+        assert!(none.settings.updates);
+        assert!(!none.settings.update_with_system);
+        let off = parse_ok("updates = false\nupdate_with_system = true\n");
+        assert!(!off.settings.updates);
+        assert!(off.settings.update_with_system);
+        assert!(off.warnings.is_empty(), "both keys are known: {:?}", off.warnings);
+        let bad = parse_ok("update_with_system = \"yes\"\n");
+        assert!(!bad.settings.update_with_system);
         assert_eq!(bad.warnings.len(), 1);
     }
 
