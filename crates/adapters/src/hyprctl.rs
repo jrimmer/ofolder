@@ -1,7 +1,9 @@
 //! The compositor, through the `hyprctl` command.
 
 use std::process::Command;
+use std::time::Duration;
 
+use ofolder_core::exec::run_with_deadline;
 use ofolder_core::hypr::{
     Client, Monitor, float_rule_lua, is_plain_identifier, is_window_address, parse_clients,
     parse_monitors, remove_rule_lua, tip_rule_lua,
@@ -17,20 +19,28 @@ fn failure(what: &str, detail: impl std::fmt::Display) -> SystemError {
     SystemError(format!("hyprctl {what}: {detail}"))
 }
 
+/// Hyprland answers in milliseconds. A request still running after this long is wedged, and the
+/// docking loop that asked would otherwise wait with it.
+const LIMIT: Duration = Duration::from_secs(3);
+
 impl Hyprctl {
     fn run(args: &[&str]) -> Result<String, SystemError> {
-        let output = Command::new("hyprctl")
-            .args(args)
-            .output()
-            .map_err(|e| failure(&args.join(" "), e))?;
-        if !output.status.success() {
-            return Err(failure(
-                &args.join(" "),
-                String::from_utf8_lossy(&output.stderr),
-            ));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        run_program("hyprctl", args, LIMIT)
     }
+}
+
+/// Runs `program` with `args` and returns its standard output, or the error it gave, when it fails
+/// or does not finish within `limit`.
+fn run_program(program: &str, args: &[&str], limit: Duration) -> Result<String, SystemError> {
+    let output = run_with_deadline(Command::new(program).args(args), limit)
+        .map_err(|e| failure(&args.join(" "), e))?;
+    if !output.status.success() {
+        return Err(failure(
+            &args.join(" "),
+            String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 impl Hyprctl {
@@ -228,6 +238,15 @@ impl Compositor for Hyprctl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_compositor_request_that_hangs_is_a_system_error_at_the_deadline() {
+        let started = std::time::Instant::now();
+        let result = run_program("sh", &["-c", "exec sleep 30"], Duration::from_millis(200));
+        let error = result.expect_err("a request that never answers must fail");
+        assert!(error.to_string().contains("did not finish"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn every_window_operation_refuses_a_malformed_address_before_running_anything() {
