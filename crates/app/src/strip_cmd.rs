@@ -20,6 +20,7 @@ use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
+use ofolder_core::exec::feed_with_deadline;
 use ofolder_core::geometry::{
     Panels, Rect, centre_in, place_below, place_menu, place_panels, place_tip,
 };
@@ -694,28 +695,23 @@ fn dock_forever(
     }
 }
 
+/// How long `wl-copy` may take to take the text. It reads stdin and forks the process that serves
+/// the clipboard, so a longer wait means it is stuck, and the copy is reported as failed.
+const WL_COPY_LIMIT: Duration = Duration::from_secs(2);
+
 /// Sets the clipboard through `wl-copy`, which serves it from its own
 /// process: a shortcut brings no input event the strip's windows could set
 /// the clipboard in answer to. The text goes in on stdin, never through a
 /// shell.
 fn copy_with_wl_copy(text: &str) -> Result<(), String> {
-    use std::io::Write;
-    use std::process::Stdio;
     // The type is named so `wl-copy` does not run `xdg-mime` on the text to guess one: that is a
     // shell script, it makes the copy slow, and a path can be guessed as something other than text.
-    let mut child = std::process::Command::new("wl-copy")
-        .args(["--type", "text/plain;charset=utf-8"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("wl-copy could not be started: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|e| format!("wl-copy: {e}"))?;
-    }
-    let status = child.wait().map_err(|e| format!("wl-copy: {e}"))?;
+    let status = feed_with_deadline(
+        std::process::Command::new("wl-copy").args(["--type", "text/plain;charset=utf-8"]),
+        text.as_bytes(),
+        WL_COPY_LIMIT,
+    )
+    .map_err(|e| e.to_string())?;
     if status.success() {
         Ok(())
     } else {
