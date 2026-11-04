@@ -1,0 +1,96 @@
+#!/bin/sh
+# Gets praeco, the update tool behind ofolder's update notice, and puts the
+# binary at OUTDIR/praeco:
+#
+#   scripts/get-praeco OUTDIR
+#
+# By default it downloads the static Linux binary from praeco's GitHub release
+# and checks it against the SHA-256 pinned here, so no Rust toolchain is needed:
+#
+#   PRAECO_VERSION  the release to download (default 0.4.0)
+#   PRAECO_SHA256   the binary's SHA-256 (default: the one pinned below for the
+#                   default version; required with any other version)
+#   PRAECO_ARCH     x86_64 or aarch64 (default: this machine's)
+#   PRAECO_URL      where to download the binary from (default: the GitHub
+#                   release for PRAECO_VERSION and PRAECO_ARCH; a file:// URL
+#                   lets a test use a local stand-in)
+#
+# For working on praeco itself, PRAECO_SRC names a local checkout to build
+# instead, with `cargo build --locked --release` (needs Rust 1.93 or newer and a C compiler).
+#
+# The binary is installed only after its hash matches, so a failed fetch leaves
+# OUTDIR as it was.
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: scripts/get-praeco OUTDIR" >&2
+    exit 2
+fi
+OUT=$1
+PRAECO_SRC=${PRAECO_SRC:-}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+if [ -n "$PRAECO_SRC" ]; then
+    if [ ! -f "$PRAECO_SRC/Cargo.toml" ]; then
+        echo "get-praeco: PRAECO_SRC=$PRAECO_SRC has no Cargo.toml" >&2
+        exit 1
+    fi
+    echo "get-praeco: building the checkout at $PRAECO_SRC"
+    mkdir "$work/src"
+    # A copy, so the checkout (which may be read-only) gets no target directory.
+    tar -C "$PRAECO_SRC" --exclude=./target --exclude=./.git -cf - . | tar -C "$work/src" -xf -
+    # makepkg's -flto in CFLAGS would make gcc emit LTO objects for ring that
+    # Rust's linker can't read, so the build gets plain flags.
+    (cd "$work/src" && env -u CFLAGS -u CXXFLAGS -u LDFLAGS -u RUSTFLAGS cargo build --locked --release)
+    mkdir -p "$OUT"
+    install -m755 "$work/src/target/release/praeco" "$OUT/praeco"
+    echo "get-praeco: $("$OUT/praeco" --version) at $OUT/praeco"
+    exit 0
+fi
+
+DEFAULT_VERSION=0.4.0
+PRAECO_VERSION=${PRAECO_VERSION:-$DEFAULT_VERSION}
+PRAECO_ARCH=${PRAECO_ARCH:-$(uname -m)}
+case "$PRAECO_ARCH" in
+    x86_64|amd64) PRAECO_ARCH=x86_64 ;;
+    aarch64|arm64) PRAECO_ARCH=aarch64 ;;
+    *) echo "get-praeco: no praeco release binary for $PRAECO_ARCH" >&2; exit 1 ;;
+esac
+if [ -z "${PRAECO_SHA256:-}" ]; then
+    if [ "$PRAECO_VERSION" != "$DEFAULT_VERSION" ]; then
+        echo "get-praeco: PRAECO_VERSION=$PRAECO_VERSION needs PRAECO_SHA256 too" >&2
+        exit 1
+    fi
+    # From the release's SHA256SUMS; raise both with DEFAULT_VERSION.
+    case "$PRAECO_ARCH" in
+        x86_64) PRAECO_SHA256=5def9a8cee1652fe5cd0814cf36c9d6fd9de9135c6589a6e25a08c2b4b7d3f7c ;;
+        aarch64) PRAECO_SHA256=bd3baf3937ae72a9e7f51e7c86ce1d0ce62f2624617580eb6675a39486a6c5fe ;;
+    esac
+fi
+
+asset=praeco-linux-$PRAECO_ARCH
+url=${PRAECO_URL:-https://github.com/jrimmer/praeco/releases/download/v$PRAECO_VERSION/$asset}
+echo "get-praeco: downloading $url"
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 3 -o "$work/praeco" "$url"
+elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$work/praeco" "$url"
+else
+    echo "get-praeco: needs curl or wget" >&2
+    exit 1
+fi
+echo "$PRAECO_SHA256  $work/praeco" | sha256sum -c --quiet - || {
+    echo "get-praeco: $asset does not match its pinned SHA-256" >&2
+    exit 1
+}
+
+mkdir -p "$OUT"
+install -m755 "$work/praeco" "$OUT/praeco"
+# Only an x86_64 or aarch64 host can run it; a cross-architecture fetch skips this.
+if [ "$PRAECO_ARCH" = "$(uname -m)" ]; then
+    echo "get-praeco: $("$OUT/praeco" --version) at $OUT/praeco"
+else
+    echo "get-praeco: praeco $PRAECO_VERSION ($PRAECO_ARCH) at $OUT/praeco"
+fi
