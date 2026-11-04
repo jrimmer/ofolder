@@ -38,9 +38,9 @@ use ofolder_core::shortcuts::{Combo, Shortcuts};
 const SELECTION_EVERY: u32 = 3;
 /// How often the dialog is asked for its folder: about five times a second.
 const POLL: Duration = Duration::from_millis(200);
-/// How often commands from shortcuts are picked up: soon enough to feel
-/// immediate.
-const LISTEN: Duration = Duration::from_millis(40);
+/// The longest the command listener waits before it looks again. A command ends the wait at
+/// once, so this only bounds how long a strip that was closed goes unnoticed.
+const LISTEN: Duration = Duration::from_secs(1);
 /// Favorites are checked for existence and the recents reread every this
 /// many polls (two seconds), because a stat on a slow mount can take a while.
 const RECENTS_EVERY: u32 = 10;
@@ -353,13 +353,20 @@ impl Shared {
         }
     }
 
-    /// Picks up commands from keyboard shortcuts as they arrive.
+    /// Picks up commands from keyboard shortcuts as they arrive. The wait happens on a background
+    /// thread and ends the moment a command is queued; the limit only lets the loop notice that
+    /// the strip is gone.
     fn start_listening(&self, cx: &mut Context<Self>) {
+        let actions = self.actions.clone();
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor().timer(LISTEN).await;
+                let waiting = actions.clone();
+                let commands = cx
+                    .background_executor()
+                    .spawn(async move { waiting.wait_commands(LISTEN) })
+                    .await;
                 let alive = this.update(cx, |s, cx| {
-                    for id in s.actions.take_commands() {
+                    for id in commands {
                         if std::env::var_os("OFOLDER_DEBUG").is_some() {
                             eprintln!("ofolder strip: command {id}");
                         }

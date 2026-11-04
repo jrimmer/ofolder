@@ -32,3 +32,4 @@ pub mod shortcuts;
 pub mod system;
 pub mod theme;
 pub mod update;
+pub mod wake;

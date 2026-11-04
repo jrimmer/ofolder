@@ -33,6 +33,7 @@ mod view;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 
@@ -146,6 +147,13 @@ pub trait StripActions: Send + Sync + 'static {
     /// second, so it must return at once. Without shortcuts, none.
     fn take_commands(&self) -> Vec<&'static str> {
         Vec::new()
+    }
+    /// Like [`StripActions::take_commands`], but waits up to `limit` for one to arrive first. Called
+    /// from a background thread. The default sleeps the whole `limit`, which is the polling the
+    /// strip did before commands could wake it.
+    fn wait_commands(&self, limit: Duration) -> Vec<&'static str> {
+        std::thread::sleep(limit);
+        self.take_commands()
     }
     /// The shortcuts that could not be bound when the strip started, by
     /// command id, with why.

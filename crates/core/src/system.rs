@@ -1,9 +1,13 @@
 //! The two outside systems an adapter drives, as traits, so the rules about
 //! when it is safe to act can be tested with fakes instead of a desktop.
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use crate::hypr::{Client, Monitor};
 use crate::keybind::Bind;
 use crate::shortcuts::Combo;
+use crate::wake::Wake;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -20,6 +24,15 @@ pub trait Compositor: Send + Sync {
     /// The address of the window that has keyboard focus, if any.
     fn active_window(&self) -> Result<Option<String>, SystemError>;
     fn focus(&self, address: &str) -> Result<(), SystemError>;
+
+    /// Starts telling `wake` whenever windows change (one opens, closes, moves between
+    /// workspaces, takes focus, floats). The flag returned is true while that is working. A
+    /// compositor that cannot say returns a flag that stays false, and the caller keeps polling.
+    /// Events only hurry the caller up: it must still look now and then, since not every change
+    /// (a window dragged to a new place) is announced.
+    fn watch_events(&self, _wake: Arc<Wake>) -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
 
     /// Makes the window float at `size` and `at`. For a dialog that opened tiled.
     fn float_window(

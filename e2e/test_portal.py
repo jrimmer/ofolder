@@ -388,9 +388,10 @@ class Rails(Flavour):
             return int(f[11]) + int(f[12])
 
         a = ticks()
-        time.sleep(5)
-        used = (ticks() - a) * 100 // (5 * os.sysconf("SC_CLK_TCK"))
-        self.assertLess(used, 25, "the rails used %d%% of a core while idle" % used)
+        time.sleep(10)
+        used = (ticks() - a) * 100.0 / (10 * os.sysconf("SC_CLK_TCK"))
+        say("idle CPU of the rails (%s): %.2f%% of a core over 10 s" % (self.name, used))
+        self.assertLess(used, 25, "the rails used %.1f%% of a core while idle" % used)
 
     def test_the_rails_appear_within_a_second_of_the_dialog(self):
         """The requirement is under one second from the dialog to its rails. Three dialogs are

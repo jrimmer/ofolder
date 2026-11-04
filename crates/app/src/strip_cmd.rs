@@ -15,7 +15,6 @@ use anyhow::{Context, bail};
 use crate::keys;
 use ofolder_adapters::flea::{FleaAdapter, find_new_picker};
 use ofolder_adapters::gtk::GtkAdapter;
-use ofolder_adapters::hyprctl::Hyprctl;
 use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
@@ -30,6 +29,7 @@ use ofolder_core::private_file;
 use ofolder_core::settings;
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 use ofolder_core::system::{Compositor, Typist};
+use ofolder_core::wake::Wake;
 use ofolder_strip::{
     APP_ID_LEFT, APP_ID_MENU, APP_ID_PREVIEW, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP,
     LEFT_WIDTH, MenuRequest, RIGHT_WIDTH, RailSide, SettingsRequest, StripActions, StripOptions,
@@ -140,10 +140,14 @@ struct Actions {
     home: PathBuf,
     compositor: Arc<dyn Compositor>,
     dock: Mutex<Dock>,
+    /// Tells the docking thread that the dock changed, so it need not wait out its timer.
+    wake: Arc<Wake>,
     /// Binds the shortcuts; None without a runtime folder to record them in.
     binder: Option<keys::Binder>,
     /// Commands from shortcuts, as the socket receives them.
     commands: keys::Queue,
+    /// Called when a command is queued, for `wait_commands`.
+    commands_wake: Arc<Wake>,
     /// Shortcuts that could not be bound when the strip started.
     problems: Mutex<keys::Problems>,
 }
@@ -279,13 +283,17 @@ impl StripActions for Actions {
     }
 
     fn go(&self, folder: &Path) -> Result<(), String> {
+        note("go: waiting for the dialog");
         let mut adapter = self
             .adapter
             .lock()
             .map_err(|_| "the dialog is busy".to_owned())?;
-        goto_verified(&mut **adapter, folder, Duration::from_secs(5))
+        note("go: moving");
+        let result = goto_verified(&mut **adapter, folder, Duration::from_secs(5))
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        note(&format!("go: done, {result:?}"));
+        result
     }
 
     fn new_folder(&self, name: &str) -> Result<PathBuf, String> {
@@ -337,6 +345,7 @@ impl StripActions for Actions {
     }
 
     fn place_menu(&self, menu: Option<MenuRequest>) {
+        note(&format!("menu placed: {}", menu.is_some()));
         let placed = self.dock.lock().ok().and_then(|mut dock| {
             dock.menu = menu;
             dock.focus_menu = menu.is_some_and(|m| m.fresh && m.takes_keyboard)
@@ -344,6 +353,7 @@ impl StripActions for Actions {
             let menu = menu?;
             Some((menu, menu_rect(dock.dialog?, dock.bounds, &menu)))
         });
+        self.wake.notify();
         // The rule must be in force before the window maps, or it opens tiled
         // and then jumps. A menu that is typed into takes the keyboard.
         if let Some((menu, rect)) = placed
@@ -367,6 +377,7 @@ impl StripActions for Actions {
             let tip = tip?;
             Some(tip_rect(dock.dialog?, dock.bounds, &tip))
         });
+        self.wake.notify();
         // In force before the window maps, so it never opens tiled, and it
         // never takes the keyboard.
         if let Some(rect) = placed {
@@ -444,6 +455,7 @@ impl StripActions for Actions {
             open.then_some(())?;
             preview_rect(dock.dialog?, dock.bounds)
         });
+        self.wake.notify();
         // In force before the window maps, and it does not take the keyboard
         // when it appears. Unlike a tooltip it must take the pointer, for the
         // click on its caption, so it is focusable the way the rails are.
@@ -458,6 +470,15 @@ impl StripActions for Actions {
                 )
                 .ok();
         }
+    }
+
+    fn wait_commands(&self, limit: Duration) -> Vec<&'static str> {
+        self.commands_wake.wait(limit);
+        let commands = self.take_commands();
+        for id in &commands {
+            note(&format!("command {id} taken"));
+        }
+        commands
     }
 
     fn take_commands(&self) -> Vec<&'static str> {
@@ -508,6 +529,7 @@ impl StripActions for Actions {
             let settings = settings?;
             Some(settings_rect(dock.dialog?, dock.bounds, &settings))
         });
+        self.wake.notify();
         // In force before the window maps, so it opens where it belongs; it
         // takes the keyboard, since the user clicked the gear for it.
         if let Some(rect) = placed {
@@ -537,6 +559,14 @@ impl StripActions for Actions {
         let alive = self.adapter.lock().is_ok_and(|a| a.alive());
         if !alive {
             note("the dialog is gone, so the strip closes");
+            if std::env::var_os("OFOLDER_DEBUG").is_some() {
+                let seen = self.compositor.clients().map(|cs| {
+                    cs.iter()
+                        .map(|c| format!("{} {:?} {:?}", c.address, c.class, c.title))
+                        .collect::<Vec<_>>()
+                });
+                note(&format!("windows then: {seen:?}"));
+            }
         }
         alive
     }
@@ -605,6 +635,17 @@ fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) 
     )
 }
 
+/// How often the docking thread looks when the compositor's events are not arriving: the pace
+/// that was used before events were read.
+const DOCK_NO_EVENTS: Duration = Duration::from_millis(150);
+/// How often it looks while events are arriving and nothing has changed for a while. Events
+/// make it look at once; this is the net for a change that is not announced.
+const DOCK_IDLE: Duration = Duration::from_millis(300);
+/// How often it looks right after a change, so a dialog being dragged is followed smoothly.
+const DOCK_BUSY: Duration = Duration::from_millis(100);
+/// How long after the last change the quicker pace is kept.
+const DOCK_BUSY_FOR: Duration = Duration::from_millis(1500);
+
 /// Keeps both panels around the dialog: on their own sides, packed to one
 /// side at a monitor edge, following moves, resizes and workspace changes.
 /// Runs until the process exits.
@@ -615,8 +656,23 @@ fn dock_forever(
 ) {
     let me = std::process::id();
     let mut checked_focus = false;
+    let events_live = compositor.watch_events(actions.wake.clone());
+    let mut busy_until = Instant::now();
+    let mut limit = DOCK_NO_EVENTS;
+    let mut previous: Option<Rect> = None;
     loop {
-        sleep(Duration::from_millis(150));
+        // An event or a request from the strip ends the wait at once; the timer is only the
+        // net under them, because a window dragged to a new place is not announced.
+        if actions.wake.wait(limit) {
+            busy_until = Instant::now() + DOCK_BUSY_FOR;
+        }
+        limit = if !events_live.load(std::sync::atomic::Ordering::Relaxed) {
+            DOCK_NO_EVENTS
+        } else if Instant::now() < busy_until {
+            DOCK_BUSY
+        } else {
+            DOCK_IDLE
+        };
         let Some(window) = actions.window() else {
             continue;
         };
@@ -629,6 +685,12 @@ fn dock_forever(
         if let Ok(mut seen) = last_seen.lock() {
             *seen = Some(dialog.rect());
         }
+        // A dialog that is on the move is looked at often until it stops.
+        if previous.is_some_and(|p| p != dialog.rect()) {
+            busy_until = Instant::now() + DOCK_BUSY_FOR;
+            limit = DOCK_BUSY;
+        }
+        previous = Some(dialog.rect());
         let bounds = bounds_for(&*compositor, dialog);
         let (menu, focus_menu, tip, settings, focus_settings, preview) = actions
             .dock
@@ -656,6 +718,7 @@ fn dock_forever(
         // Once, when the panels first show: they must not hold the keyboard the dialog needs.
         if !checked_focus && left.is_some() && right.is_some() {
             checked_focus = true;
+            note("the rails are up; checking they do not hold the keyboard");
             let active = compositor.active_window().ok().flatten();
             if [left, right]
                 .into_iter()
@@ -676,6 +739,7 @@ fn dock_forever(
             && (window.at[0] - wanted.x).abs() <= 2
             && (window.at[1] - wanted.y).abs() <= 2
         {
+            note("the docker gives the keyboard to the menu");
             compositor.focus(&window.address).ok();
             if let Ok(mut dock) = actions.dock.lock() {
                 dock.focus_menu = false;
@@ -769,14 +833,21 @@ fn copy_with_wl_copy(text: &str) -> Result<(), String> {
 /// Progress notes on stderr when `OFOLDER_DEBUG` is set, to see where a strip stopped.
 fn note(message: &str) {
     if std::env::var_os("OFOLDER_DEBUG").is_some() {
-        eprintln!("ofolder strip: {message}");
+        // The time since the first note, to tell a slow step from a lost one.
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        let ms = START.get_or_init(Instant::now).elapsed().as_millis();
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() % 1_000_000);
+        eprintln!("ofolder strip: [{ms} ms] [{wall}] {message}");
     }
 }
 
 pub fn run(raw: &[String]) -> anyhow::Result<()> {
     let args = parse_args(raw).map_err(|e| anyhow::anyhow!("{e}"))?;
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
-    let compositor: Arc<dyn Compositor> = Arc::new(Hyprctl);
+    let compositor = ofolder_adapters::hyprsock::compositor();
+    let wake = Arc::new(Wake::default());
     let typist: Arc<dyn Typist> = Arc::new(Wtype);
     let adapter = build_adapter(&args, &compositor, &typist, &home)?;
     note("adapter attached");
@@ -809,8 +880,10 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         home: home.clone(),
         compositor: compositor.clone(),
         dock: Mutex::new(Dock::default()),
+        wake: wake.clone(),
         binder,
         commands: keys::Queue::default(),
+        commands_wake: Arc::default(),
         problems: Mutex::new(Vec::new()),
     });
 
@@ -879,9 +952,14 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     // this dialog is open. Bindings a dead strip left behind go first.
     let _server = runtime.as_ref().and_then(|dir| {
         keys::clean_stale(&*compositor, dir, &keys::ofolder_alive);
-        keys::serve(dir, std::process::id(), actions.commands.clone())
-            .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
-            .ok()
+        keys::serve(
+            dir,
+            std::process::id(),
+            actions.commands.clone(),
+            actions.commands_wake.clone(),
+        )
+        .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
+        .ok()
     });
     let shortcuts = settings::load(&settings_path, &home).settings.shortcuts;
     if !shortcuts.is_empty() {
