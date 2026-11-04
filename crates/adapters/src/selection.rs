@@ -8,12 +8,15 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ofolder_core::exec::run_with_deadline;
 use serde_json::Value;
 
 use crate::a11y::{Node, Role, walk};
+use crate::sockio::request_line;
 
 /// `name` inside `folder`, when `name` is a single plain file name and the
 /// result exists (a broken link counts: it is still the item selected).
@@ -149,45 +152,146 @@ fn json_from_first_object(output: &str) -> String {
     output.to_owned()
 }
 
-/// The picker's IPC through `flea ipc`, Flea's own client. Flea 0.4's picker
-/// is a native window that serves the same call on its own socket.
+/// The picker's IPC. Flea 0.4's picker is a native window that serves a call on its own socket,
+/// one JSON line in (`{"call":[target,function,...]}`) and one out
+/// (`{"code":0,"stdout":"...","stderr":""}`); this asks it there, which costs no new process.
+/// `flea ipc`, Flea's own client for the same socket, is the fallback for anything that is not a
+/// clean answer on the socket: a missing or untrusted socket, a silent picker, a reply that is
+/// not the expected shape. A picker that answers with a non-zero code has refused, as `flea ipc`
+/// would report, and that is not retried.
 #[derive(Debug, Clone)]
 pub struct FleaIpc {
     program: PathBuf,
+    sockets: Option<PathBuf>,
+    /// Milliseconds since the epoch before which the socket is not tried again after a failure.
+    resting_until: Arc<AtomicU64>,
+}
+
+/// How long the picker has to answer on its socket. A call has never taken more than about 18 ms.
+const SOCKET_LIMIT: Duration = Duration::from_millis(400);
+/// After a failure on the socket, the command is used for this long before the socket is tried.
+const SOCKET_REST: Duration = Duration::from_secs(5);
+/// The largest reply taken from a picker (a snapshot of a long folder is the biggest).
+const REPLY_CAP: usize = 4 * 1024 * 1024;
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// What a picker said on its socket.
+#[derive(Debug, PartialEq, Eq)]
+enum Reply {
+    Answer(String),
+    Refused,
+}
+
+/// The reply line of a picker, or none when it is not the documented shape.
+fn parse_reply(line: &[u8]) -> Option<Reply> {
+    let value: serde_json::Value = serde_json::from_slice(line).ok()?;
+    let code = value.get("code")?.as_i64()?;
+    let stdout = value.get("stdout")?.as_str()?;
+    Some(if code == 0 {
+        Reply::Answer(stdout.to_owned())
+    } else {
+        Reply::Refused
+    })
+}
+
+/// Whether `dir` and `socket` belong to this user and are closed to everyone else, as `flea ipc`
+/// itself insists before it connects.
+fn trusted(dir: &Path, socket: &Path) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let Ok(me) = std::fs::metadata("/proc/self").map(|m| m.uid()) else {
+        return false;
+    };
+    let Ok(dir_meta) = std::fs::symlink_metadata(dir) else {
+        return false;
+    };
+    let Ok(sock_meta) = std::fs::symlink_metadata(socket) else {
+        return false;
+    };
+    dir_meta.is_dir()
+        && dir_meta.uid() == me
+        && dir_meta.mode() & 0o077 == 0
+        && sock_meta.file_type().is_socket()
+        && sock_meta.uid() == me
+        && sock_meta.mode() & 0o077 == 0
 }
 
 impl FleaIpc {
+    /// A client that only runs `program ipc`, for tests and for a picker with no socket to try.
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),
+            sockets: None,
+            resting_until: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Asks pickers on their sockets in `dir` first.
+    #[must_use]
+    pub fn with_sockets(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.sockets = Some(dir.into());
+        self
+    }
+
+    /// The call on the picker's socket: `Some` when the picker answered or refused, `None` when
+    /// the socket could not settle it and the command should be asked.
+    fn on_socket(&self, pid: u32, call: &[&str]) -> Option<Option<String>> {
+        let dir = self.sockets.as_ref()?;
+        if now_ms() < self.resting_until.load(Ordering::Relaxed) {
+            return None;
+        }
+        let socket = dir.join(format!("picker-{pid}.sock"));
+        if !trusted(dir, &socket) {
+            return None;
+        }
+        let mut request = serde_json::json!({ "call": call }).to_string();
+        request.push('\n');
+        let reply = request_line(&socket, request.as_bytes(), SOCKET_LIMIT, REPLY_CAP)
+            .ok()
+            .and_then(|line| parse_reply(&line));
+        match reply {
+            Some(Reply::Answer(out)) => Some(Some(out)),
+            Some(Reply::Refused) => Some(None),
+            None => {
+                self.resting_until
+                    .store(now_ms() + SOCKET_REST.as_millis() as u64, Ordering::Relaxed);
+                None
+            }
+        }
+    }
+
+    fn by_command(&self, pid: u32, call: &[&str]) -> Option<String> {
+        let mut command = Command::new(&self.program);
+        command.args(["ipc", "--pid", &pid.to_string(), "call"]);
+        command.args(call);
+        run_limited(command)
     }
 }
 
 impl Default for FleaIpc {
     fn default() -> Self {
-        Self::new("flea")
+        let runtime =
+            std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+        Self::new("flea").with_sockets(runtime.join("flea-ipc"))
     }
 }
 
 impl PickerIpc for FleaIpc {
     fn snapshot(&self, pid: u32) -> Option<String> {
-        let mut command = Command::new(&self.program);
-        command.args([
-            "ipc",
-            "--pid",
-            &pid.to_string(),
-            "call",
-            "fleapicker",
-            "snapshot",
-        ]);
-        run_limited(command)
+        let call = ["fleapicker", "snapshot"];
+        self.on_socket(pid, &call)
+            .unwrap_or_else(|| self.by_command(pid, &call))
     }
 
     fn call(&self, pid: u32, target: &str, function: &str) -> Option<String> {
-        let mut command = Command::new(&self.program);
-        command.args(["ipc", "--pid", &pid.to_string(), "call", target, function]);
-        run_limited(command).and_then(|out| last_line(&out))
+        let call = [target, function];
+        self.on_socket(pid, &call)
+            .unwrap_or_else(|| self.by_command(pid, &call))
+            .and_then(|out| last_line(&out))
     }
 }
 
@@ -407,6 +511,117 @@ mod tests {
         let _socket = std::os::unix::net::UnixListener::bind(dir.join("picker-41.sock")).unwrap();
         assert_eq!(auto(&dir).snapshot(42).as_deref(), Some("qs"));
         assert_eq!(auto(&dir).snapshot(41).as_deref(), Some("native"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A private folder with a picker's socket in it, served by `reply` for each request line.
+    fn picker_socket(
+        tag: &str,
+        pid: u32,
+        reply: impl Fn(&str) -> Vec<u8> + Send + 'static,
+    ) -> PathBuf {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch(tag);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = dir.join(format!("picker-{pid}.sock"));
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut line = String::new();
+                BufReader::new(&stream).read_line(&mut line).ok();
+                let mut stream = stream;
+                stream.write_all(&reply(&line)).ok();
+            }
+        });
+        dir
+    }
+
+    fn socket_only(dir: &Path) -> FleaIpc {
+        FleaIpc::new("/nonexistent/flea-for-ofolder-test").with_sockets(dir)
+    }
+
+    #[test]
+    fn a_picker_is_asked_on_its_own_socket_with_the_documented_line() {
+        let dir = picker_socket("ipc-line", 7, |line| {
+            assert_eq!(line, "{\"call\":[\"fleapicker\",\"snapshot\"]}\n");
+            b"{\"code\":0,\"stdout\":\"{\\\"path\\\":\\\"/a b\\\"}\\n\",\"stderr\":\"\"}\n".to_vec()
+        });
+        let ipc = socket_only(&dir);
+        assert_eq!(ipc.snapshot(7).as_deref(), Some("{\"path\":\"/a b\"}\n"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_call_returns_the_last_line_of_the_picker_output() {
+        let dir = picker_socket("ipc-call", 8, |line| {
+            assert_eq!(line, "{\"call\":[\"flea\",\"path\"]}\n");
+            b"{\"code\":0,\"stdout\":\"/tmp/x\\n\",\"stderr\":\"\"}\n".to_vec()
+        });
+        assert_eq!(
+            socket_only(&dir).call(8, "flea", "path").as_deref(),
+            Some("/tmp/x")
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_refusal_on_the_socket_is_an_answer_of_none_not_a_retry() {
+        let dir = picker_socket("ipc-refuse", 9, |_| {
+            b"{\"code\":1,\"stdout\":\"\",\"stderr\":\"no\"}\n".to_vec()
+        });
+        let ipc = socket_only(&dir);
+        assert_eq!(ipc.snapshot(9), None);
+        // Not a failure of the socket, so it is not put to rest.
+        assert_eq!(ipc.resting_until.load(Ordering::Relaxed), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_reply_that_is_not_the_documented_shape_sends_the_call_to_the_command() {
+        for (tag, junk) in [
+            ("ipc-junk", b"nonsense\n".to_vec()),
+            ("ipc-nocode", b"{\"stdout\":\"x\"}\n".to_vec()),
+            ("ipc-quiet", Vec::new()),
+        ] {
+            let dir = picker_socket(tag, 10, move |_| junk.clone());
+            let ipc = socket_only(&dir);
+            // The command is missing in this test, so the fallback answers none.
+            assert_eq!(ipc.snapshot(10), None, "{tag}");
+            assert!(ipc.resting_until.load(Ordering::Relaxed) > 0, "{tag}");
+            std::fs::remove_dir_all(&dir).ok();
+        }
+    }
+
+    #[test]
+    fn a_missing_socket_goes_to_the_command_without_resting() {
+        let dir = scratch("ipc-nosock");
+        let ipc = socket_only(&dir);
+        assert_eq!(ipc.snapshot(11), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_socket_in_a_folder_others_can_enter_is_not_trusted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = picker_socket("ipc-open", 12, |_| {
+            b"{\"code\":0,\"stdout\":\"x\",\"stderr\":\"\"}\n".to_vec()
+        });
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(socket_only(&dir).snapshot(12), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_silent_picker_is_given_up_on_at_the_deadline() {
+        let dir = picker_socket("ipc-silent", 13, |_| {
+            std::thread::sleep(Duration::from_secs(3));
+            Vec::new()
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(socket_only(&dir).snapshot(13), None);
+        assert!(started.elapsed() < Duration::from_secs(2));
         std::fs::remove_dir_all(&dir).ok();
     }
 

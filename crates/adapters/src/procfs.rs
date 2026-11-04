@@ -53,8 +53,52 @@ impl ProcFs {
             .collect()
     }
 
+    /// The direct children of `pid` as the kernel lists them (`task/<tid>/children`, which every
+    /// thread of the process has), or none when the kernel does not offer that file for it.
+    fn children_of(&self, pid: u32) -> Option<Vec<u32>> {
+        let tasks = self.root.join(pid.to_string()).join("task");
+        let mut found = Vec::new();
+        for task in fs::read_dir(tasks).ok()?.filter_map(Result::ok) {
+            let text = fs::read_to_string(task.path().join("children")).ok()?;
+            found.extend(
+                text.split_whitespace()
+                    .filter_map(|p| p.parse::<u32>().ok()),
+            );
+        }
+        Some(found)
+    }
+
+    /// The same answer as the scan in [`ProcFs::descendants`], read by following the kernel's
+    /// lists of children, which touches only the processes in the tree and not every process on
+    /// the machine. None when the kernel does not list children (the scan is used then).
+    fn descendants_by_children(&self, root_pid: u32) -> Option<Vec<u32>> {
+        let mut found: Vec<u32> = Vec::new();
+        let mut frontier = vec![root_pid];
+        let mut first = true;
+        while let Some(parent) = frontier.pop() {
+            let children = match self.children_of(parent) {
+                Some(children) => children,
+                // The root must offer the list; a child that exited meanwhile has no children.
+                None if first => return None,
+                None => continue,
+            };
+            first = false;
+            for pid in children {
+                if !found.contains(&pid) {
+                    found.push(pid);
+                    frontier.push(pid);
+                }
+            }
+        }
+        found.sort_unstable();
+        Some(found)
+    }
+
     /// Every process below `root_pid`, children and their children.
     pub fn descendants(&self, root_pid: u32) -> Vec<u32> {
+        if let Some(found) = self.descendants_by_children(root_pid) {
+            return found;
+        }
         let parents: Vec<(u32, u32)> = self
             .pids()
             .into_iter()
@@ -238,5 +282,34 @@ mod tests {
         assert_eq!(procfs.cmdline(999), None);
         assert!(procfs.open_dirs(999).is_empty());
         assert!(procfs.descendants(999).is_empty());
+    }
+
+    #[test]
+    fn the_kernels_lists_of_children_give_the_same_tree_as_the_scan() {
+        let tmp = testing::TempDir::new("kids");
+        let here = tmp.0.join("here");
+        fs::create_dir_all(&here).expect("dir");
+        testing::add_process(&tmp.0, 10, 1, "qs -p picker.qml", &here, &[]);
+        testing::add_process(&tmp.0, 11, 10, "flea --backend", &here, &[]);
+        testing::add_process(&tmp.0, 12, 11, "worker", &here, &[]);
+        testing::add_process(&tmp.0, 20, 1, "unrelated", &here, &[]);
+        let procfs = ProcFs::with_root(&tmp.0);
+        assert_eq!(procfs.descendants_by_children(10), None, "no lists yet");
+        for (pid, tid, children) in [
+            (10, 10, "11 \n"),
+            (10, 15, ""),
+            (11, 11, "12 "),
+            (12, 12, ""),
+        ] {
+            let task = tmp
+                .0
+                .join(pid.to_string())
+                .join("task")
+                .join(tid.to_string());
+            fs::create_dir_all(&task).expect("task");
+            fs::write(task.join("children"), children).expect("children");
+        }
+        assert_eq!(procfs.descendants_by_children(10), Some(vec![11, 12]));
+        assert_eq!(procfs.descendants(10), [11, 12]);
     }
 }
