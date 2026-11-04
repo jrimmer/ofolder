@@ -170,6 +170,11 @@ pub trait StripActions: Send + Sync + 'static {
     fn set_guard(&self, _on: bool) -> Result<String, String> {
         Ok(String::new())
     }
+    /// Empties the recent folders and files, as `ofolder forget` does, and
+    /// says what went. Favorites are kept. Called from a background thread.
+    fn forget_recents(&self) -> Result<String, String> {
+        Ok(String::new())
+    }
     /// The item selected in the dialog, when the dialog can say; for the
     /// preview panel. Called from a background thread a few times a second.
     fn selection(&self) -> Option<PathBuf> {
