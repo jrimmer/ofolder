@@ -745,7 +745,7 @@ class Features:
         self.assertTrue(self.s.click(self.SETTINGS, x, y), "the click did not land")
         time.sleep(0.6)
 
-    # The guard: a switch in the General pane at (300, 251); turning it off asks first, with
+    # The guard: a switch in the General pane at (300, 409); turning it off asks first, with
     # "Keep it on" at (475, 390) and "Turn it off" at (555, 390).
     def guard_files(self):
         data = os.path.join(self.home(), ".local/share/ofolder/ofolder-guard.sh")
@@ -768,7 +768,7 @@ class Features:
     def test_turning_the_guard_off_asks_first_and_keeping_it_on_changes_nothing(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 251)  # the guard's switch: this asks
+        self.click_settings(300, 409)  # the guard's switch: this asks
         time.sleep(0.8)
         self.assertNotIn("guard = false", self.settings_text(), "it turned off without asking")
         self.click_settings(475, 390)  # Keep it on
@@ -779,7 +779,7 @@ class Features:
     def test_escape_in_the_question_keeps_the_guard_on_and_leaves_the_settings_open(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 251)
+        self.click_settings(300, 409)
         time.sleep(0.8)
         self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
         time.sleep(1.0)
@@ -790,7 +790,7 @@ class Features:
     def test_the_guard_is_turned_off_after_confirming_and_back_on_with_one_click(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 251)
+        self.click_settings(300, 409)
         time.sleep(0.8)
         self.click_settings(555, 390)  # Turn it off
         self.assertTrue(wait_for(10, lambda: "guard = false" in self.settings_text()), self.settings_text())
@@ -799,9 +799,78 @@ class Features:
         report = self.s.run([OFOLDER, "doctor"]).stdout
         self.assertIn("the guard is turned off in the settings, as chosen", report)
         # Turning it back on needs no question.
-        self.click_settings(300, 251)
+        self.click_settings(300, 409)
         self.assertTrue(wait_for(10, lambda: "guard = true" in self.settings_text()), self.settings_text())
         self.assertTrue(wait_for(10, self.guard_files), "the guard was not put back")
+
+    # The recents controls in the General pane: age chips at y 213 (30 days x 406, 90 days x 472,
+    # 1 year x 531, never x 586) and "Forget all recents..." at (266, 311); its question has
+    # "Keep them" at (459, 343) and "Forget them" at (547, 343).
+    def recents_doc(self):
+        try:
+            return json.load(open(self.data("recents.json")))
+        except (OSError, ValueError):
+            return None
+
+    def test_the_age_after_which_recents_are_forgotten_is_chosen_with_chips(self):
+        self.open_settings()
+        self.click_settings(406, 213)  # 30 days
+        self.assertTrue(wait_for(8, lambda: "recents_days = 30" in self.settings_text()), self.settings_text())
+        self.click_settings(586, 213)  # never
+        self.assertTrue(wait_for(8, lambda: "recents_days = 0" in self.settings_text()), self.settings_text())
+
+    def test_forgetting_all_recents_asks_first_and_then_empties_them_and_keeps_the_favorites(self):
+        self.seed_recents(folders=[self.one, self.two], files=[os.path.join(self.two, "a.txt")])
+        self.seed_favorites({"path": self.one})
+        self.open_settings()
+        self.click_settings(266, 311)  # Forget all recents...
+        time.sleep(0.8)
+        self.click_settings(459, 343)  # Keep them
+        time.sleep(1.0)
+        doc = self.recents_doc()
+        self.assertTrue(doc and len(doc["folders"]) == 2 and len(doc["files"]) == 1, "keeping them changed the recents: %s" % doc)
+        self.click_settings(266, 311)
+        time.sleep(0.8)
+        self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
+        time.sleep(0.8)
+        self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the window instead of the question")
+        self.assertEqual(len(self.recents_doc()["folders"]), 2, "Escape forgot the recents")
+        self.click_settings(266, 311)
+        time.sleep(0.8)
+        self.click_settings(547, 343)  # Forget them
+        self.assertTrue(
+            wait_for(10, lambda: (self.recents_doc() or {}).get("folders") == [] and self.recents_doc().get("files") == []),
+            "the recents were not emptied: %s" % self.recents_doc(),
+        )
+        self.assertIn(self.one, self.favorites_text(), "forgetting touched the favorites")
+        self.assertEqual(os.stat(self.data("recents.json")).st_mode & 0o777, 0o600)
+
+    def test_ofolder_forget_from_the_command_line_names_what_it_removed_and_leaves_favorites(self):
+        self.seed_recents(folders=[self.one], files=[os.path.join(self.two, "b.txt")])
+        self.seed_favorites({"path": self.two})
+        r = self.s.run([OFOLDER, "forget"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(self.one, r.stdout)
+        self.assertIn("b.txt", r.stdout)
+        self.assertEqual(self.recents_doc()["folders"], [])
+        self.assertIn(self.two, self.favorites_text())
+
+    def test_what_ofolder_keeps_about_you_is_readable_by_you_only(self):
+        self.start()
+        self.assertTrue(self.confirm())
+        self.assertTrue(wait_for(10, lambda: self.recents_doc() is not None), "nothing was recorded")
+        self.proc = None
+        for name in ("recents.json",):
+            self.assertEqual(os.stat(self.data(name)).st_mode & 0o777, 0o600, name)
+
+    def test_a_save_in_a_sensitive_folder_is_not_recorded_by_default(self):
+        secret = os.path.join(self.home(), ".ssh", "keys-for-work")
+        os.makedirs(secret, exist_ok=True)
+        self.start(secret)
+        self.assertTrue(self.confirm(), "the dialog did not confirm")
+        self.proc = None
+        time.sleep(3)
+        self.assertNotIn(".ssh", json.dumps(self.recents_doc() or {}), "a folder under ~/.ssh was recorded")
 
     def test_a_general_setting_is_saved_when_it_is_switched(self):
         self.open_settings()
