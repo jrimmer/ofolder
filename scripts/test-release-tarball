@@ -1,0 +1,106 @@
+#!/bin/sh
+# Tests the release tarball's layout, its checksums and the praeco fetch, without
+# the network and without cargo: the ofolder binary and praeco are small stand-in
+# files, and praeco is fetched from a file:// URL.
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fails=0
+
+check() {
+    desc=$1
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "PASS: $desc"
+    else
+        echo "FAIL: $desc"
+        fails=$((fails + 1))
+    fi
+}
+
+# Stand-ins of a few bytes each; nothing here is run.
+printf 'ofolder\n' > "$work/ofolder"
+printf 'praeco\n' > "$work/praeco"
+praeco_sha=$(sha256sum "$work/praeco" | cut -d' ' -f1)
+wrong_sha=0000000000000000000000000000000000000000000000000000000000000000
+
+# The same version rule as make-release-tarball, read on its own so the test does
+# not trust the script it is checking.
+version=$(awk '/^\[/ { in_pkg = ($0 == "[workspace.package]") } in_pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' "$ROOT/Cargo.toml")
+top=ofolder-$version
+
+OUT=$work/release
+OFOLDER_BINARY=$work/ofolder OFOLDER_PRAECO_FILE=$work/praeco \
+    "$ROOT/scripts/make-release-tarball" "$OUT" >/dev/null
+archive=$OUT/ofolder-linux-x86_64.tar.gz
+
+# Layout: exactly the two files, with the directory entries tar adds allowed.
+files=$(tar -tzf "$archive" | grep -v '/$' | LC_ALL=C sort)
+expected=$(printf '%s\n%s' "$top/bin/ofolder" "$top/lib/ofolder/praeco")
+check "the archive holds exactly $top/bin/ofolder and $top/lib/ofolder/praeco" \
+    test "$files" = "$expected"
+modes=$(tar -tvzf "$archive" | grep -v '^d' | awk '{ print $1 }' | sort -u)
+check "both files in the archive are executable" test "$modes" = "-rwxr-xr-x"
+check "the archive's owner and group are root" \
+    sh -c "tar -tvzf '$archive' | awk '{ print \$2 }' | sort -u | grep -qx 0/0"
+check "the archive's top folder is ofolder-$version from the workspace" \
+    test "$(tar -tzf "$archive" | head -n 1 | cut -d/ -f1)" = "$top"
+
+# Checksums: the .sha256 sibling matches the archive, and SHA256SUMS lists it and verifies.
+check "the .sha256 sibling checks the archive" \
+    sh -c "cd '$OUT' && sha256sum -c --quiet ofolder-linux-x86_64.tar.gz.sha256"
+check "SHA256SUMS lists the archive" \
+    grep -q '  ofolder-linux-x86_64.tar.gz$' "$OUT/SHA256SUMS"
+check "SHA256SUMS verifies every file in the release folder" \
+    sh -c "cd '$OUT' && sha256sum -c --quiet SHA256SUMS"
+
+# praeco's tarball rule. The installed executable is ~/.local/bin/ofolder (here a fixed
+# path, so the test does not depend on the machine's home folder).
+installed=/home/alice/.local/bin/ofolder
+entry=$top/bin/ofolder
+rel=${entry#"$top"/}                 # the common suffix praeco strips the prefix down to
+case "$installed" in
+    */"$rel") suffix_ok=yes ;;
+    *) suffix_ok=no ;;
+esac
+check "the executable's path ends in the archive entry's suffix ($rel)" test "$suffix_ok" = yes
+root=${installed%/"$rel"}            # the install root praeco picks
+check "the install root is /home/alice/.local" test "$root" = /home/alice/.local
+check "praeco's entry lies below the archive prefix as lib/ofolder/praeco" \
+    sh -c "printf '%s\n' '$files' | grep -qx '$top/lib/ofolder/praeco'"
+praeco_target=$root/lib/ofolder/praeco
+check "praeco lands at /home/alice/.local/lib/ofolder/praeco" \
+    test "$praeco_target" = /home/alice/.local/lib/ofolder/praeco
+# ofolder looks for praeco at <exe dir>/../lib/ofolder/praeco; that must be the same file.
+exe_dir=${installed%/*}
+check "the executable is in a bin folder" test "${exe_dir##*/}" = bin
+check "ofolder's lookup <exe dir>/../lib/ofolder/praeco is the same file praeco installs" \
+    test "${exe_dir%/*}/lib/ofolder/praeco" = "$praeco_target"
+
+# get-praeco: a stand-in at a file:// URL. PRAECO_ARCH is the other architecture, so the
+# stand-in is never run by the script's --version call.
+case "$(uname -m)" in
+    x86_64) other_arch=aarch64 ;;
+    *) other_arch=x86_64 ;;
+esac
+export PRAECO_URL=file://$work/praeco PRAECO_ARCH=$other_arch
+
+GOOD=$work/fetch-good
+check "get-praeco installs a stand-in whose SHA-256 matches" \
+    env PRAECO_SHA256=$praeco_sha "$ROOT/scripts/get-praeco" "$GOOD"
+check "the installed praeco is mode 0755 and has the stand-in's bytes" \
+    sh -c "[ \"\$(stat -c %a '$GOOD/praeco')\" = 755 ] && cmp -s '$work/praeco' '$GOOD/praeco'"
+
+BAD=$work/fetch-bad
+check "get-praeco fails on a SHA-256 mismatch" \
+    sh -c "! PRAECO_SHA256=$wrong_sha '$ROOT/scripts/get-praeco' '$BAD' 2>/dev/null"
+check "a failed fetch leaves no praeco behind" \
+    sh -c "[ ! -e '$BAD/praeco' ]"
+
+if [ "$fails" -ne 0 ]; then
+    echo "$fails check(s) failed"
+    exit 1
+fi
+echo "all release tarball checks passed"
