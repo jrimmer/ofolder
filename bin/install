@@ -1,0 +1,35 @@
+#!/bin/bash
+# Installs the release build to ~/.local/bin/ofolder safely, because a build that crashes at start
+# stops every Open and Save dialog in every application.
+#   bin/install             build, check the new build runs, keep the previous one, swap atomically
+#   bin/install --rollback  put the previous build back
+# After installing, open one real dialog (any application's Save or Open). If dialogs stop appearing,
+# run bin/install --rollback; `ofolder pause` also makes dialogs pass through untouched.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+dest="$HOME/.local/bin/ofolder"
+previous="$HOME/.local/bin/ofolder.previous"
+
+if [ "${1:-}" = "--rollback" ]; then
+  [ -x "$previous" ] || { echo "there is no previous build at $previous" >&2; exit 1; }
+  cp "$previous" "$dest.new" && mv "$dest.new" "$dest"
+  pkill -x ofolder || true
+  echo "put the previous build back: $("$dest" version)"
+  exit 0
+fi
+
+cargo build --release --locked --quiet
+new=target/release/ofolder
+
+# The new build must at least start and answer, as the portal will need it to.
+"$new" version >/dev/null
+XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-Hyprland}" "$new" status >/dev/null
+echo "the new build starts: $("$new" version)"
+
+[ -x "$dest" ] && cp -p "$dest" "$previous"
+cp "$new" "$dest.new"
+mv "$dest.new" "$dest"
+cmp "$new" "$dest"
+pkill -x ofolder || true   # the portal starts again from the new build on the next dialog
+echo "installed $dest (the previous build is kept as $previous)"
+echo "now open one real Save or Open dialog; if dialogs stop appearing: bin/install --rollback"

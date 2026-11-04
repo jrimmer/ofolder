@@ -70,6 +70,20 @@ class Guard(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.portal))
         self.assertFalse(os.path.exists(held))
 
+    def test_a_program_that_is_there_but_will_not_start_is_treated_as_gone(self):
+        good = open(self.exe, "rb").read()
+        os.remove(self.exe)
+        open(self.exe, "w").write("#!/bin/sh\nexit 1\n")  # a bad build: there, runnable, and dead
+        os.chmod(self.exe, 0o755)
+        r = self.guard()
+        self.assertIn("will not start", r.stdout)
+        self.assertFalse(os.path.exists(self.portal), "a dead program must not stay registered")
+        os.remove(self.exe)
+        open(self.exe, "wb").write(good)
+        os.chmod(self.exe, 0o755)
+        self.assertIn("ofolder is back", self.guard().stdout)
+        self.assertTrue(os.path.isfile(self.portal))
+
     def test_a_chain_that_lost_ofolder_is_repaired_by_the_guard(self):
         open(self.conf, "w").write("[preferred]\n%s=flea;gtk\n" % CHOOSER)
         r = self.guard()

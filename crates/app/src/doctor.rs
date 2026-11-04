@@ -328,6 +328,22 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
         }
     }
 
+    // The guard follows its setting too, so one `repair` leaves nothing for `doctor` to flag.
+    let wanted = crate::settings_file()
+        .ok()
+        .map(|(settings, _)| {
+            ofolder_core::settings::load(&settings, &d.home)
+                .settings
+                .guard
+        })
+        .unwrap_or(true);
+    if wanted && !guard_installed(&d) {
+        for line in apply_guard(&d, true, true)? {
+            println!("{line}");
+        }
+        changed = true;
+    }
+
     if changed && restart {
         if a_strip_is_open() {
             println!(

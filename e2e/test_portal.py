@@ -247,7 +247,7 @@ class Flavour:
                 b = cpu(pid_)
                 busy_threads = [(n, st, d) for t, (n, st, c) in b.items() for d in [c - a.get(t, (0, 0, c))[2]] if d > 0 or st == "R"]
         try:
-            said = [l.strip() for l in open(os.path.join(self.s.dir, "bus.log")) if "ofolder strip:" in l][-30:]
+            said = [l.strip() for l in open(os.path.join(self.s.dir, "bus.log")) if "ofolder strip:" in l and "command copy_path" not in l][-30:]
         except OSError:
             said = []
         self.diag = {"strip said": said, "processes": strips, "held": held, "threads_using_cpu_in_1s_(ticks)": busy_threads}
@@ -1075,10 +1075,22 @@ class FailOpen(unittest.TestCase):
             answer = self.heard(stack)
         self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
 
+    def test_an_ofolder_that_cannot_start_still_gets_a_dialog_once_the_guard_has_run(self):
+        """A bad build: there and runnable but dead. The guard asks it for its version."""
+        bad = os.path.join(self.session.dir, "bad-ofolder")
+        open(bad, "w").write("#!/bin/sh\nexit 1\n")
+        os.chmod(bad, 0o755)
+        with Stack(self.session, "ofolder;flea;gtk", ofolder_exec=bad + " portal") as stack:
+            self.guard()
+            stack.restart_frontend()
+            answer = self.heard(stack)
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
     @unittest.expectedFailure
     def test_an_ofolder_that_exits_at_once_with_no_guard_still_gets_a_dialog(self):
-        """KNOWN LIMIT, like the one above: the program is there but does nothing, so the guard,
-        which looks for a missing program, does not see it either."""
+        """KNOWN LIMIT: without the guard, a program that is there but dead stops every dialog. With
+        it, the program is asked for its version and set aside if it will not answer (above). What
+        remains is a build that answers `version` and then fails inside the portal."""
         cls, answer = self.dialog_with("/usr/bin/false")
         self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
 

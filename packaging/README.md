@@ -114,7 +114,7 @@ every other line and backend alone, keeps a copy of the file it changed, and res
 user units, which run at login and whenever the program or the portal configuration changes:
 
 - if another program has taken ofolder out of the chain, it is put back first and you get one notification;
-- if the ofolder program is deleted, its portal file is set aside so file dialogs use the next backend
+- if the ofolder program is deleted, or is there but will not answer `ofolder version` (a bad build), its portal file is set aside so file dialogs use the next backend
   instead of failing everywhere, and put back when the program returns.
 
 `ofolder repair --watch off` removes it. The guard is optional and starts only because you ran that command.

@@ -82,10 +82,20 @@ exactly as they were. Never give the output a position by hand: doing so once mo
 - ofolder deleted, with the guard run, the dialog still opens, whether it was deleted while the portal ran or was
   already gone when the portal started (the guard restarts the portal in that case).
 
-Two known limits are recorded as expected failures, not hidden: with ofolder missing or exiting at once and no
-guard, every file dialog fails, because the portal asks a program that does nothing. The guard covers a missing
-program; a program that is there but exits at once is not covered. `test_guard.py` runs the guard script and
-`repair --watch` in a temporary home, with no display, and is part of `bin/check`.
+Two known limits are recorded as expected failures, not hidden: with ofolder missing, or there but dead,
+and no guard, every file dialog fails, because the portal asks a program that does nothing. The guard covers
+both: it sets the portal file aside when the program is missing or will not answer `ofolder version` (a bad
+build, a missing library). What it cannot see is a build that answers `version` and then fails inside the
+portal itself, so `bin/install` (below) is the other half: it checks the new build runs, keeps the previous
+one and can put it back. `test_guard.py` runs the guard script and `repair --watch` in a temporary home, with
+no display, and is part of `bin/check`.
+
+## Installing safely
+
+`bin/install` builds the release build, checks the new build starts and answers, keeps the build it replaces
+as `~/.local/bin/ofolder.previous`, swaps in the new one atomically and ends the old portal process.
+`bin/install --rollback` puts the previous build back. After installing, open one real Save or Open dialog;
+if dialogs stop appearing, roll back (`ofolder pause` also makes dialogs pass through untouched).
 
 ## Release build and the canary
 
