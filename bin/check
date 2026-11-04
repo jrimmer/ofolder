@@ -14,6 +14,9 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 step "tests"
 cargo test --workspace --locked
 
+step "release tarball layout and the praeco fetch (no network)"
+sh scripts/test-release-tarball
+
 step "the guard script and repair --watch (no display needed)"
 cargo build --locked --quiet
 python3 -W ignore -m unittest discover -s e2e -p 'test_guard.py'
