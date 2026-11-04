@@ -61,8 +61,20 @@ pub fn name_entry<N: Node>(chooser: &N) -> Option<N> {
     find(chooser, |n| n.role() == Role::Text && n.editable())
 }
 
+/// Whether the dialog shows `target` now.
+fn shows<N: Node>(chooser: &N, target: &Path) -> bool {
+    let Some(shown) = folder(chooser) else {
+        return false;
+    };
+    shown == target
+        || matches!(
+            (shown.canonicalize(), target.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
 /// Moves the dialog by writing `folder/` into its name entry and activating it
-/// twice: the first activation is swallowed after a move. Returns the entry's
+/// again if the move has not landed: the first activation is swallowed after a move. Returns the entry's
 /// previous text, which is the file name the application suggested and which
 /// GTK clears when the move lands.
 pub fn move_to<N: Node>(chooser: &N, folder: &Path, gap: Duration) -> Result<String, AdapterError> {
@@ -79,7 +91,12 @@ pub fn move_to<N: Node>(chooser: &N, folder: &Path, gap: Duration) -> Result<Str
     }
     entry.press();
     sleep(gap);
-    entry.press();
+    // The second press is only for a first one that was swallowed. When the move has already
+    // landed, a second press is not needed, and it has been seen to be carried out only after the
+    // caller put the file name back, which saves the file and closes the dialog.
+    if !shows(chooser, folder) {
+        entry.press();
+    }
     Ok(saved)
 }
 
@@ -279,6 +296,16 @@ mod tests {
         );
         assert_eq!(entry.text().as_deref(), Some("/home/user/Work/"));
         assert_eq!(entry.presses(), 2);
+    }
+
+    #[test]
+    fn a_move_that_has_landed_after_the_first_press_is_not_pressed_again() {
+        // The path bar already shows /home/user, as it does once the first press has worked.
+        let app = dialog("t", "user");
+        let ch = app.children().remove(0);
+        move_to(&ch, Path::new("/home/user"), Duration::ZERO).expect("moved");
+        let entry = name_entry(&ch).expect("entry");
+        assert_eq!(entry.presses(), 1);
     }
 
     #[test]
