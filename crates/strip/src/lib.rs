@@ -170,6 +170,11 @@ pub trait StripActions: Send + Sync + 'static {
     fn set_guard(&self, _on: bool) -> Result<String, String> {
         Ok(String::new())
     }
+    /// The folders file-manager windows are showing now, as (program, folder), each from the
+    /// window's own answer. Called from a background thread every few seconds.
+    fn open_folders(&self) -> Vec<(String, PathBuf)> {
+        Vec::new()
+    }
     /// The item selected in the dialog, when the dialog can say; for the
     /// preview panel. Called from a background thread a few times a second.
     fn selection(&self) -> Option<PathBuf> {

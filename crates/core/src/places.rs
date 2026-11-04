@@ -14,6 +14,8 @@ pub enum PlaceKind {
     Home,
     UserFolder,
     Drive,
+    /// The folder a file-manager window is showing now.
+    OpenWindow,
 }
 
 /// The standard folders in the user's directory configuration

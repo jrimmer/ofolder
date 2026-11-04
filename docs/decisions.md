@@ -91,4 +91,5 @@ Ordered by dependency, not by importance. All 34 remain Baseline.
 - **R-25, folders of open file managers:** go ahead, as a spike first, for Flea and Strata only. It is dropped if neither reports an exact folder (a folder is never guessed from a window title).
 - **R-71, rename, copy, move and trash from the rails:** left for a future release.
 - **Omarchy bar widget for pause and chain status:** not built. The maintainer found it incomprehensible to find, understand and use. The need it answered (knowing when another program has taken ofolder out of the portal chain) is covered by `ofolder status` and `bin/e2e` for now.
+- **R-25 result (2026-11-03):** built for Flea 0.4 and 0.3 (exact, per window); Strata cannot report its main windows' folders exactly, so it is left out until it can (see `docs/adapters.md`).
 

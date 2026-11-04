@@ -579,7 +579,7 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 | R-22 standard places and drives | Partly met | Parsers tested on sample files, rows seen in a demo screenshot. Not covered: a click; a live drive plug or unplug |
 | R-23 parent, back, forward | Partly met | Live through the real portal frontend on Flea and GTK: Downloads, then Parent, then Back landed in Downloads, and a stale poll no longer rewrites the history (`places` and `model` tests). Not confirmed on Strata, whose dialog the test could not end with a key |
 | R-24 browse subfolders | Partly met | `browse` and `expand` tests; nesting seen in a screenshot. Not covered: a click on the arrow |
-| R-25 folders of open file managers | Held | Needs a decision on which file managers to support |
+| R-25 folders of open file managers | Partly met | Flea 0.4 and 0.3 windows are listed in the Places menu and Find, each from its own window; checked end to end on all four backends. Strata cannot report its main windows' folders exactly, so it is left out (`docs/adapters.md`) |
 | R-30 favorites list | Partly met | Favorites tests; missing-folder badge seen. Not covered: clicks in the final layout |
 | R-31 add current folder | Met | Live click: the button flipped to Unfavorite and the favorites file held the dialog's folder, on Flea, GTK and Strata |
 | R-32 edit, reorder, remove | Partly met | Menu actions tested; not clicked |

@@ -373,6 +373,14 @@ impl StripActions for Actions {
         }
     }
 
+    fn open_folders(&self) -> Vec<(String, PathBuf)> {
+        let ipc = ofolder_adapters::selection::AutoIpc::default();
+        ofolder_adapters::flea::open_window_folders(&*self.compositor, &ipc, &|p| p.is_dir())
+            .into_iter()
+            .map(|folder| ("Flea".to_owned(), folder))
+            .collect()
+    }
+
     fn set_guard(&self, on: bool) -> Result<String, String> {
         crate::doctor::set_guard(on)
     }

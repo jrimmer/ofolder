@@ -77,6 +77,22 @@ pub fn flea_path_bar_open(snapshot: &str) -> Option<bool> {
 /// read-only call on its own IPC; nothing about the dialog changes.
 pub trait PickerIpc: Send + Sync {
     fn snapshot(&self, pid: u32) -> Option<String>;
+
+    /// Calls a read-only function of a Flea window's IPC (`flea.path` for a
+    /// file-manager window) and returns the one line it answered.
+    fn call(&self, _pid: u32, _target: &str, _function: &str) -> Option<String> {
+        None
+    }
+}
+
+/// The answer of a call: its last non-empty line, since `qs` may log a
+/// warning before it.
+fn last_line(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .rfind(|l| !l.is_empty())
+        .map(str::to_owned)
 }
 
 /// Longer than a call has ever taken (about 18 ms), short enough that a
@@ -127,6 +143,12 @@ impl PickerIpc for QsIpc {
         ]);
         run_limited(command).map(|out| json_from_first_object(&out))
     }
+
+    fn call(&self, pid: u32, target: &str, function: &str) -> Option<String> {
+        let mut command = Command::new("qs");
+        command.args(["ipc", "--pid", &pid.to_string(), "call", target, function]);
+        run_limited(command).and_then(|out| last_line(&out))
+    }
 }
 
 /// `qs` logs a warning on its output before the answer when the process has
@@ -176,6 +198,12 @@ impl PickerIpc for FleaIpc {
             "snapshot",
         ]);
         run_limited(command)
+    }
+
+    fn call(&self, pid: u32, target: &str, function: &str) -> Option<String> {
+        let mut command = Command::new(&self.program);
+        command.args(["ipc", "--pid", &pid.to_string(), "call", target, function]);
+        run_limited(command).and_then(|out| last_line(&out))
     }
 }
 
@@ -235,6 +263,15 @@ impl PickerIpc for AutoIpc {
         } else {
             self.quickshell.snapshot(pid)
         }
+    }
+
+    /// A window of either generation: Flea 0.4's client answers for its own
+    /// windows and refuses (or finds no socket) for a Quickshell one, and the
+    /// other way round, so each is asked in turn.
+    fn call(&self, pid: u32, target: &str, function: &str) -> Option<String> {
+        self.native
+            .call(pid, target, function)
+            .or_else(|| self.quickshell.call(pid, target, function))
     }
 }
 

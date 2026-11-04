@@ -944,6 +944,7 @@ impl Shared {
                                 .collect::<Vec<_>>()
                         });
                         let recents = (lists && read_recents).then(|| sources.read_recents());
+                        let open = places.then(|| actions.open_folders());
                         let places = places.then(|| sources.read_places());
                         // A rail is not told when the pointer leaves it for
                         // good, so a tooltip asks where the pointer is.
@@ -957,6 +958,7 @@ impl Shared {
                             seen,
                             recents,
                             places,
+                            open,
                             off_rail,
                         }
                     })
@@ -980,6 +982,9 @@ impl Shared {
                     }
                     if let Some(places) = read.places {
                         changed |= t.vm.set_places(places);
+                    }
+                    if let Some(open) = read.open {
+                        changed |= t.vm.set_open_windows(open);
                     }
                     changed |= t.vm.expire_message(Instant::now());
                     if read.room == Some(false) {
@@ -1169,6 +1174,8 @@ struct Polled {
     seen: Option<Vec<(PathBuf, bool)>>,
     recents: Option<RecentsRead>,
     places: Option<Vec<ofolder_core::places::Place>>,
+    /// The folders file-manager windows show, read with the places.
+    open: Option<Vec<(String, PathBuf)>>,
     /// The rail whose tooltip is up, when the pointer is no longer on it.
     off_rail: Option<rail::RailSide>,
     /// The dialog's selection, when it was read this time.

@@ -142,6 +142,40 @@ fn is_picker_cmdline(cmdline: &str) -> bool {
     cmdline.contains("picker.qml") || cmdline.split_whitespace().any(|arg| arg == "--pick")
 }
 
+/// The class of a Flea file-manager window, as opposed to its picker.
+pub const MANAGER_CLASS: &str = "com.thisisgm.flea";
+
+/// The folders Flea's file-manager windows are showing now, one per window
+/// process, in the order the compositor lists the windows. Each is the window's
+/// own answer to `flea.path` (its active tab), and only a folder that exists is
+/// kept: a window that does not answer, or answers with anything else, is left
+/// out, never guessed at from its title.
+pub fn open_window_folders(
+    compositor: &dyn Compositor,
+    ipc: &dyn PickerIpc,
+    is_dir: &dyn Fn(&Path) -> bool,
+) -> Vec<PathBuf> {
+    let Ok(clients) = compositor.clients() else {
+        return Vec::new();
+    };
+    let mut seen_pids = Vec::new();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for client in clients.iter().filter(|c| c.class == MANAGER_CLASS) {
+        if seen_pids.contains(&client.pid) {
+            continue;
+        }
+        seen_pids.push(client.pid);
+        let Some(answer) = ipc.call(client.pid, "flea", "path") else {
+            continue;
+        };
+        let path = PathBuf::from(answer);
+        if path.is_absolute() && is_dir(&path) && !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
+}
+
 impl FleaAdapter {
     pub fn new(compositor: Arc<dyn Compositor>, typist: Arc<dyn Typist>) -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -992,5 +1026,89 @@ mod tests {
             r.adapter.launch(&request),
             Err(AdapterError::Refused(_))
         ));
+    }
+
+    struct Answers(Vec<(u32, &'static str)>);
+
+    impl PickerIpc for Answers {
+        fn snapshot(&self, _pid: u32) -> Option<String> {
+            None
+        }
+        fn call(&self, pid: u32, target: &str, function: &str) -> Option<String> {
+            assert_eq!((target, function), ("flea", "path"));
+            self.0
+                .iter()
+                .find(|(p, _)| *p == pid)
+                .map(|(_, a)| (*a).to_owned())
+        }
+    }
+
+    fn window(class: &str, pid: u32, title: &str) -> Client {
+        let mut c = client("0x1", class, pid);
+        c.title = title.to_owned();
+        c
+    }
+
+    #[test]
+    fn each_file_manager_window_gives_the_folder_it_says_it_shows() {
+        let desktop = FakeCompositor::new(
+            vec![
+                window(MANAGER_CLASS, 10, "Flea"),
+                window(MANAGER_CLASS, 11, "Flea"),
+            ],
+            None,
+            true,
+        );
+        let ipc = Answers(vec![(10, "/srv/a"), (11, "/srv/b")]);
+        let got = open_window_folders(&*desktop, &ipc, &|_| true);
+        assert_eq!(got, [PathBuf::from("/srv/a"), PathBuf::from("/srv/b")]);
+    }
+
+    #[test]
+    fn a_picker_and_other_programs_are_not_file_manager_windows() {
+        let desktop = FakeCompositor::new(
+            vec![
+                window(PICKER_CLASS, 10, "Open"),
+                window("org.gnome.Nautilus", 11, "Home"),
+            ],
+            None,
+            true,
+        );
+        let ipc = Answers(vec![(10, "/srv/a"), (11, "/srv/b")]);
+        assert!(open_window_folders(&*desktop, &ipc, &|_| true).is_empty());
+    }
+
+    #[test]
+    fn a_window_that_does_not_answer_or_answers_wrongly_is_left_out_not_guessed() {
+        let desktop = FakeCompositor::new(
+            vec![
+                window(MANAGER_CLASS, 10, "docs"),
+                window(MANAGER_CLASS, 11, "docs"),
+                window(MANAGER_CLASS, 12, "docs"),
+                window(MANAGER_CLASS, 13, "docs"),
+            ],
+            None,
+            true,
+        );
+        // 10 is silent; 11 answers a relative path; 12 a folder that is gone; 13 is real.
+        let ipc = Answers(vec![(11, "docs"), (12, "/gone"), (13, "/real")]);
+        let got = open_window_folders(&*desktop, &ipc, &|p| p == Path::new("/real"));
+        assert_eq!(got, [PathBuf::from("/real")]);
+    }
+
+    #[test]
+    fn two_windows_of_one_process_are_asked_once_and_one_folder_is_listed_once() {
+        let desktop = FakeCompositor::new(
+            vec![
+                window(MANAGER_CLASS, 10, "Flea"),
+                window(MANAGER_CLASS, 10, "Flea"),
+                window(MANAGER_CLASS, 11, "Flea"),
+            ],
+            None,
+            true,
+        );
+        let ipc = Answers(vec![(10, "/srv/a"), (11, "/srv/a")]);
+        let got = open_window_folders(&*desktop, &ipc, &|_| true);
+        assert_eq!(got, [PathBuf::from("/srv/a")]);
     }
 }

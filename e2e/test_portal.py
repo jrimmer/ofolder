@@ -649,6 +649,51 @@ class Features:
         self.assertTrue(self.s.click(MENU, 150, HEAD_LIST + ROW // 2))
         self.assertTrue(self.folder_is(self.home(), 12), "the first place was not the home folder or did not open")
 
+    def open_file_manager(self, folder):
+        """A Flea file-manager window on `folder`, started in the session like a person would."""
+        if self.flea_env:
+            return self.s.spawn([self.flea_env["FLEA_BIN"], "--gui", folder], env=self.flea_env, name="manager")
+        return self.s.spawn(["flea", "--gui", folder], name="manager")
+
+    def find_goes_to(self, word, folder, limit=12):
+        """Types `word` in the Find box and presses Enter, until the dialog is in `folder`."""
+        self.open_menu("find")
+        self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "find did not take the keyboard")
+        self.assertTrue(self.s.type_text(MENU, word))
+        time.sleep(1.5)
+        for _ in range(3):
+            if self.s.client(MENU) and self.s.active_class() == MENU:
+                self.s.type_text(MENU, key="Return")
+            if self.folder_is(folder, 4):
+                return True
+        return self.folder_is(folder, limit - 6)
+
+    def test_the_folder_of_an_open_file_manager_window_is_offered_and_goes_when_the_window_closes(self):
+        """R-25. The folder has a name nothing else knows (no favorite, recent or place), so Find
+        can only offer it if the open window is the source."""
+        target = self.made("zzopenwin")
+        window = self.open_file_manager(target)
+        self.assertTrue(
+            wait_for(40, lambda: any(c["class"] == "com.thisisgm.flea" for c in self.s.clients())),
+            "the file manager window never opened",
+        )
+        time.sleep(4)
+        self.start()
+        # The places are read every few seconds, so the window is found within about five.
+        time.sleep(6)
+        self.assertTrue(self.find_goes_to("zzopenwin", target), "the open window's folder was not offered")
+        window.terminate()
+        self.assertTrue(
+            wait_for(20, lambda: not any(c["class"] == "com.thisisgm.flea" for c in self.s.clients())),
+            "the file manager window did not close",
+        )
+        self.move("parent", self.root)
+        time.sleep(8)  # a closed window is dropped at the next read
+        self.assertFalse(
+            self.find_goes_to("zzopenwin", target, limit=8),
+            "a closed window's folder was still offered",
+        )
+
     def test_a_new_folder_is_made_from_its_prompt_and_the_dialog_goes_into_it(self):
         self.start()
         self.open_menu("new_folder")

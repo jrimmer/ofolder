@@ -104,6 +104,26 @@ The liveness test for an adopted picker looks for `picker.qml` or a `--pick` arg
 
 Measured 2026-11-03 against the installed 0.4.0 and an isolated copy of 0.3.12 (with its `XDG_*` folders redirected): `ofolder live-check flea`, a Save dialog, 7 of 7 on each. Before the change 0.4.0 passed 2 of 7: the `qs` call could not reach the picker, and goto typed the path into the file name field.
 
+## Folders of open file-manager windows (R-25 spike, 2026-11-03)
+
+The question: can ofolder learn, exactly, which folder each open file-manager window shows, so the Places menu
+can offer them? Measured in the private nested session (`e2e/`), not on the user's desktop.
+
+| Program | Exact folder per window? | How |
+|---|---|---|
+| Flea 0.4.0 | **Yes**, the active tab | `flea ipc --pid <window pid> call flea path`. Each window is its own process and the compositor's client pid is that process. `tabCount` and `tabIndex` exist; `tabLabels` are names, not paths, so other tabs are not exact. |
+| Flea 0.3.12 | **Yes**, the active tab | `qs ipc --pid <window pid> call flea path`. The window's client pid is the Quickshell process. |
+| Strata 1.1.1 | **No** | One process owns every window. In the accessibility tree a window is a frame named `<folder name> — Strata` with no breadcrumb or path (Strata's *chooser* does expose one, through its Copy path button); `~/.local/state/strata/navigation-history.json` lists visited folders, not the ones open now or which window shows which; the process holds no directory descriptors; its inotify watches are inode numbers that cannot be turned into paths without a privilege. |
+
+Built for Flea (`adapters::flea::open_window_folders`): a window that does not answer, answers a relative path or a folder
+that is gone is left out, never guessed from its title. The folders appear after the places in the Places menu as
+`<folder> (in Flea)`, and Find offers them too; they are re-read with the places every few seconds, so a closed window
+leaves the list within that time.
+
+Strata is left out on purpose: matching a title to a history entry would be a guess. **To ask the Strata maintainers:**
+expose the folder shown by a main window through accessibility the way the chooser does (a labelled breadcrumb or a
+Copy path button in the window), or a read-only query on its D-Bus service. Either would make Strata exact.
+
 ## Fragility and the self-check
 
 Flea's `--pick`/`FLEA_PICKER` contract and the fd trick are undocumented and may change in any `flea --update`. Plan: run a self-check per adapter at startup and after any package version change (spawn a probe dialog, read, move, read, close), and disable an adapter that fails. Separately: draft a docs PR for the `--pick` contract and an issue asking for a supported current-folder signal at github.com/thisisgm/flea. Nothing is sent without Jason's yes, and the text carries no AI attribution.

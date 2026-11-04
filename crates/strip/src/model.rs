@@ -126,6 +126,8 @@ pub struct ViewModel {
     busy: bool,
     history: History,
     places: Vec<Place>,
+    /// Folders file-manager windows are showing, listed after the places.
+    open_windows: Vec<Place>,
     recents: Recents,
     recents_enabled: bool,
     /// The rail layout the settings file gave when the dialog opened.
@@ -166,6 +168,7 @@ impl ViewModel {
             busy: false,
             history: History::default(),
             places: Vec::new(),
+            open_windows: Vec::new(),
             recents: Recents::default(),
             recents_enabled: settings.recents_enabled,
             rails: settings.rails,
@@ -619,6 +622,24 @@ impl ViewModel {
 
     // ---- places and recents -------------------------------------------
 
+    /// Stores the folders the file-manager windows show now. Each is named for its
+    /// folder and the program, so two windows on different folders read apart.
+    pub fn set_open_windows(&mut self, folders: Vec<(String, PathBuf)>) -> bool {
+        let windows: Vec<Place> = folders
+            .into_iter()
+            .map(|(program, path)| Place {
+                name: format!("{} (in {program})", folder_name(&path)),
+                path,
+                kind: PlaceKind::OpenWindow,
+            })
+            .collect();
+        if self.open_windows == windows {
+            return false;
+        }
+        self.open_windows = windows;
+        true
+    }
+
     pub fn set_places(&mut self, places: Vec<Place>) -> bool {
         if self.places == places {
             return false;
@@ -772,7 +793,7 @@ impl ViewModel {
             let label = folder_name(&path);
             add(path, label);
         }
-        for p in &self.places {
+        for p in self.places.iter().chain(&self.open_windows) {
             add(p.path.clone(), p.name.clone());
         }
         out
@@ -798,6 +819,7 @@ impl ViewModel {
             Section::Places => self
                 .places
                 .iter()
+                .chain(&self.open_windows)
                 .map(|p| Root {
                     path: p.path.clone(),
                     label: p.name.clone(),
@@ -805,6 +827,7 @@ impl ViewModel {
                         PlaceKind::Home => Icon::Home,
                         PlaceKind::UserFolder => Icon::Folder,
                         PlaceKind::Drive => Icon::Drive,
+                        PlaceKind::OpenWindow => Icon::Folder,
                     },
                 })
                 .collect(),
@@ -1495,6 +1518,42 @@ mod tests {
         vm.set_folder(None);
         at(&mut vm, "/a");
         assert!(!vm.can_go_back());
+    }
+
+    #[test]
+    fn folders_of_open_file_managers_follow_the_places_and_name_their_program() {
+        let d = Dir::new("open-windows");
+        let mut vm = vm(&d);
+        vm.set_places(vec![Place {
+            name: "Home".into(),
+            path: "/home/ann".into(),
+            kind: PlaceKind::Home,
+        }]);
+        assert!(vm.set_open_windows(vec![
+            ("Flea".into(), "/srv/photos".into()),
+            ("Flea".into(), "/srv/taxes".into()),
+        ]));
+        let lines = vm.section_lines(Section::Places);
+        assert_eq!(
+            labels(&lines),
+            ["Home", "photos (in Flea)", "taxes (in Flea)"]
+        );
+    }
+
+    #[test]
+    fn an_unchanged_set_of_open_windows_reports_no_change_and_a_closed_window_goes() {
+        let d = Dir::new("open-windows-change");
+        let mut vm = vm(&d);
+        let two = vec![
+            ("Flea".to_owned(), PathBuf::from("/srv/a")),
+            ("Flea".to_owned(), PathBuf::from("/srv/b")),
+        ];
+        assert!(vm.set_open_windows(two.clone()));
+        assert!(!vm.set_open_windows(two));
+        assert!(vm.set_open_windows(vec![("Flea".into(), "/srv/a".into())]));
+        assert_eq!(labels(&vm.section_lines(Section::Places)), ["a (in Flea)"]);
+        assert!(vm.set_open_windows(Vec::new()));
+        assert!(vm.section_lines(Section::Places).is_empty());
     }
 
     #[test]
