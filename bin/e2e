@@ -1,7 +1,8 @@
 #!/bin/bash
 # End-to-end tests against real dialogs, inside a private Hyprland nested in the session.
-#   bin/e2e                 build, then run every flavour (Flea 0.4, Flea 0.3.12, GTK)
-#   bin/e2e Flea04          one flavour (Flea04, Flea03 or Gtk); more words are passed to unittest
+#   bin/e2e                 build, then run every flavour (Flea 0.4, Flea 0.3.12, GTK, Strata)
+#   bin/e2e Flea04          one flavour (Flea04, Flea03, Gtk or Strata); more words are passed to unittest
+#   bin/e2e --release ...   the same against the release build, the one that is installed
 #   bin/e2e --cleanup       remove what a run that was killed leaves behind
 # See docs/e2e.md. Not part of bin/check, which needs no display.
 set -euo pipefail
@@ -9,6 +10,12 @@ cd "$(dirname "$0")/.."
 
 if [ "${1:-}" = "--cleanup" ]; then
   exec python3 -I e2e/cleanup.py
+fi
+
+if [ "${1:-}" = "--release" ]; then
+  shift
+  cargo build --release --locked --quiet
+  export OFOLDER_BIN="$PWD/target/release/ofolder"
 fi
 
 for tool in Hyprland hyprctl wtype wl-copy wl-paste busctl dbus-daemon python3; do

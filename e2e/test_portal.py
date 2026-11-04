@@ -40,6 +40,16 @@ class Flavour:
     flea_env = None  # extra environment for the backend (Flea 0.3's FLEA_BIN, FLEA_UI)
     ipc = None  # how to ask the picker where it is, independent of ofolder: "flea", "qs" or None
     pick_marker = ""  # what the picker's command line contains
+    # Where the dialog's main button, and the "Replace" button of its overwrite prompt, are, from
+    # the top-left of the dialog and its size. Read from screenshots of each.
+    accept_at = staticmethod(lambda w, h: (w - 49, h - 56))
+    replace_at = staticmethod(lambda w, h: (w - 49, h - 56))
+    # Keys that do what the buttons do, for dialogs that do not act on a click sent to them.
+    folder_keys = save_keys = replace_keys = None
+    settle_before_keys = 1.0
+    folder_select_unknown = False  # no way was found to confirm a folder
+    multi_select_unknown = False  # no way was found to select several files
+    filtered_needs_down = True
 
     @classmethod
     def setUpClass(cls):
@@ -346,6 +356,37 @@ class Rails(Flavour):
         self.assertTrue(self.strips(1), "the rails are gone after quick presses")
         self.assertNotIn("panicked", self.s.log("bus"), "a strip panicked")
 
+    def test_the_rails_use_little_cpu_when_nothing_is_happening(self):
+        """A hot loop in the rails would starve their window and make them read stale. The debug
+        build is far slower and always fails this, so it is judged on the release build only."""
+        if "release" not in OFOLDER:
+            self.skipTest("judged on the release build: run bin/e2e --release")
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        self.ready()
+        time.sleep(6)  # let the opening settle, and any message window go
+        pid = next(
+            (p for p in (int(d) for d in os.listdir("/proc") if d.isdigit()) if self.is_strip(p)), None
+        )
+        self.assertTrue(pid, "no strip process")
+
+        def ticks():
+            f = open("/proc/%d/stat" % pid).read().rsplit(")", 1)[1].split()
+            return int(f[11]) + int(f[12])
+
+        a = ticks()
+        time.sleep(5)
+        used = (ticks() - a) * 100 // (5 * os.sysconf("SC_CLK_TCK"))
+        self.assertLess(used, 25, "the rails used %d%% of a core while idle" % used)
+
+    def is_strip(self, pid):
+        try:
+            cmd = open("/proc/%d/cmdline" % pid, "rb").read()
+            env = open("/proc/%d/environ" % pid, "rb").read()
+        except OSError:
+            return False
+        return b"ofolder\0strip" in cmd and ("XDG_RUNTIME_DIR=%s\0" % self.s.rt).encode() in env
+
     def test_cancelling_leaves_nothing_behind_and_the_app_hears_it(self):
         self.open_dialog()
         self.assertTrue(self.strips())
@@ -629,8 +670,14 @@ class Features:
         self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "find did not take the keyboard")
         self.assertTrue(self.s.type_text(MENU, "two"))
         time.sleep(1.5)
-        self.assertTrue(self.s.type_text(MENU, key="Return"))
-        self.assertTrue(self.folder_is(self.two, 12), "find did not take the dialog to the match")
+        # Enter acts on the highlighted match; if the list had not ranked yet it does nothing, so it
+        # is pressed again while the menu is still up.
+        for _ in range(3):
+            if self.s.client(MENU) and self.s.active_class() == MENU:
+                self.assertTrue(self.s.type_text(MENU, key="Return"))
+            if self.folder_is(self.two, 4):
+                break
+        self.assertTrue(self.folder_is(self.two, 6), "find did not take the dialog to the match")
 
     # The settings window: pane buttons and controls are found by their place in the window, which
     # is fixed at 780 by 560. Each change is saved to settings.toml at once, so that is what is read.
@@ -733,7 +780,141 @@ class Features:
         )
 
 
-class Flea04(Features, Rails, unittest.TestCase):
+class RealApps:
+    """The shapes real applications ask for: several files, a folder, a type filter, a file that
+    already exists, awkward and deep folder names, and a folder reached through a link."""
+
+    def ask(self, mode, folder, name="e2e.txt"):
+        self.proc, self.out = self.stack.ask(mode, folder, name)
+        self.assertTrue(wait_for(30, lambda: self.s.client(self.picker_class)), "the dialog never opened")
+        self.assertTrue(self.strips(), "no rails:\n" + self.s.log("app"))
+        # A dialog driven by keys must have settled before the first one: under load a key that
+        # arrives early is lost, and the sequences below depend on where focus is.
+        time.sleep(self.settle_before_keys)
+
+    def made(self, *parts):
+        path = os.path.join(self.root, *parts)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def test_several_files_chosen_in_an_open_dialog_all_come_back(self):
+        if self.multi_select_unknown:
+            self.skipTest("no way was found to select several files in this dialog by keyboard")
+        folder = self.made("many")
+        names = ["a.txt", "b.txt", "c.txt"]
+        for n in names:
+            open(os.path.join(folder, n), "w").write("x")
+        self.ask("multi", folder)
+        self.ready(folder)
+        self.s.press(self.picker_class, "Down")
+        self.s.press(self.picker_class, "A", "CTRL")  # select all
+        answer = self.confirm()
+        self.assertTrue(answer and answer.startswith("OPENED "), answer)
+        got = sorted(os.path.basename(p) for p in answer[len("OPENED "):].split("|"))
+        self.assertEqual(got, names, "not every selected file came back")
+
+    def flea_button(self, *names):
+        """Where Flea 0.4 says one of its buttons is, from its own `controls` call (window coordinates)."""
+        r = self.s.run([self.ipc, "ipc", "--pid", str(self.picker_pid()), "call", "fleapicker", "controls"], timeout=6)
+        lines = [l for l in r.stdout.splitlines() if l.startswith("[{")]
+        try:
+            controls = json.loads(lines[-1])
+        except (ValueError, IndexError):
+            return None
+        for c in controls:
+            if c.get("name") in names and c.get("visible") and c.get("enabled"):
+                x, y = (int(v) for v in c["centre"].split())
+                return x, y
+        return None
+
+    def accept(self, kind):
+        """Presses the dialog's main button for `kind` ("folder": Select, "save": Save, "replace":
+        the overwrite prompt's Replace). Where a dialog can be reached by keys they are used, each
+        sent to the dialog's own window; else the button is clicked where it is."""
+        keys = getattr(self, kind + "_keys")
+        if keys:
+            for key in keys:
+                self.assertTrue(self.s.press(self.picker_class, key), "the dialog went away")
+                time.sleep(0.7)
+            return
+        names = {"folder": ("_Select", "Select"), "save": ("_Save", "Save"), "replace": ("Replace", "_Replace")}[kind]
+        d = self.s.client(self.picker_class)
+        found = self.flea_button(*names) if self.ipc == "flea" else None
+        where = self.replace_at if kind == "replace" else self.accept_at
+        x, y = found or where(*d["size"])
+        self.assertTrue(self.s.click_at(self.picker_class, x, y), "the button did not click")
+
+    def test_a_folder_chosen_in_a_folder_dialog_comes_back(self):
+        if self.folder_select_unknown:
+            self.skipTest("no way was found to confirm a folder in this dialog")
+        outer = self.made("pick")
+        self.made("pick", "inner")
+        self.ask("folder", outer)
+        self.ready(outer)
+        self.accept("folder")
+        answer = self.answer()
+        self.assertTrue(answer and answer.startswith("OPENED "), answer)
+        chosen = answer[len("OPENED "):]
+        self.assertTrue(os.path.isdir(chosen) and chosen.startswith(outer), "not the folder shown: %s" % chosen)
+
+    def test_a_dialog_that_offers_only_text_files_still_gets_the_rails_and_returns_one(self):
+        folder = self.made("filtered")
+        open(os.path.join(folder, "a.txt"), "w").write("x")
+        open(os.path.join(folder, "b.png"), "w").write("x")
+        self.ask("filtered", folder)
+        self.ready(folder)
+        if self.filtered_needs_down:
+            self.s.press(self.picker_class, "Down")
+        answer = self.confirm()
+        self.assertTrue(answer and answer.startswith("OPENED ") and answer.endswith(".txt"), answer)
+
+    def test_saving_over_a_file_that_exists_asks_and_then_returns_the_file(self):
+        folder = self.made("over")
+        existing = os.path.join(folder, "e2e.txt")
+        open(existing, "w").write("old")
+        self.ask("save", folder)
+        self.ready(folder)
+        self.accept("save")
+        time.sleep(1.5)
+        self.assertFalse(self.answer(0.5), "the dialog answered before the overwrite was confirmed")
+        self.accept("replace")
+        self.assertEqual(self.answer(), "SAVED " + existing, "the overwrite was not carried through")
+        self.assertEqual(open(existing).read(), "old", "neither ofolder nor the dialog may write the file itself")
+
+    def test_a_folder_with_spaces_quotes_and_unicode_in_its_name_reads_back_and_is_left_and_re_entered(self):
+        odd = self.made("weird ünï \"q\" 'a' & ; $x 日本語")
+        self.ask("save", odd)
+        self.ready(odd)
+        self.move("parent", self.root)
+        self.move("back", odd)
+
+    def test_a_very_deep_folder_reads_back(self):
+        deep = self.made(*["level%02d" % i for i in range(14)])
+        self.ask("save", deep)
+        self.assertTrue(self.folder_is(deep, 20), "the rails could not read a path of %d characters" % len(deep))
+
+    def test_a_folder_reached_through_a_link_reads_back_as_the_link_or_its_target(self):
+        target = self.made("real-place")
+        link = os.path.join(self.root, "link-to-place")
+        if not os.path.lexists(link):
+            os.symlink(target, link)
+        self.ask("save", link)
+        got = wait_for(20, lambda: (self.folder_is(link, 2) and link) or (self.folder_is(target, 2) and target))
+        self.assertTrue(got, "the rails read neither the link nor what it points to")
+
+    def test_a_dialog_with_no_start_folder_reads_a_real_folder_or_says_unknown(self):
+        self.ask("save", "-")
+        time.sleep(3)
+        for _ in range(3):
+            self.s.run([OFOLDER, "do", "copy_path"])
+            time.sleep(0.8)
+        said = self.clipboard(1)
+        self.assertTrue(
+            said is None or os.path.isdir(said), "the rails named a folder that does not exist: %r" % said
+        )
+
+
+class Flea04(RealApps, Features, Rails, unittest.TestCase):
     name = "flea04"
     chain = "ofolder;flea;gtk"
     picker_class = "com.thisisgm.flea.picker"
@@ -751,7 +932,11 @@ class Flea04(Features, Rails, unittest.TestCase):
         self.proc = None
 
 
-class Flea03(Features, Rails, unittest.TestCase):
+class Flea03(RealApps, Features, Rails, unittest.TestCase):
+    settle_before_keys = 3.0
+    folder_keys = ["Tab", "Tab", "Return"]
+    save_keys = ["Return"]
+    replace_keys = ["Tab", "Tab", "Return"]
     name = "flea03"
     chain = "ofolder;flea;gtk"
     picker_class = "com.thisisgm.flea.picker"
@@ -759,7 +944,10 @@ class Flea03(Features, Rails, unittest.TestCase):
     pick_marker = "picker.qml"
 
 
-class Gtk(Features, Rails, unittest.TestCase):
+class Gtk(RealApps, Features, Rails, unittest.TestCase):
+    folder_keys = ["Return"]
+    save_keys = ["Return"]
+    replace_keys = ["Return"]
     name = "gtk"
     chain = "ofolder;gtk"
     picker_class = "xdg-desktop-portal-gtk"
@@ -767,7 +955,12 @@ class Gtk(Features, Rails, unittest.TestCase):
     pick_marker = ""
 
 
-class Strata(Features, Rails, unittest.TestCase):
+class Strata(RealApps, Features, Rails, unittest.TestCase):
+    save_keys = ["Return"]
+    replace_keys = ["Right", "Return"]
+    folder_select_unknown = True  # Enter, Tab, Ctrl/Shift/Alt+Enter and a click were all tried
+    multi_select_unknown = True  # Ctrl+A, Shift+Down and Space were tried
+    filtered_needs_down = False
     name = "strata"
     chain = "ofolder;strata;gtk"
     picker_class = "io.github.lgse.Strata.FileChooser"

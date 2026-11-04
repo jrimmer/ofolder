@@ -22,7 +22,8 @@ import tempfile
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OFOLDER = os.path.join(REPO, "target", "debug", "ofolder")
+# The binary under test: the debug build, or the release build you run when OFOLDER_BIN names it.
+OFOLDER = os.environ.get("OFOLDER_BIN") or os.path.join(REPO, "target", "debug", "ofolder")
 OUTPUT = "ofe2e-1"
 
 
@@ -283,6 +284,30 @@ class Session:
             return open(os.path.join(self.dir, name + ".log")).read()
         return ""
 
+    def click_at(self, cls, dx, dy):
+        """Clicks at (dx, dy) from the top-left of the first window of class `cls`, in whichever
+        window of that class is the smallest one there: a prompt sits on its dialog and is another
+        window of the same class, and is what the click is for."""
+        windows = [c for c in self.clients() if c["class"] == cls]
+        if not windows:
+            return False
+        origin = min(windows, key=lambda c: (c["at"][0], c["at"][1]))
+        x, y = origin["at"][0] + dx, origin["at"][1] + dy
+        inside = [c for c in windows if c["at"][0] <= x < c["at"][0] + c["size"][0] and c["at"][1] <= y < c["at"][1] + c["size"][1]]
+        if not inside:
+            return False
+        target = min(inside, key=lambda c: c["size"][0] * c["size"][1])
+        for ox, oy in ((-40, -25), (-12, -8), (-3, -2), (0, 0)):
+            self.hypr("dispatch", "hl.dsp.cursor.move({ x = %d, y = %d })" % (x + ox, y + oy))
+            time.sleep(0.08)
+        time.sleep(0.25)
+        r = self.hypr(
+            "dispatch",
+            'hl.dsp.send_shortcut({ mods = "", key = "mouse:272", window = "address:%s" })' % target["address"],
+        )
+        time.sleep(0.3)
+        return r.stdout.strip() == "ok"
+
     def focus(self, cls):
         """Gives the keyboard to the window of class `cls`, as a click on it would."""
         window = self.client(cls)
@@ -291,15 +316,16 @@ class Session:
         self.hypr("dispatch", 'hl.dsp.focus({ window = "address:%s" })' % window["address"])
         return bool(wait_for(3, lambda: self.active_class() == cls))
 
-    def press(self, cls, key):
-        """Sends one key to the window of class `cls` and to no other, through the compositor.
-        It is refused when no such window is open, so a key can never land elsewhere."""
+    def press(self, cls, key, mods=""):
+        """Sends one key (with modifiers such as "CTRL") to the window of class `cls` and to no
+        other, through the compositor. It is refused when no such window is open, so a key can
+        never land elsewhere."""
         window = self.client(cls)
         if not window:
             return False
         r = self.hypr(
             "dispatch",
-            'hl.dsp.send_shortcut({ mods = "", key = "%s", window = "address:%s" })' % (key, window["address"]),
+            'hl.dsp.send_shortcut({ mods = "%s", key = "%s", window = "address:%s" })' % (mods, key, window["address"]),
         )
         return r.stdout.strip() == "ok"
 

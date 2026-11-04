@@ -1,7 +1,8 @@
 """A small GTK4 program that asks the portal for a Save or Open dialog and writes the answer to a file.
 
-usage: app.py OUT save|open START_FOLDER [NAME]
-OUT then holds `SAVED <path>`, `OPENED <path>` or `CANCELLED <reason>`.
+usage: app.py OUT save|open|multi|folder|filtered START_FOLDER [NAME]
+OUT then holds `SAVED <path>`, `OPENED <path>` (several joined by `|`) or `CANCELLED <reason>`.
+`filtered` is an Open dialog that offers only *.txt files. A START_FOLDER of `-` sets none.
 It has its own window class (org.ofolder.TestApp) and sends no portal app id.
 """
 import os
@@ -24,12 +25,26 @@ def on_activate(a):
 
     def ask():
         dialog = Gtk.FileDialog()
-        dialog.set_initial_folder(Gio.File.new_for_path(start))
+        if start != "-":
+            dialog.set_initial_folder(Gio.File.new_for_path(start))
+        if mode == "filtered":
+            text = Gtk.FileFilter()
+            text.set_name("Text files")
+            text.add_pattern("*.txt")
+            filters = Gio.ListStore.new(Gtk.FileFilter)
+            filters.append(text)
+            dialog.set_filters(filters)
+            dialog.set_default_filter(text)
 
         def done(d, res):
             try:
                 if mode == "save":
                     text = "SAVED " + d.save_finish(res).get_path()
+                elif mode == "multi":
+                    files = d.open_multiple_finish(res)
+                    text = "OPENED " + "|".join(files.get_item(i).get_path() for i in range(files.get_n_items()))
+                elif mode == "folder":
+                    text = "OPENED " + d.select_folder_finish(res).get_path()
                 else:
                     text = "OPENED " + d.open_finish(res).get_path()
             except GLib.Error as e:
@@ -42,6 +57,10 @@ def on_activate(a):
         if mode == "save":
             dialog.set_initial_name(name)
             dialog.save(win, None, done)
+        elif mode == "multi":
+            dialog.open_multiple(win, None, done)
+        elif mode == "folder":
+            dialog.select_folder(win, None, done)
         else:
             dialog.open(win, None, done)
         return False

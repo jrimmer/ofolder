@@ -1,0 +1,9 @@
+#!/bin/bash
+# Says what changed in the things ofolder leans on (Flea, Strata, the portal, Hyprland) since the last
+# look, and warns if ofolder has dropped out of the file-chooser chain.
+#   bin/canary          look, report, remember
+#   bin/canary --run    also run bin/e2e --release when something changed
+# See docs/e2e.md. It writes only ~/.local/state/ofolder/canary.json.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec python3 -I e2e/canary.py "$@"

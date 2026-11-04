@@ -18,9 +18,9 @@ The portal files and the `FileChooser=` chain live in the private home, so your 
 read nor written. Keys reach a dialog only through `hyprctl dispatch send_shortcut` aimed at that
 dialog's own window, never through whatever has the keyboard (`wtype` did not reach the GTK dialog). Folders are scratch folders under `/tmp`.
 
-## What it proves (117 checks, about ten minutes)
+## What it proves (153 checks, about ten minutes)
 
-Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12, GTK and Strata; Flea 0.4 has one more):
+Per backend (each of the 29 below, and the real-app shapes and the idle-CPU check after them, runs on Flea 0.4, Flea 0.3.12, GTK and Strata; Flea 0.4 has one more):
 
 - Docking and moving: the rails dock either side of the dialog and do not take the keyboard; they follow
   a moved dialog; the folder reads back (copy path); parent and back move the dialog and read back (for
@@ -40,6 +40,12 @@ Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12, GTK and Strata;
   show for a text file.
 - Shortcuts: one set in the settings is bound while the dialog is open and is gone after it closes.
 - `ofolder status` reports the file-chooser chain and warns when ofolder is not in it.
+- Real-app shapes: several files chosen in an Open dialog; a folder chosen in a folder dialog; a dialog
+  that offers only `*.txt`; saving over an existing file (the dialog's own Replace prompt, then the file
+  returned and left untouched); a folder named with spaces, quotes, `&`, `;`, `$` and Japanese; a path 14
+  levels deep; a folder reached through a link; a dialog given no start folder.
+- Idle CPU: the rails use under 25% of a core when nothing is happening. Judged on the release build
+  only (`bin/e2e --release`); the debug build uses far more and is skipped.
 
 Flea 0.4 also checks its graceful `fleapicker.quit`. Moves are confirmed by the dialog itself first
 (Flea's own `path`), then by the rails.
@@ -65,6 +71,14 @@ exactly as they were. Never give the output a position by hand: doing so once mo
 
 `bin/e2e --cleanup` removes the output, the nested compositor and the scratch folders a killed run left.
 
+## Release build and the canary
+
+`bin/e2e --release` runs everything against the release build, the one that is installed. `bin/canary`
+(`e2e/canary.py`) records the versions of Flea, Strata, the portal frontend, the GTK backend and Hyprland,
+installed and running, and the state of the chain, in `~/.local/state/ofolder/canary.json`. It prints what
+changed since the last look, warns when ofolder is not leading the chain or when the installed Hyprland is not
+the one running, and with `--run` runs `bin/e2e --release` if anything changed. It runs only when you run it.
+
 ## Strata
 
 Strata's `--install-portal` restarts the real session's portal frontend, so the suite does not run it.
@@ -83,6 +97,11 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
 
 - The nested compositor is the Hyprland on disk. After a Hyprland update that has not been logged into
   yet, the tests run a newer one than the session you are using.
+- Two of the real-app shapes are skipped on Strata with the reason stated, because no way to drive them was
+  found: confirming a folder in its folder dialog (Enter, Tab, Ctrl/Shift/Alt+Enter and a click all did
+  nothing) and selecting several files (Ctrl+A, Shift+Down and Space selected one). They are gaps, not passes.
+- Where a dialog does not act on a click sent to it (Flea 0.3's Qt window), its buttons are reached by
+  keyboard instead; the keys are per backend in `test_portal.py`.
 - Not covered: the search below a folder (the Search button and its results); the Shortcuts pane
   that records a key combination; the Rails pane beyond hiding an icon and resetting; the Messages pane;
   file manager and terminal launching; theme changes; the preview of a video.
@@ -108,6 +127,9 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
   strip waited for it on its UI thread. The type is now named. Failures that looked like a command being
   ignored stopped after this change (five full runs in a row, against four failures in eleven before),
   but the cause of those failures was not isolated, so this is a likely fix and not a proved one.
+- `wtype` decodes its arguments with the process locale and failed on any non-ASCII character when there
+  was none (a portal started by D-Bus may have none), so folders with accents or Japanese names could not
+  be entered. It now runs under `C.UTF-8`.
 - The keys unit tests left nine folders in `/tmp` per run. They remove themselves now.
 
 ## Side effect to know about
@@ -121,8 +143,9 @@ run leaves no dump. The old dumps are still in `coredumpctl`.
 
 Once, while the rails were being polled several times a second, the strip's main thread sat inside
 Mesa's Wayland surface creation (waiting on a roundtrip to the compositor) at near 100% CPU and the
-rails stopped updating. A core showed where; it did not recur after the polling was made gentler, and
-it has not been seen outside the nested session. Not understood.
+rails stopped updating. It did not recur in 40 further runs of the same stress (20 on each of the debug
+and release builds), and the release build idles at 3 to 5% of a core on the real desktop, against about
+90% for the debug build. The likeliest cause is the debug build's CPU saturation, but that is not proved.
 
 `OFOLDER_DEBUG=1` makes the rails log to stderr what they receive and ignore. The suite sets it, and
 a failing move prints those lines with the process list.

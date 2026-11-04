@@ -17,7 +17,11 @@ impl Typist for Wtype {
             Keys::Return => vec!["-k", "Return"],
             Keys::Escape => vec!["-k", "Escape"],
         };
+        // wtype decodes its arguments with the process locale, and fails ("Failed to deencode
+        // input argv") on any non-ASCII character when there is none: a portal started by D-Bus
+        // may have none. C.UTF-8 is always present and decodes every folder name.
         let status = Command::new("wtype")
+            .env("LC_ALL", "C.UTF-8")
             .args(&args)
             .status()
             .map_err(|e| SystemError(format!("wtype: {e}")))?;

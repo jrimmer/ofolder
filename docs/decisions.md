@@ -85,3 +85,10 @@ Ordered by dependency, not by importance. All 34 remain Baseline.
 3. **Going places**: R-22, R-23, R-24, R-61, R-63, R-12, R-13.
 4. **Per-app behaviour**: R-50, R-52, R-03, R-04, R-102, R-103, R-90.
 5. **Needs your say first**: R-25. R-71 is now Next. R-05 and R-33 were approved as shortcuts on 2026-11-03.
+
+## Decided 2026-11-03, after the end-to-end suite
+
+- **R-25, folders of open file managers:** go ahead, as a spike first, for Flea and Strata only. It is dropped if neither reports an exact folder (a folder is never guessed from a window title).
+- **R-71, rename, copy, move and trash from the rails:** left for a future release.
+- **Omarchy bar widget for pause and chain status:** not built. The maintainer found it incomprehensible to find, understand and use. The need it answered (knowing when another program has taken ofolder out of the portal chain) is covered by `ofolder status` and `bin/e2e` for now.
+
