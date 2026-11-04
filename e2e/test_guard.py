@@ -161,6 +161,19 @@ class Guard(unittest.TestCase):
         self.guard()
         self.assertGreater(len(self.asked()), n)
 
+    def test_the_report_hides_the_home_folder_and_says_what_it_leaves_out(self):
+        r = self.ofolder("doctor", "--report")
+        # A bare test home has things to fix, so the status may be 1; the report is printed either way.
+        self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+        self.assertNotIn(self.home, r.stdout, "the report names the home folder")
+        self.assertIn("ok       the portal starts ~/.local/bin/ofolder", r.stdout)
+        self.assertIn("left out", r.stdout)
+        self.assertIn("Flea", r.stdout)
+        # without the option nothing is hidden and no header is added
+        plain = self.ofolder("doctor")
+        self.assertIn(self.home, plain.stdout)
+        self.assertNotIn("ofolder report", plain.stdout)
+
     def test_a_healthy_setup_is_left_alone(self):
         before = open(self.conf).read()
         r = self.guard()
