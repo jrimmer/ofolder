@@ -54,11 +54,15 @@ still apply.
 | `keep_dialog_after_file_manager` | Keep the dialog open after "open in file manager" | `true` |
 | `recents_enabled` | Remember recent folders and files | `true` |
 | `recents_max` | How many recent items are kept, 1 to 500 | `20` |
-| `recents_excluded` | Folders, and everything below them, never recorded as recent | none |
+| `recents_days` | Days a recent folder or file is kept after its last use; `0` keeps them for ever | `90` |
+| `recents_excluded` | Folders, and everything below them, never recorded as recent. Naming your own list replaces the default one | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.config/Bitwarden`, `~/.config/1Password`, `~/.config/KeePassXC`, `~/.mozilla`, `~/.config/google-chrome`, `~/.config/chromium`, `~/.config/BraveSoftware`, `~/.local/share/Trash` |
 | `excluded_apps` | Application ids whose dialogs are left alone | none |
 | `file_manager`, `terminal` | Commands to use instead of the desktop's own; the folder is added at the end | detected |
 | `start_folders` | A table of application id to the folder its dialogs start in, when the app gives none | none |
 | `paused` | Set by `ofolder pause`: every dialog passes through untouched | `false` |
+| `guard` | Keep ofolder in the file-chooser chain and dialogs working without it (see "Doing it for you"). Turning it off in the settings window asks first | `true` |
+| `updates` | Look for a newer release of ofolder (needs praeco; see `docs/updates.md`) | `true` |
+| `update_with_system` | Let `omarchy update` also update ofolder. Turning it on in the settings window asks first | `false` |
 | `[rails]` `left`, `right` | The icons of each rail, top to bottom. `"-"` is a divider line, and an icon left out is hidden | as below |
 | `[shortcuts]` | A table of command to key combination, such as `places = "SUPER+ALT+P"`. Set in the settings window's Shortcuts pane | none |
 | `[preview]` `enabled` | Show a panel under the dialog while an image or video is selected | `true` |
@@ -102,20 +106,65 @@ you alone. The settings window's Messages pane lists the most recent. On screen,
 at least 10 seconds, longer for a long one, and does not go while the pointer rests on it; a click
 dismisses it. A passing note from another action never replaces an error you have not read.
 
+## What ofolder keeps, and how to forget it
+
+Everything stays on this machine, in files only you can read (mode `0600`, in folders `0700`):
+
+| What | Where |
+| --- | --- |
+| Folders and files confirmed in a dialog, with the application that asked | `~/.local/share/ofolder/recents.json` |
+| Where each application's dialog was last placed | `~/.local/share/ofolder/dialogs.json` |
+| Favorites | `~/.config/ofolder/favorites.json` |
+| The last 200 messages the rails showed, with paths | `~/.local/state/ofolder/messages.log` |
+| The last check for a new release | `~/.local/state/ofolder/update.json` |
+
+A file that is written by more than one dialog at a time has a `<name>.lock` beside it; the lock
+file holds nothing and is safe to leave. Recents older than `recents_days` are dropped, and the
+folders listed under `recents_excluded` are never recorded. `ofolder forget`, or the settings
+window's "Forget all recents…", empties the recent folders and files and lists what went; favorites
+stay. Nothing is sent anywhere.
+
 ## Doing it for you
 
-`ofolder doctor` checks all of the above and says what is wrong and how to fix it. `ofolder repair`
-does the steps for you without touching anything that is already right: it writes the two files only
-if they are missing or point at a program that is gone, puts ofolder first in the chain while leaving
-every other line and backend alone, keeps a copy of the file it changed, and restarts the portal frontend
-(unless a dialog is open). `ofolder repair --undo` puts the file back as it was.
+`ofolder doctor` checks all of the above and says what is wrong and how to fix it. `ofolder doctor --report`
+prints the same with the versions of ofolder, Hyprland, the portal frontend, Flea and Strata and the plain
+on/off settings, and with your home folder written as `~` and your user and host name replaced, so it can be
+pasted into a bug report as it is. It names no folder, file or application, and says what it leaves out.
 
-`ofolder repair --watch on` also installs a small guard (`ofolder-guard.sh`, plain shell) with two systemd
-user units, which run at login and whenever the program or the portal configuration changes:
+`ofolder repair` does the steps for you without touching anything that is already right: it writes the two
+files only if they are missing or point at a program that is gone, puts ofolder first in the chain while
+leaving every other line and backend alone, keeps a copy of the file it changed, and restarts the portal
+frontend (unless a dialog is open). `ofolder repair --undo` puts the file back as it was, and the guard then
+leaves the chain alone until you run `ofolder repair` again, so an undo is not reversed behind your back.
 
-- if another program has taken ofolder out of the chain, it is put back first and you get one notification;
-- if the ofolder program is deleted, or is there but will not answer `ofolder version` (a bad build), its portal file is set aside so file dialogs use the next backend
-  instead of failing everywhere, and put back when the program returns.
+`ofolder portal --check` starts the portal's set-up without claiming its name and says whether it could
+serve. Its exit status is 0 when it could, 3 when it could not (the configuration or the backend is broken),
+4 when the check itself could not be made (the session bus did not answer), and 1 for anything else, such as
+a build too old to know the option.
 
-`ofolder repair --watch off` removes it. The guard is optional and starts only because you ran that command.
+### The guard
 
+The guard is on by default (`guard = true`; the settings window's General pane has the switch, and turning
+it off asks first, saying what you lose). It is `ofolder-guard.sh`, plain shell, with two systemd user units
+that run at login and whenever the program's folder or the portal configuration changes. The first dialog
+after a fresh start puts it in place; `ofolder repair --watch on|off` does the same by hand.
+
+- If another program has taken ofolder out of the chain, it is put back first and you get one notification.
+- If the ofolder program is deleted, will not answer `ofolder version`, or answers it but fails
+  `ofolder portal --check` (three times, a few seconds apart, so a bus that was restarting at the wrong moment
+  cannot trigger it), its portal file is set aside so file dialogs use the next backend instead of failing
+  everywhere. It is put back when a working program returns, and you are told both times.
+- A run with nothing changed since the last good one does nothing and does not run the ofolder program
+  again (`OFOLDER_GUARD_FORCE=1` makes it look anyway).
+
+What it cannot catch: a build that passes `portal --check` and then fails while serving a dialog, and a
+machine with no systemd user session.
+
+## Telling you things, once
+
+- The first dialog ever shows a note saying what the two rails hold. A click closes it, and it never
+  returns (`~/.local/state/ofolder/rails-hint-shown` is the mark; delete it to see the note again).
+- ofolder reads interfaces that Flea and Strata do not document, so the versions it was tried with are
+  recorded in the program (Flea 0.4.0, Strata 1.1.1). When the backend is another version, the first dialog
+  with it shows one line saying so, once per version, and `ofolder doctor` says it every time. This means
+  "not tried", not "broken"; `ofolder pause` is the way out if the rails misbehave.

@@ -18,7 +18,7 @@ The portal files and the `FileChooser=` chain live in the private home, so your 
 read nor written. Keys reach a dialog only through `hyprctl dispatch send_shortcut` aimed at that
 dialog's own window, never through whatever has the keyboard (`wtype` did not reach the GTK dialog). Folders are scratch folders under `/tmp`.
 
-## What it proves (about 160 checks, about ten minutes)
+## What it proves (224 tests, about 26 minutes on the release build)
 
 Per backend (each of the 29 below, and the real-app shapes and the idle-CPU check after them, runs on Flea 0.4, Flea 0.3.12, GTK and Strata; Flea 0.4 has one more):
 
@@ -46,6 +46,11 @@ Per backend (each of the 29 below, and the real-app shapes and the idle-CPU chec
   levels deep; a folder reached through a link; a dialog given no start folder.
 - Idle CPU: the rails use under 25% of a core when nothing is happening. Judged on the release build
   only (`bin/e2e --release`); the debug build uses far more and is skipped.
+- Startup: the rails appear within a second of the dialog (median of three; none over two seconds).
+  Judged on the release build only. First measurements, 2026-11-04: GTK 0.17 to 0.27 s, Flea 0.4
+  0.18 to 0.69 s, Strata 0.18 to 0.50 s, the first of each run being the slowest.
+- Said once: the first dialog ever shows what the two rails are, a click closes it and it does not
+  return; a backend version that was not tried is said once per version and a tried one says nothing.
 
 Flea 0.4 also checks its graceful `fleapicker.quit`. Moves are confirmed by the dialog itself first
 (Flea's own `path`), then by the rails.
