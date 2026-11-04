@@ -14,7 +14,10 @@ use std::time::{Duration, Instant};
 use ofolder_core::messages;
 use ofolder_core::preview::{MAX_MB_CHOICES, PreviewSettings};
 use ofolder_core::rails::{Item, RailLayout};
-use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
+use ofolder_core::settings::{
+    self, MAX_RECENTS_LIMIT, Settings, check_app_key, check_folder, collapse_home,
+    default_recents_excluded,
+};
 use ofolder_core::settings_write::{self, Edit};
 use ofolder_core::shortcuts::{
     COMMANDS, Combo, ComboError, Group, Held, Shortcuts, from_keystroke,
@@ -55,15 +58,17 @@ pub enum Pane {
     General,
     Rails,
     Preview,
+    Apps,
     Messages,
     Shortcuts,
 }
 
 impl Pane {
-    const ALL: [Pane; 5] = [
+    const ALL: [Pane; 6] = [
         Pane::General,
         Pane::Rails,
         Pane::Preview,
+        Pane::Apps,
         Pane::Messages,
         Pane::Shortcuts,
     ];
@@ -73,6 +78,7 @@ impl Pane {
             Pane::General => "General",
             Pane::Rails => "Rails",
             Pane::Preview => "Preview",
+            Pane::Apps => "Apps and privacy",
             Pane::Messages => "Messages",
             Pane::Shortcuts => "Shortcuts",
         }
@@ -146,8 +152,31 @@ pub struct SettingsWindow {
     confirm_forget: bool,
     /// What the last forgetting did, to show under its button.
     forget_note: Option<String>,
+    /// The fields of the Apps and privacy pane, each with the reason its last Add was refused.
+    app_field: Entity<TextField>,
+    app_note: Option<String>,
+    recents_field: Entity<TextField>,
+    recents_note: Option<String>,
+    start_app_field: Entity<TextField>,
+    start_folder_field: Entity<TextField>,
+    start_note: Option<String>,
+    /// The "record this folder in the recents again?" question is showing, for this folder.
+    confirm_unexclude: Option<PathBuf>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// Which Add of the Apps and privacy pane a field belongs to.
+#[derive(Clone, Copy)]
+enum ListKind {
+    Apps,
+    Recents,
+    Starts,
+}
+
+const APP_PLACEHOLDER: &str = "Application key, such as class:kiosk";
+const FOLDER_PLACEHOLDER: &str = "Folder, such as ~/Private or /mnt/secret";
+const START_APP_PLACEHOLDER: &str = "Application key";
+const START_FOLDER_PLACEHOLDER: &str = "Starts in, such as ~/Downloads";
 
 impl SettingsWindow {
     pub fn new(shared: Entity<Shared>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -200,9 +229,44 @@ impl SettingsWindow {
             }),
             cx.observe(&shared, |_, _, cx| cx.notify()),
         ];
+        let list_field = |cx: &mut Context<Self>, placeholder: &'static str, kind: ListKind| {
+            let field = cx.new(TextField::new);
+            field.update(cx, |f, cx| f.reset("", placeholder, cx));
+            let subscription = cx.subscribe(&field, move |this, _, event: &FieldEvent, cx| {
+                match event {
+                    FieldEvent::Submit(_) => this.add_listed(kind, cx),
+                    FieldEvent::Changed(_) => {
+                        // The refusal was about the old text.
+                        match kind {
+                            ListKind::Apps => this.app_note = None,
+                            ListKind::Recents => this.recents_note = None,
+                            ListKind::Starts => this.start_note = None,
+                        }
+                        cx.notify();
+                    }
+                    FieldEvent::Cancel => this.close(cx),
+                    FieldEvent::Up | FieldEvent::Down => {}
+                }
+            });
+            (field, subscription)
+        };
+        let (app_field, s1) = list_field(cx, APP_PLACEHOLDER, ListKind::Apps);
+        let (recents_field, s2) = list_field(cx, FOLDER_PLACEHOLDER, ListKind::Recents);
+        let (start_app_field, s3) = list_field(cx, START_APP_PLACEHOLDER, ListKind::Starts);
+        let (start_folder_field, s4) = list_field(cx, START_FOLDER_PLACEHOLDER, ListKind::Starts);
+        let mut subscriptions = subscriptions;
+        subscriptions.extend([s1, s2, s3, s4]);
         let root = cx.focus_handle();
         window.focus(&root);
         SettingsWindow {
+            app_field,
+            app_note: None,
+            recents_field,
+            recents_note: None,
+            start_app_field,
+            start_folder_field,
+            start_note: None,
+            confirm_unexclude: None,
             shared,
             pane: Pane::General,
             root,
@@ -239,6 +303,15 @@ impl SettingsWindow {
             cx.stop_propagation();
             if ks.key == "escape" {
                 self.confirm_update_system = false;
+                cx.notify();
+            }
+            return;
+        }
+        if self.confirm_unexclude.is_some() {
+            // The question has the window: Escape keeps the folder excluded, nothing else acts.
+            cx.stop_propagation();
+            if ks.key == "escape" {
+                self.confirm_unexclude = None;
                 cx.notify();
             }
             return;
@@ -1285,11 +1358,403 @@ impl SettingsWindow {
             ),
             Self::heading("The settings file"),
             Self::hint(format!(
-                "Saved in {file}. Start folders for each application, folders never \
-                 recorded as recent and applications left alone are edited there by hand; \
-                 its comments are kept. `ofolder pause` turns ofolder off for every dialog."
+                "Saved in {file}. Start folders, folders never recorded as recent and \
+                 applications left alone are set in the Apps and privacy pane; everything else is \
+                 edited there by hand. Its comments are kept. `ofolder pause` turns ofolder off \
+                 for every dialog."
             )),
         ]
+    }
+
+    // ---- apps and privacy -------------------------------------------------
+
+    fn home(&self, cx: &Context<Self>) -> PathBuf {
+        self.shared.read(cx).home.clone()
+    }
+
+    fn clear_field(field: &Entity<TextField>, placeholder: &'static str, cx: &mut Context<Self>) {
+        field.update(cx, |f, cx| f.reset("", placeholder, cx));
+    }
+
+    /// Adds what is typed to the list the field belongs to, or says why not.
+    fn add_listed(&mut self, kind: ListKind, cx: &mut Context<Self>) {
+        let home = self.home(cx);
+        match kind {
+            ListKind::Apps => {
+                let typed = self.app_field.read(cx).text().to_owned();
+                match check_app_key(&typed, &self.settings.excluded_apps) {
+                    Ok(key) => {
+                        let mut apps = self.settings.excluded_apps.clone();
+                        apps.push(key);
+                        self.save(vec![Edit::ExcludedApps(apps)], cx);
+                        if self.error.is_none() {
+                            self.app_note = None;
+                            Self::clear_field(&self.app_field, APP_PLACEHOLDER, cx);
+                        }
+                    }
+                    Err(why) => self.app_note = Some(why),
+                }
+            }
+            ListKind::Recents => {
+                let typed = self.recents_field.read(cx).text().to_owned();
+                match check_folder(&typed, &home, &self.settings.recents_excluded) {
+                    Ok(folder) => {
+                        let mut list = self.settings.recents_excluded.clone();
+                        list.push(folder);
+                        self.write_recents(&list, cx);
+                        if self.error.is_none() {
+                            self.recents_note = None;
+                            Self::clear_field(&self.recents_field, FOLDER_PLACEHOLDER, cx);
+                        }
+                    }
+                    Err(why) => self.recents_note = Some(why),
+                }
+            }
+            ListKind::Starts => {
+                let typed_app = self.start_app_field.read(cx).text().to_owned();
+                let typed_folder = self.start_folder_field.read(cx).text().to_owned();
+                let known: Vec<String> = self.settings.start_folders.keys().cloned().collect();
+                let checked = check_app_key(&typed_app, &known)
+                    .map_err(|why| {
+                        if why.contains("already") {
+                            format!("{why} Remove it first to give it another folder.")
+                        } else {
+                            why
+                        }
+                    })
+                    .and_then(|app| check_folder(&typed_folder, &home, &[]).map(|f| (app, f)));
+                match checked {
+                    Ok((app, folder)) => {
+                        let written = collapse_home(&folder, &home);
+                        self.save(vec![Edit::StartFolder(app, Some(written))], cx);
+                        if self.error.is_none() {
+                            self.start_note = None;
+                            Self::clear_field(&self.start_app_field, START_APP_PLACEHOLDER, cx);
+                            Self::clear_field(
+                                &self.start_folder_field,
+                                START_FOLDER_PLACEHOLDER,
+                                cx,
+                            );
+                        }
+                    }
+                    Err(why) => self.start_note = Some(why),
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Saves `list` as the folders never recorded as recent. The default list
+    /// removes the key, so a later version's default applies.
+    fn write_recents(&mut self, list: &[PathBuf], cx: &mut Context<Self>) {
+        let home = self.home(cx);
+        let defaults = default_recents_excluded(&home);
+        let is_default = list.len() == defaults.len() && defaults.iter().all(|d| list.contains(d));
+        let edit = if is_default {
+            None
+        } else {
+            Some(list.iter().map(|p| collapse_home(p, &home)).collect())
+        };
+        self.save(vec![Edit::RecentsExcluded(edit)], cx);
+    }
+
+    /// Takes `folder` off the never-recorded list. A folder of the default list
+    /// is a privacy decision, so it asks first.
+    fn remove_recents_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        let home = self.home(cx);
+        if default_recents_excluded(&home).contains(&folder) {
+            self.confirm_unexclude = Some(folder);
+            cx.notify();
+            return;
+        }
+        self.unexclude(&folder, cx);
+    }
+
+    fn unexclude(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        self.confirm_unexclude = None;
+        let list: Vec<PathBuf> = self
+            .settings
+            .recents_excluded
+            .iter()
+            .filter(|p| p.as_path() != folder)
+            .cloned()
+            .collect();
+        self.write_recents(&list, cx);
+    }
+
+    /// One listed entry with a button that removes it.
+    fn list_row(
+        &self,
+        id: (&'static str, usize),
+        label: String,
+        remove: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .min_h(px(28.))
+            .px_2()
+            .rounded(px(4.))
+            .bg(rgb(colors().panel))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(label),
+            )
+            .child(
+                Self::icon_button(id, "icons/close.svg", true)
+                    .on_click(cx.listener(move |this, _, _, cx| remove(this, cx))),
+            )
+            .into_any_element()
+    }
+
+    /// A line of fields with the Add button after them, and under it the reason the last Add was refused.
+    fn add_line(
+        id: &'static str,
+        fields: Vec<AnyElement>,
+        note: &Option<String>,
+        add: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().flex().items_center().gap_2().children(fields).child(
+                button(id, "Add", true).on_click(cx.listener(move |this, _, _, cx| add(this, cx))),
+            ))
+            .when_some(note.clone(), |d, why| {
+                d.child(div().text_color(rgb(colors().amber)).child(why))
+            })
+            .into_any_element()
+    }
+
+    /// The Apps and privacy pane: applications left alone, folders never
+    /// recorded as recent, and the folder a dialog starts in for an application.
+    fn apps(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let home = self.home(cx);
+        let mut out = vec![Self::heading("Applications left alone")];
+        out.push(Self::hint(
+            "ofolder shows no rails beside the dialogs of these applications. An application \
+             is named by its key: its portal id, or class:name for the class of its window \
+             (`hyprctl clients` lists them).",
+        ));
+        let apps = self.settings.excluded_apps.clone();
+        if apps.is_empty() {
+            out.push(Self::hint("No application is left alone."));
+        }
+        for (i, app) in apps.iter().enumerate() {
+            let key = app.clone();
+            out.push(self.list_row(
+                ("excluded-app-remove", i),
+                app.clone(),
+                move |this, cx| {
+                    let rest: Vec<String> = this
+                        .settings
+                        .excluded_apps
+                        .iter()
+                        .filter(|a| **a != key)
+                        .cloned()
+                        .collect();
+                    this.save(vec![Edit::ExcludedApps(rest)], cx);
+                },
+                cx,
+            ));
+        }
+        out.push(Self::add_line(
+            "excluded-app-add",
+            vec![
+                div()
+                    .w(px(300.))
+                    .child(self.app_field.clone())
+                    .into_any_element(),
+            ],
+            &self.app_note,
+            |this, cx| this.add_listed(ListKind::Apps, cx),
+            cx,
+        ));
+
+        out.push(Self::heading("Folders never recorded as recent"));
+        out.push(Self::hint(
+            "A folder here, and anything inside it, is not added to the recent folders or \
+             files, in any application. The list starts with the folders that hold keys, \
+             passwords and browser profiles.",
+        ));
+        let folders = self.settings.recents_excluded.clone();
+        if folders.is_empty() {
+            out.push(Self::hint("Every folder can be recorded as recent."));
+        }
+        for (i, folder) in folders.iter().enumerate() {
+            let path = folder.clone();
+            out.push(self.list_row(
+                ("recents-excluded-remove", i),
+                abbreviate(folder, &home),
+                move |this, cx| this.remove_recents_folder(path.clone(), cx),
+                cx,
+            ));
+        }
+        out.push(Self::add_line(
+            "recents-excluded-add",
+            vec![
+                div()
+                    .w(px(300.))
+                    .child(self.recents_field.clone())
+                    .into_any_element(),
+            ],
+            &self.recents_note,
+            |this, cx| this.add_listed(ListKind::Recents, cx),
+            cx,
+        ));
+        let defaults = default_recents_excluded(&home);
+        let is_default =
+            folders.len() == defaults.len() && defaults.iter().all(|d| folders.contains(d));
+        out.push(
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    button(
+                        "recents-excluded-restore",
+                        "Restore the default list",
+                        !is_default,
+                    )
+                    .when(!is_default, |b| {
+                        b.on_click(cx.listener(|this, _, _, cx| {
+                            this.recents_note = None;
+                            this.save(vec![Edit::RecentsExcluded(None)], cx);
+                        }))
+                    }),
+                )
+                .into_any_element(),
+        );
+        out.push(Self::hint(
+            "Once the list is changed it is kept as it is, so folders a later version adds to \
+             the default are not added to it; restoring the default list follows them again.",
+        ));
+
+        out.push(Self::heading("Start folders"));
+        out.push(Self::hint(
+            "The folder a dialog opens in for an application, when the application names none \
+             of its own. It is used only when the folder exists.",
+        ));
+        let starts: Vec<(String, PathBuf)> = self
+            .settings
+            .start_folders
+            .iter()
+            .map(|(a, f)| (a.clone(), f.clone()))
+            .collect();
+        if starts.is_empty() {
+            out.push(Self::hint("No application has a start folder."));
+        }
+        for (i, (app, folder)) in starts.into_iter().enumerate() {
+            let label = format!("{app}  →  {}", abbreviate(&folder, &home));
+            out.push(self.list_row(
+                ("start-folder-remove", i),
+                label,
+                move |this, cx| {
+                    this.save(vec![Edit::StartFolder(app.clone(), None)], cx);
+                },
+                cx,
+            ));
+        }
+        out.push(Self::add_line(
+            "start-folder-add",
+            vec![
+                div()
+                    .w(px(170.))
+                    .child(self.start_app_field.clone())
+                    .into_any_element(),
+                div()
+                    .w(px(230.))
+                    .child(self.start_folder_field.clone())
+                    .into_any_element(),
+            ],
+            &self.start_note,
+            |this, cx| this.add_listed(ListKind::Starts, cx),
+            cx,
+        ));
+        out
+    }
+
+    /// The question shown over the window before a folder of the default list is taken off it.
+    fn unexclude_question(&self, folder: &Path, cx: &mut Context<Self>) -> AnyElement {
+        let shown = abbreviate(folder, &self.home(cx));
+        let line = |text: String| {
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_none().child("•"))
+                .child(div().flex_1().min_w(px(0.)).child(text))
+        };
+        div()
+            .id("recents-excluded-question")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x0000_00b3))
+            .child(
+                div()
+                    .w(px(440.))
+                    .p(px(18.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .rounded(px(8.))
+                    .bg(rgb(colors().panel))
+                    .border_1()
+                    .border_color(rgb(colors().red))
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!("Record {shown} in the recents?")),
+                    )
+                    .child(line(format!(
+                        "{shown} is on the default list of folders that hold private things. If \
+                         you remove it, the folders and files you open or save there will appear \
+                         in the recents of every application."
+                    )))
+                    .child(line(
+                        "Anyone who can see your screen can read them there. Nothing on disk is \
+                         touched, and Restore the default list puts it back."
+                            .to_owned(),
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .pt_2()
+                            .child(
+                                button("recents-excluded-keep", "Keep it excluded", true).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.confirm_unexclude = None;
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                            .child({
+                                let folder = folder.to_path_buf();
+                                button("recents-excluded-remove-yes", "Remove it", true)
+                                    .text_color(rgb(colors().red))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.unexclude(&folder, cx);
+                                    }))
+                            }),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// The last messages the strips showed, newest first, so one that went
@@ -1767,6 +2232,7 @@ impl Render for SettingsWindow {
             Pane::General => self.general(cx),
             Pane::Rails => self.rails(cx),
             Pane::Preview => self.preview(cx),
+            Pane::Apps => self.apps(cx),
             Pane::Messages => self.recent_messages(cx),
             Pane::Shortcuts => self.shortcuts(cx),
         };
@@ -1819,6 +2285,9 @@ impl Render for SettingsWindow {
             )
             .when(self.confirm_guard_off, |d| d.child(self.guard_question(cx)))
             .when(self.confirm_forget, |d| d.child(self.forget_question(cx)))
+            .when_some(self.confirm_unexclude.clone(), |d, folder| {
+                d.child(self.unexclude_question(&folder, cx))
+            })
             .when(self.confirm_update_system, |d| {
                 d.child(self.update_system_question(cx))
             })

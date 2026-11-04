@@ -779,6 +779,12 @@ class Features:
         self.assertTrue(self.s.click(self.SETTINGS, x, y), "the click did not land")
         time.sleep(0.6)
 
+    def settings_shot(self, name):
+        folder = os.environ.get("E2E_SHOTS")
+        win = self.s.client(self.SETTINGS)
+        if folder and win:
+            self.s.run(["grim", "-g", "%d,%d %dx%d" % (*win["at"], *win["size"]), os.path.join(folder, name + ".png")])
+
     # The guard: a switch in the General pane at (300, 409); turning it off asks first, with
     # "Keep it on" at (475, 390) and "Turn it off" at (555, 390).
     def guard_files(self):
@@ -1407,12 +1413,6 @@ class UpdatesUi:
         except (OSError, ValueError):
             return {}
 
-    def settings_shot(self, name):
-        folder = os.environ.get("E2E_SHOTS")
-        win = self.s.client(self.SETTINGS)
-        if folder and win:
-            self.s.run(["grim", "-g", "%d,%d %dx%d" % (*win["at"], *win["size"]), os.path.join(folder, name + ".png")])
-
     def setUp(self):
         super().setUp()
         for f in (self.state_file(), os.path.join(self.fake_dir, "calls.log")):
@@ -1528,6 +1528,168 @@ class UpdatesUi:
         self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the settings window instead of the question")
         self.assertNotIn("update_with_system = true", self.settings_text())
         self.assertFalse(self.praeco_ran("init"))
+
+
+class AppsUi:
+    """The Apps and privacy pane of the settings window, with real clicks and typing. The file
+    starts with comments and a key this version does not know, which must survive everything.
+
+    Positions are read from screenshots. The pane scrolls, so each step scrolls the wheel to the
+    top or far past the bottom first, where things are always in the same place. At the top, with
+    one excluded application: its row's remove button (736, 162), the field (350, 195), Add (531, 195).
+    At the bottom: the folders field (350, 299), its Add (531, 299), Restore the default list
+    (280, 331), the last default folder's remove button (736, 267); the start folders' two fields
+    (289, 526) and (496, 526) with Add (639, 526). With one start folder its row is at y 494.
+    The question for a default folder has "Keep it excluded" and "Remove it" at QUESTION_KEEP and
+    QUESTION_REMOVE."""
+
+    SEED = (
+        "# my own notes\nfuture_key = \"kept\"\nexcluded_apps = [\"class:old\"] # keep this note\n\n"
+        "# the browser\n[start_folders]\n\"class:zen\" = \"~/Downloads\"\n"
+    )
+    QUESTION_KEEP = (455, 374)
+    QUESTION_REMOVE = (555, 374)
+
+    def open_apps(self, seed=None):
+        open(self.config("settings.toml"), "w").write(self.SEED if seed is None else seed)
+        self.open_settings()
+        self.click_settings(44, 131)  # the Apps and privacy pane
+
+    def to_top(self):
+        self.assertTrue(self.s.scroll(self.SETTINGS, 500, 300, -30))
+
+    def to_bottom(self):
+        self.assertTrue(self.s.scroll(self.SETTINGS, 500, 300, 30))
+
+    def type_into(self, x, y, text):
+        self.click_settings(x, y)
+        self.assertTrue(self.s.type_text(self.SETTINGS, text), "the settings window did not have the keyboard")
+        time.sleep(0.4)
+
+    def toml(self):
+        import tomllib
+
+        return tomllib.loads(self.settings_text())
+
+    def assert_hand_edits_kept(self):
+        text = self.settings_text()
+        self.assertIn("# my own notes", text)
+        self.assertIn('future_key = "kept"', text)
+        self.assertIn("# the browser", text)
+
+    def test_an_excluded_application_is_added_and_removed(self):
+        self.open_apps()
+        self.settings_shot("apps-0-start")
+        self.type_into(350, 195, "class:kiosk")
+        self.click_settings(531, 195)
+        self.assertTrue(wait_for(10, lambda: "class:kiosk" in self.settings_text()), self.settings_text())
+        self.assertEqual(self.toml()["excluded_apps"], ["class:old", "class:kiosk"])
+        self.settings_shot("apps-1-added")
+        self.click_settings(736, 162)  # remove class:old
+        self.assertTrue(wait_for(10, lambda: self.toml().get("excluded_apps") == ["class:kiosk"]), self.settings_text())
+        self.click_settings(736, 162)  # remove class:kiosk, the last one: the key goes
+        self.assertTrue(wait_for(10, lambda: "excluded_apps" not in self.settings_text()), self.settings_text())
+        self.assert_hand_edits_kept()
+
+    def test_a_bad_application_key_is_refused_and_changes_nothing(self):
+        self.open_apps()
+        before = self.settings_text()
+        self.click_settings(531, 195)  # nothing typed
+        self.settings_shot("apps-2-empty")
+        self.type_into(350, 195, "class:old")  # already listed
+        self.click_settings(531, 195)
+        self.settings_shot("apps-3-duplicate")
+        time.sleep(0.8)
+        self.assertEqual(self.settings_text(), before, "a refused key changed the file")
+
+    def refuse_folder(self, bad, shot):
+        self.open_apps()
+        before = self.settings_text()
+        self.to_bottom()
+        self.type_into(350, 299, bad)
+        self.click_settings(531, 299)
+        self.settings_shot(shot)  # the reason shows in amber under the field
+        time.sleep(0.5)
+        self.assertEqual(self.settings_text(), before, "%r changed the file" % bad)
+
+    def test_a_relative_folder_is_refused_and_changes_nothing(self):
+        self.refuse_folder("relative/dir", "apps-4-relative")
+
+    def test_another_users_home_is_refused_and_changes_nothing(self):
+        self.refuse_folder("~bob/x", "apps-4-other-home")
+
+    def test_a_folder_already_listed_is_refused_and_changes_nothing(self):
+        self.refuse_folder("~/.ssh/", "apps-4-duplicate")
+
+    def test_a_start_folder_that_is_not_a_full_path_is_refused_and_changes_nothing(self):
+        self.open_apps()
+        before = self.settings_text()
+        self.to_bottom()
+        self.type_into(289, 526, "class:foo")
+        self.type_into(496, 526, "Downloads")
+        self.click_settings(639, 526)
+        self.settings_shot("apps-5-bad-start")
+        time.sleep(0.5)
+        self.assertEqual(self.settings_text(), before, "a start folder that was not a full path changed the file")
+
+    def test_removing_a_default_folder_asks_first_and_restore_brings_the_defaults_back(self):
+        self.open_apps()
+        self.to_bottom()
+        self.click_settings(736, 267)  # remove ~/.local/share/Trash: asks
+        self.settings_shot("apps-6-question")
+        self.assertNotIn("recents_excluded", self.settings_text(), "it removed a default folder without asking")
+        self.click_settings(*self.QUESTION_KEEP)
+        time.sleep(0.8)
+        self.assertNotIn("recents_excluded", self.settings_text(), "Keep changed the file")
+        # Escape keeps it too, and leaves the window open.
+        self.to_bottom()
+        self.click_settings(736, 267)
+        self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
+        time.sleep(0.8)
+        self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the window instead of the question")
+        self.assertNotIn("recents_excluded", self.settings_text())
+        self.to_bottom()
+        self.click_settings(736, 267)
+        self.click_settings(*self.QUESTION_REMOVE)
+        self.assertTrue(wait_for(10, lambda: "recents_excluded" in self.settings_text()), self.settings_text())
+        listed = self.toml()["recents_excluded"]
+        self.assertEqual(len(listed), 11, listed)
+        self.assertNotIn("~/.local/share/Trash", listed)
+        self.assertIn("~/.ssh", listed)
+        self.to_bottom()
+        self.settings_shot("apps-7-removed")
+        self.click_settings(280, 331)  # Restore the default list
+        self.assertTrue(wait_for(10, lambda: "recents_excluded" not in self.settings_text()), self.settings_text())
+        self.assert_hand_edits_kept()
+
+    def test_a_folder_is_added_to_the_never_recorded_list_and_a_non_default_one_goes_without_asking(self):
+        self.open_apps()
+        self.to_bottom()
+        self.type_into(350, 299, "~/Private")
+        self.click_settings(531, 299)
+        self.assertTrue(wait_for(10, lambda: "recents_excluded" in self.settings_text()), self.settings_text())
+        listed = self.toml()["recents_excluded"]
+        self.assertEqual(len(listed), 13, listed)
+        self.assertIn("~/Private", listed)
+        self.to_bottom()
+        self.settings_shot("apps-8-added")
+        self.click_settings(736, 267)  # ~/Private is last now: no question
+        self.assertTrue(wait_for(10, lambda: "recents_excluded" not in self.settings_text()), self.settings_text())
+
+    def test_a_start_folder_is_added_and_removed(self):
+        self.open_apps()
+        self.to_bottom()
+        self.type_into(289, 526, "class:foo")
+        self.type_into(496, 526, "~/Pictures")
+        self.click_settings(639, 526)
+        self.assertTrue(wait_for(10, lambda: "class:foo" in self.settings_text()), self.settings_text())
+        self.assertEqual(self.toml()["start_folders"], {"class:zen": "~/Downloads", "class:foo": "~/Pictures"})
+        self.to_bottom()
+        self.settings_shot("apps-9-start-added")
+        self.click_settings(736, 494)  # class:zen is the second row
+        self.assertTrue(wait_for(10, lambda: "class:zen" not in self.settings_text()), self.settings_text())
+        self.assertEqual(self.toml()["start_folders"], {"class:foo": "~/Pictures"})
+        self.assert_hand_edits_kept()
 
 
 class UpdateCheck(unittest.TestCase):
@@ -1648,7 +1810,7 @@ class Flea03(RealApps, Features, Rails, unittest.TestCase):
     pick_marker = "picker.qml"
 
 
-class Gtk(UpdatesUi, RealApps, Features, Rails, unittest.TestCase):
+class Gtk(AppsUi, UpdatesUi, RealApps, Features, Rails, unittest.TestCase):
     folder_keys = ["Return"]
     save_keys = ["Return"]
     replace_keys = ["Return"]
