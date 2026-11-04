@@ -453,7 +453,11 @@ mod tests {
         let off = parse_ok("updates = false\nupdate_with_system = true\n");
         assert!(!off.settings.updates);
         assert!(off.settings.update_with_system);
-        assert!(off.warnings.is_empty(), "both keys are known: {:?}", off.warnings);
+        assert!(
+            off.warnings.is_empty(),
+            "both keys are known: {:?}",
+            off.warnings
+        );
         let bad = parse_ok("update_with_system = \"yes\"\n");
         assert!(!bad.settings.update_with_system);
         assert_eq!(bad.warnings.len(), 1);

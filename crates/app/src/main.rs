@@ -362,7 +362,8 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
             eprintln!("ofolder: the guard could not be put in order: {e}");
         }
     });
-    let connection = ofolder_portal::block_on(ofolder_portal::serve_session(BUS_NAME, backend, hooks))?;
+    let connection =
+        ofolder_portal::block_on(ofolder_portal::serve_session(BUS_NAME, backend, hooks))?;
     println!(
         "ofolder portal: {BUS_NAME} forwards to {backend}{}",
         if parsed.strip {

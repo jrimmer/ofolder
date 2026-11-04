@@ -16,12 +16,12 @@ use ofolder_core::preview::{MAX_MB_CHOICES, PreviewSettings};
 use ofolder_core::rails::{Item, RailLayout};
 use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
 use ofolder_core::settings_write::{self, Edit};
-use ofolder_core::update::{
-    Event, State, Tail, display_version, offered_version, pill_text, read_state, running_version,
-    modify_state,
-};
 use ofolder_core::shortcuts::{
     COMMANDS, Combo, ComboError, Group, Held, Shortcuts, from_keystroke,
+};
+use ofolder_core::update::{
+    Event, State, Tail, display_version, modify_state, offered_version, pill_text, read_state,
+    running_version,
 };
 
 use crate::colors::colors;
@@ -660,7 +660,9 @@ impl SettingsWindow {
             this.update(cx, |t, cx| {
                 t.update_note = Some(match result {
                     Ok(message) => message,
-                    Err(e) => format!("The setting was saved, but omarchy update was not changed: {e}"),
+                    Err(e) => {
+                        format!("The setting was saved, but omarchy update was not changed: {e}")
+                    }
                 });
                 cx.notify();
             })
@@ -688,7 +690,10 @@ impl SettingsWindow {
         ];
         let (state_path, available) = {
             let shared = self.shared.read(cx);
-            (shared.update_state_path.clone(), shared.actions().updates_available())
+            (
+                shared.update_state_path.clone(),
+                shared.actions().updates_available(),
+            )
         };
         if !available {
             rows.push(Self::hint(
@@ -739,12 +744,16 @@ impl SettingsWindow {
             .id("update-pill")
             .mt_1()
             .child(
-                button("update-pill-button", &format!("{}  ·  What's new", pill_text(latest)), true)
-                    .text_color(rgb(colors().accent))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.update_open = !this.update_open;
-                        cx.notify();
-                    })),
+                button(
+                    "update-pill-button",
+                    &format!("{}  ·  What's new", pill_text(latest)),
+                    true,
+                )
+                .text_color(rgb(colors().accent))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.update_open = !this.update_open;
+                    cx.notify();
+                })),
             )
             .into_any_element()
     }
@@ -769,13 +778,11 @@ impl SettingsWindow {
         let version = latest.to_owned();
         let mut choices = div().flex().gap_2().pt_1();
         if state.can_install {
-            choices = choices.child(
-                button("update-install", "Install", true).on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        this.begin_install(version.clone(), false, cx);
-                    },
-                )),
-            );
+            choices = choices.child(button("update-install", "Install", true).on_click(
+                cx.listener(move |this, _, _, cx| {
+                    this.begin_install(version.clone(), false, cx);
+                }),
+            ));
         } else {
             out.push(Self::hint(format!(
                 "praeco cannot install this kind of install. The release is at {}.",
@@ -783,11 +790,11 @@ impl SettingsWindow {
             )));
         }
         choices = choices
-            .child(button("update-later", "Later", true).on_click(cx.listener(
-                |this, _, _, cx| {
+            .child(
+                button("update-later", "Later", true).on_click(cx.listener(|this, _, _, cx| {
                     this.choose_update(|s| s.later_checked_at = s.checked_at, cx);
-                },
-            )))
+                })),
+            )
             .child(
                 button("update-skip", "Skip this version", true).on_click(cx.listener(
                     |this, _, _, cx| {
@@ -801,7 +808,12 @@ impl SettingsWindow {
 
     /// The install in words, with the one choice praeco can need: a terminal, or a retry.
     fn job_lines(&self, job: &UpdateJob, cx: &mut Context<Self>) -> AnyElement {
-        let mut lines = div().flex().flex_col().gap_1().pt_1().child(Self::hint(job.text.clone()));
+        let mut lines = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .pt_1()
+            .child(Self::hint(job.text.clone()));
         if let Some(message) = &job.failed {
             lines = lines.child(
                 div()

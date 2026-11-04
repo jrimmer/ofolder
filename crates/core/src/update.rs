@@ -156,10 +156,7 @@ pub fn running_version(pretend: Option<&str>, real: &str) -> String {
 
 /// The version as people read it: a leading `v` is dropped.
 pub fn display_version(version: &str) -> String {
-    version
-        .trim()
-        .trim_start_matches(['v', 'V'])
-        .to_owned()
+    version.trim().trim_start_matches(['v', 'V']).to_owned()
 }
 
 /// Compares two versions by their dotted numbers. A leading `v` is ignored, and
@@ -473,27 +470,25 @@ pub fn install_args(plan: &InstallPlan<'_>) -> Vec<OsString> {
 
 /// The arguments after `praeco` that register ofolder with the system update.
 pub fn register_args(source: &Source, exe: &Path) -> Vec<OsString> {
-    let mut args: Vec<OsString> = vec![
-        "init".into(),
-        "--name".into(),
-        REGISTRATION_NAME.into(),
-    ];
+    let mut args: Vec<OsString> = vec!["init".into(), "--name".into(), REGISTRATION_NAME.into()];
     args.extend(source.praeco_args());
-    args.extend([
-        "--exe".into(),
-        exe.into(),
-        "--hook".into(),
-        "auto".into(),
-    ]);
+    args.extend(["--exe".into(), exe.into(), "--hook".into(), "auto".into()]);
     args
 }
 
 /// The arguments after `praeco` that take the registration away again.
 pub fn unregister_args() -> Vec<OsString> {
-    ["init", "--remove", "--name", REGISTRATION_NAME, "--hook", "auto"]
-        .into_iter()
-        .map(OsString::from)
-        .collect()
+    [
+        "init",
+        "--remove",
+        "--name",
+        REGISTRATION_NAME,
+        "--hook",
+        "auto",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect()
 }
 
 /// One line of the install's progress file, in words a person can read.
@@ -505,9 +500,16 @@ pub enum Event {
         fraction: Option<f64>,
     },
     /// praeco cannot ask for a password here: run the install again in a terminal.
-    NeedsTerminal { message: String },
-    Done { restarted: bool },
-    Failed { code: String, message: String },
+    NeedsTerminal {
+        message: String,
+    },
+    Done {
+        restarted: bool,
+    },
+    Failed {
+        code: String,
+        message: String,
+    },
     /// A line praeco wrote that this version does not show.
     Ignored,
 }
@@ -659,7 +661,10 @@ mod tests {
                 repo: "jrimmer/ofolder".to_owned(),
             })
         );
-        assert_eq!(Source::from_env_value(Some("  ")), Source::from_env_value(None));
+        assert_eq!(
+            Source::from_env_value(Some("  ")),
+            Source::from_env_value(None)
+        );
     }
 
     #[test]
@@ -725,8 +730,14 @@ mod tests {
         let usable = |path: &Path| path == beside;
         let over = p("/opt/test/praeco");
         assert_eq!(locate_praeco(Some(&over), &exe_dir, usable), None);
-        assert_eq!(locate_praeco(Some(&beside), &exe_dir, usable), Some(beside.clone()));
-        assert_eq!(locate_praeco(Some(Path::new("")), &exe_dir, usable), Some(beside));
+        assert_eq!(
+            locate_praeco(Some(&beside), &exe_dir, usable),
+            Some(beside.clone())
+        );
+        assert_eq!(
+            locate_praeco(Some(Path::new("")), &exe_dir, usable),
+            Some(beside)
+        );
     }
 
     #[test]
@@ -831,7 +842,8 @@ mod tests {
 
     #[test]
     fn a_failure_object_gives_praeco_s_code_and_message() {
-        let text = r#"{"ok":false,"error":{"code":"network","message":"Could not reach the host."}}"#;
+        let text =
+            r#"{"ok":false,"error":{"code":"network","message":"Could not reach the host."}}"#;
         assert_eq!(
             parse_check(text),
             CheckResult::Failed {
@@ -855,7 +867,8 @@ mod tests {
 
     #[test]
     fn a_recorded_check_is_read_back_with_its_time_and_versions() {
-        let dir = std::env::temp_dir().join(format!("ofolder-update-record-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ofolder-update-record-{}", std::process::id()));
         fs::remove_dir_all(&dir).ok();
         let path = dir.join("update.json");
         let written = record_check(&path, 1_000, "0.1.0", &answer("0.2.0", "tarball", true))
@@ -888,7 +901,10 @@ mod tests {
         let written = record_check(&path, 5, "0.1.0", &answer("0.2.0", "unsupported", false))
             .expect("recorded")
             .expect("written");
-        assert!(!written.update_available, "praeco's unsupported kind hides the pill");
+        assert!(
+            !written.update_available,
+            "praeco's unsupported kind hides the pill"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -963,7 +979,8 @@ mod tests {
 
     #[test]
     fn a_state_file_that_is_damaged_reads_as_no_check_yet() {
-        let dir = std::env::temp_dir().join(format!("ofolder-update-damaged-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ofolder-update-damaged-{}", std::process::id()));
         fs::create_dir_all(&dir).expect("folder");
         let path = dir.join("update.json");
         fs::write(&path, "{not json").expect("write");
@@ -973,7 +990,8 @@ mod tests {
 
     #[test]
     fn a_modified_state_keeps_what_the_change_did_not_touch() {
-        let dir = std::env::temp_dir().join(format!("ofolder-update-modify-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ofolder-update-modify-{}", std::process::id()));
         let path = dir.join("update.json");
         modify_state(&path, |s| s.latest = Some("0.2.0".to_owned())).expect("first");
         modify_state(&path, |s| s.skipped = Some("0.2.0".to_owned())).expect("second");
@@ -985,7 +1003,11 @@ mod tests {
 
     #[test]
     fn the_check_command_names_the_source_and_asks_for_json() {
-        let args = check_args(&Source::default_source(), "0.1.0", &p("/home/u/.local/bin/ofolder"));
+        let args = check_args(
+            &Source::default_source(),
+            "0.1.0",
+            &p("/home/u/.local/bin/ofolder"),
+        );
         assert_eq!(
             args,
             [
@@ -1142,7 +1164,12 @@ mod tests {
             ]
         );
         assert!(tail.feed(b"").is_empty());
-        let fed = br#"{"event":"resolving""#.len() + b"}\n{\"event\":\"done\",\"restarted\":false}\n".len();
-        assert_eq!(tail.offset(), fed as u64, "every byte taken counts, even an unfinished line");
+        let fed = br#"{"event":"resolving""#.len()
+            + b"}\n{\"event\":\"done\",\"restarted\":false}\n".len();
+        assert_eq!(
+            tail.offset(),
+            fed as u64,
+            "every byte taken counts, even an unfinished line"
+        );
     }
 }

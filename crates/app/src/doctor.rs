@@ -227,8 +227,12 @@ pub fn doctor() -> anyhow::Result<()> {
     let system = match (loaded.update_with_system, registered) {
         (true, true) => "registered with omarchy update",
         (false, false) => "not registered with omarchy update, as chosen",
-        (true, false) => "set to update with omarchy update, but not registered (ofolder update register)",
-        (false, true) => "registered with omarchy update, but the setting is off (ofolder update unregister)",
+        (true, false) => {
+            "set to update with omarchy update, but not registered (ofolder update register)"
+        }
+        (false, true) => {
+            "registered with omarchy update, but the setting is off (ofolder update unregister)"
+        }
     };
     let line = format!("updates: checks are {checks}; {system}");
     if loaded.update_with_system == registered {

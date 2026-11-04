@@ -15,9 +15,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ofolder_core::settings;
 use ofolder_core::update::{
-    CheckResult, InstallPlan, RETRY_AFTER_FAILURE_SECS, POLL_SECS, Source, State, check_args,
-    check_due, install_args, locate_praeco, parse_check, read_state, record_check,
-    register_args, running_version, unregister_args,
+    CheckResult, InstallPlan, POLL_SECS, RETRY_AFTER_FAILURE_SECS, Source, State, check_args,
+    check_due, install_args, locate_praeco, parse_check, read_state, record_check, register_args,
+    running_version, unregister_args,
 };
 
 /// How long a check may take. A slow network is reported as a failed check,
@@ -165,11 +165,13 @@ impl Updates {
         let result = parse_check(&ran.stdout);
         match &result {
             CheckResult::Failed { message, .. } => Outcome::Failed(message.clone()),
-            CheckResult::Answer { .. } => match record_check(&self.state_path, now, &self.running, &result) {
-                Some(Ok(state)) => Outcome::Checked(state),
-                Some(Err(e)) => Outcome::Failed(format!("the check could not be saved: {e}")),
-                None => Outcome::Failed("praeco gave no answer".to_owned()),
-            },
+            CheckResult::Answer { .. } => {
+                match record_check(&self.state_path, now, &self.running, &result) {
+                    Some(Ok(state)) => Outcome::Checked(state),
+                    Some(Err(e)) => Outcome::Failed(format!("the check could not be saved: {e}")),
+                    None => Outcome::Failed("praeco gave no answer".to_owned()),
+                }
+            }
         }
     }
 
@@ -198,7 +200,10 @@ pub fn unregister(praeco: &Path) -> Result<String, String> {
     if ran.success {
         Ok("ofolder is no longer registered with omarchy update.".to_owned())
     } else {
-        Err(format!("praeco did not remove the registration: {}", reason(&ran)))
+        Err(format!(
+            "praeco did not remove the registration: {}",
+            reason(&ran)
+        ))
     }
 }
 
@@ -277,8 +282,8 @@ pub fn spawn_schedule(
         loop {
             let now = now_secs();
             let on = settings::load(&settings_path, &home).settings.updates;
-            let retry_due = failed_at
-                .is_none_or(|t| now < t || now - t >= RETRY_AFTER_FAILURE_SECS);
+            let retry_due =
+                failed_at.is_none_or(|t| now < t || now - t >= RETRY_AFTER_FAILURE_SECS);
             if on && retry_due {
                 match updates.check_if_due(now, forced) {
                     Some(Outcome::Failed(why)) => {
@@ -320,7 +325,9 @@ pub fn start_portal_checks(exe: &Path, home: &Path, settings_path: PathBuf) {
         Ok(text) => match text.trim().parse::<u64>() {
             Ok(secs) => (Duration::from_secs(secs), true),
             Err(_) => {
-                eprintln!("ofolder: OFOLDER_UPDATE_CHECK_DELAY must be whole seconds; using the default");
+                eprintln!(
+                    "ofolder: OFOLDER_UPDATE_CHECK_DELAY must be whole seconds; using the default"
+                );
                 (FIRST_CHECK, false)
             }
         },
@@ -338,7 +345,13 @@ pub fn start_portal_checks(exe: &Path, home: &Path, settings_path: PathBuf) {
         timeout: CHECK_TIMEOUT,
     };
     // Not joined: the schedule lives as long as the portal does.
-    drop(spawn_schedule(updates, settings_path, home.to_path_buf(), first_after, forced));
+    drop(spawn_schedule(
+        updates,
+        settings_path,
+        home.to_path_buf(),
+        first_after,
+        forced,
+    ));
 }
 
 /// `ofolder update register|unregister`: the same registration the settings
@@ -356,7 +369,10 @@ pub fn command(args: &[String], exe: &Path, settings_path: &Path) -> anyhow::Res
     let message = message.map_err(anyhow::Error::msg)?;
     ofolder_core::settings_write::save(
         settings_path,
-        &[ofolder_core::settings_write::Edit::Bool("update_with_system", on)],
+        &[ofolder_core::settings_write::Edit::Bool(
+            "update_with_system",
+            on,
+        )],
     )?;
     println!("{message}");
     Ok(())
@@ -366,7 +382,6 @@ pub fn command(args: &[String], exe: &Path, settings_path: &Path) -> anyhow::Res
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     use ofolder_core::update::{Event, Tail, modify_state, offered_version, read_state};
@@ -388,17 +403,17 @@ mod tests {
     impl Fixture {
         fn new(label: &str) -> Fixture {
             let n = NEXT.fetch_add(1, AtomicOrdering::Relaxed);
-            let dir = std::env::temp_dir().join(format!(
-                "ofolder-update-{label}-{}-{n}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("ofolder-update-{label}-{}-{n}", std::process::id()));
             fs::remove_dir_all(&dir).ok();
             fs::create_dir_all(&dir).expect("fixture folder");
             // A link, not a copy: a script written just now can fail to run ("text file busy")
             // while another test thread still holds it open for writing. The fake keeps its files in
             // the folder it was started from, which for a link is this folder.
-            let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/support/fake-praeco");
-            std::os::unix::fs::symlink(&script, dir.join("praeco")).expect("the fake praeco is linked");
+            let script =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/support/fake-praeco");
+            std::os::unix::fs::symlink(&script, dir.join("praeco"))
+                .expect("the fake praeco is linked");
             Fixture { dir }
         }
 
@@ -459,8 +474,14 @@ mod tests {
         f.answer("check.json", OFFER);
         let u = f.updates(Duration::from_secs(10));
         let first = u.check_if_due(NOW, false);
-        assert!(matches!(&first, Some(Outcome::Checked(s)) if s.latest.as_deref() == Some("0.2.0")));
-        assert_eq!(u.check_if_due(NOW + 60, false), None, "a fresh check is not due again");
+        assert!(
+            matches!(&first, Some(Outcome::Checked(s)) if s.latest.as_deref() == Some("0.2.0"))
+        );
+        assert_eq!(
+            u.check_if_due(NOW + 60, false),
+            None,
+            "a fresh check is not due again"
+        );
         assert_eq!(read_state(&f.state_path()).checked_at, Some(NOW));
         let calls = f.calls();
         assert_eq!(calls.len(), 1, "praeco was run once: {calls:?}");
@@ -491,8 +512,14 @@ mod tests {
         let u = f.updates(Duration::from_millis(300));
         let started = Instant::now();
         let outcome = u.check_now(NOW);
-        assert!(started.elapsed() < Duration::from_secs(4), "the wait is bounded");
-        assert!(matches!(&outcome, Outcome::Failed(why) if why.contains("too long")), "{outcome:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "the wait is bounded"
+        );
+        assert!(
+            matches!(&outcome, Outcome::Failed(why) if why.contains("too long")),
+            "{outcome:?}"
+        );
         assert!(!f.state_path().exists());
     }
 
@@ -501,8 +528,14 @@ mod tests {
         let f = Fixture::new("forced");
         f.answer("check.json", OFFER);
         let u = f.updates(Duration::from_secs(10));
-        assert!(matches!(u.check_if_due(NOW, false), Some(Outcome::Checked(_))));
-        assert!(matches!(u.check_if_due(NOW + 1, true), Some(Outcome::Checked(_))));
+        assert!(matches!(
+            u.check_if_due(NOW, false),
+            Some(Outcome::Checked(_))
+        ));
+        assert!(matches!(
+            u.check_if_due(NOW + 1, true),
+            Some(Outcome::Checked(_))
+        ));
         assert_eq!(f.calls().len(), 2);
     }
 
@@ -517,13 +550,21 @@ mod tests {
         modify_state(&f.state_path(), |s| s.later_checked_at = s.checked_at).expect("later");
         assert_eq!(offered(&f), None, "Later hides it");
         u.check_now(NOW + 5);
-        assert_eq!(offered(&f).as_deref(), Some("0.2.0"), "the next check shows it again");
+        assert_eq!(
+            offered(&f).as_deref(),
+            Some("0.2.0"),
+            "the next check shows it again"
+        );
 
         modify_state(&f.state_path(), |s| s.skipped = s.latest.clone()).expect("skip");
         assert_eq!(offered(&f), None, "Skip hides this version");
         f.answer("check.json", &OFFER.replace("0.2.0", "0.2.1"));
         u.check_now(NOW + 10);
-        assert_eq!(offered(&f).as_deref(), Some("0.2.1"), "a newer release is offered");
+        assert_eq!(
+            offered(&f).as_deref(),
+            Some("0.2.1"),
+            "a newer release is offered"
+        );
     }
 
     #[test]
@@ -536,8 +577,16 @@ mod tests {
         fs::create_dir(f.dir.join("progress dir")).expect("progress folder");
         let progress = f.dir.join("progress dir/update \"1\".jsonl");
         let exe = PathBuf::from("/home/u/My Apps/ofolder");
-        start_install(&f.praeco(), &Source::default_source(), "0.2.0", &exe, 4321, &progress, false)
-            .expect("started");
+        start_install(
+            &f.praeco(),
+            &Source::default_source(),
+            "0.2.0",
+            &exe,
+            4321,
+            &progress,
+            false,
+        )
+        .expect("started");
 
         let calls = f.calls();
         assert_eq!(calls.len(), 1);
@@ -577,8 +626,16 @@ mod tests {
         );
         let progress = f.dir.join("update.jsonl");
         let exe = PathBuf::from("/home/u/.local/bin/ofolder");
-        start_install(&f.praeco(), &Source::default_source(), "0.2.0", &exe, 9, &progress, true)
-            .expect("started");
+        start_install(
+            &f.praeco(),
+            &Source::default_source(),
+            "0.2.0",
+            &exe,
+            9,
+            &progress,
+            true,
+        )
+        .expect("started");
         let call = &f.calls()[0];
         let mode = call.iter().position(|a| a == "--mode").expect("mode flag");
         assert_eq!(call[mode + 1], "terminal");
@@ -595,7 +652,10 @@ mod tests {
     fn an_install_praeco_refuses_names_its_reason() {
         let f = Fixture::new("refused");
         f.answer("install.status", "1");
-        f.answer("install.stderr", "The update needs a restart it cannot do.\n");
+        f.answer(
+            "install.stderr",
+            "The update needs a restart it cannot do.\n",
+        );
         let exe = PathBuf::from("/home/u/.local/bin/ofolder");
         let err = start_install(
             &f.praeco(),
@@ -621,8 +681,16 @@ mod tests {
             calls,
             [
                 vec![
-                    "init", "--name", "ofolder", "--forgejo", "https://forge.example",
-                    "jrimmer/ofolder", "--exe", "/home/u/.local/bin/ofolder", "--hook", "auto",
+                    "init",
+                    "--name",
+                    "ofolder",
+                    "--forgejo",
+                    "https://forge.example",
+                    "jrimmer/ofolder",
+                    "--exe",
+                    "/home/u/.local/bin/ofolder",
+                    "--hook",
+                    "auto",
                 ],
                 vec!["init", "--remove", "--name", "ofolder", "--hook", "auto"],
             ]
