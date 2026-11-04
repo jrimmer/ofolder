@@ -15,7 +15,7 @@
 set -u
 # Started by systemd, this may not have been given the desktop name, which ofolder needs to find
 # the portal configuration the frontend reads; the user manager has it.
-if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+if [ -z "${XDG_CURRENT_DESKTOP:-}" ] && [ -z "${OFOLDER_NO_SYSTEMD:-}" ]; then
   XDG_CURRENT_DESKTOP=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CURRENT_DESKTOP=//p')
   export XDG_CURRENT_DESKTOP
 fi
@@ -35,6 +35,7 @@ say() {
 # altogether, so after setting the file aside, or putting it back, the frontend is restarted.
 restart() {
   [ -n "${OFOLDER_GUARD_NO_RESTART:-}" ] && return 0
+  [ -n "${OFOLDER_NO_SYSTEMD:-}" ] && return 0
   systemctl --user try-restart xdg-desktop-portal.service >/dev/null 2>&1 || true
 }
 

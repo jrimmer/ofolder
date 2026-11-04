@@ -26,6 +26,7 @@ use ofolder_core::geometry::{
 };
 use ofolder_core::keybind::taken_by;
 use ofolder_core::launch::{self, Command};
+use ofolder_core::private_file;
 use ofolder_core::settings;
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 use ofolder_core::system::{Compositor, Typist};
@@ -135,6 +136,7 @@ pub fn favorites_path(
 struct Actions {
     adapter: Mutex<Box<dyn Adapter>>,
     settings_path: PathBuf,
+    recents_path: PathBuf,
     home: PathBuf,
     compositor: Arc<dyn Compositor>,
     dock: Mutex<Dock>,
@@ -388,6 +390,12 @@ impl StripActions for Actions {
 
     fn copy_text(&self, text: &str) -> Result<(), String> {
         copy_with_wl_copy(text)
+    }
+
+    fn forget_recents(&self) -> Result<String, String> {
+        ofolder_core::recents::forget_all(&self.recents_path)
+            .map(|gone| gone.summary())
+            .map_err(|e| e.to_string())
     }
 
     fn selection(&self) -> Option<PathBuf> {
@@ -766,6 +774,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     let actions = Arc::new(Actions {
         adapter: Mutex::new(adapter),
         settings_path: settings_path.clone(),
+        recents_path: recents_path.clone(),
         home: home.clone(),
         compositor: compositor.clone(),
         dock: Mutex::new(Dock::default()),
@@ -891,11 +900,20 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     // Remember where the dialog was when it closed, for the next time this app opens one.
     let left_at = last_seen.lock().ok().and_then(|seen| *seen);
     if let Some(rect) = left_at {
-        let mut memory = dialog_memory::load(&dialogs_path);
-        if memory.remember(&args.app_key, rect)
-            && let Err(e) = dialog_memory::save(&dialogs_path, &memory)
-        {
-            eprintln!("ofolder: {e}");
+        // Read, change and write under the lock, so a dialog closing at the same
+        // moment as this one keeps its place too.
+        let saved = private_file::with_lock(&dialogs_path, || {
+            let mut memory = dialog_memory::load(&dialogs_path);
+            if memory.remember(&args.app_key, rect) {
+                dialog_memory::save(&dialogs_path, &memory).map_err(|e| e.to_string())
+            } else {
+                Ok(())
+            }
+        });
+        match saved {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!("ofolder: {e}"),
+            Err(e) => eprintln!("ofolder: the dialog place could not be saved: {e}"),
         }
     }
     compositor.remove_rule(RULE_LEFT).ok();

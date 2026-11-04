@@ -1,12 +1,13 @@
 //! Writing a confirmed dialog into the recents store.
 //!
-//! Only the proxy writes the store, and only one dialog finishing at a time
-//! may do so, so the read-change-write is held under one lock. The strip
-//! processes only read it.
+//! The proxy writes the store, and every dialog that finishes writes it too,
+//! so the read, the change and the write are held under the store's lock
+//! file: that covers two dialogs finishing at the same moment, in this process
+//! or another. The strip processes only read it.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
+use ofolder_core::private_file;
 use ofolder_core::recents::{self, Policy};
 use ofolder_core::settings;
 
@@ -14,7 +15,6 @@ pub struct Recorder {
     pub recents_path: PathBuf,
     pub settings_path: PathBuf,
     pub home: PathBuf,
-    lock: Mutex<()>,
 }
 
 /// The portal's "everything went well" response code.
@@ -26,7 +26,6 @@ impl Recorder {
             recents_path,
             settings_path,
             home,
-            lock: Mutex::new(()),
         }
     }
 
@@ -55,23 +54,27 @@ impl Recorder {
         if paths.is_empty() {
             return warnings;
         }
-        let Ok(_held) = self.lock.lock() else {
-            warnings.push("recents were not recorded: the store was busy".to_owned());
-            return warnings;
-        };
-        let mut store = recents::load(&self.recents_path);
-        warnings.extend(store.warning);
-        store.recents.trim(s.recents_max);
-        let policy = Policy {
-            enabled: true,
-            max: s.recents_max,
-            excluded: &s.recents_excluded,
-        };
-        store
-            .recents
-            .record_confirmed(&paths, app_key, now, &policy, is_dir);
-        if let Err(e) = recents::save(&self.recents_path, &store.recents) {
-            warnings.push(e.to_string());
+        let recorded = private_file::with_lock(&self.recents_path, || {
+            let mut store = recents::load(&self.recents_path);
+            let mut notes: Vec<String> = store.warning.take().into_iter().collect();
+            store.recents.prune(s.recents_days, now);
+            store.recents.trim(s.recents_max);
+            let policy = Policy {
+                enabled: true,
+                max: s.recents_max,
+                excluded: &s.recents_excluded,
+            };
+            store
+                .recents
+                .record_confirmed(&paths, app_key, now, &policy, is_dir);
+            if let Err(e) = recents::save(&self.recents_path, &store.recents) {
+                notes.push(e.to_string());
+            }
+            notes
+        });
+        match recorded {
+            Ok(notes) => warnings.extend(notes),
+            Err(e) => warnings.push(format!("recents were not recorded: {e}")),
         }
         warnings
     }
@@ -214,5 +217,97 @@ mod tests {
             &real_folders,
         );
         assert!(!r.recorder.recents_path.exists());
+    }
+
+    /// A folder that is a real folder for the sensitive-location tests.
+    fn is_home_ssh(p: &Path) -> bool {
+        p == Path::new("/home/j/.ssh")
+    }
+
+    #[test]
+    fn a_save_in_a_sensitive_folder_is_not_recorded_under_the_defaults() {
+        let r = rig("sensitive", "");
+        r.recorder.record(
+            "app",
+            0,
+            &uris(&["/home/j/.ssh/config.txt"]),
+            1,
+            &is_home_ssh,
+        );
+        let s = stored(&r);
+        assert!(s.folders.is_empty(), "{:?}", s.folders);
+        assert!(s.files.is_empty(), "{:?}", s.files);
+    }
+
+    #[test]
+    fn the_same_save_is_recorded_once_the_file_sets_no_exclusions() {
+        let r = rig("no-exclusions", "recents_excluded = []");
+        r.recorder.record(
+            "app",
+            0,
+            &uris(&["/home/j/.ssh/config.txt"]),
+            1,
+            &is_home_ssh,
+        );
+        assert_eq!(stored(&r).folders[0].path, "/home/j/.ssh");
+    }
+
+    #[test]
+    fn a_list_in_the_file_replaces_the_defaults_for_recording() {
+        let r = rig("replaced", "recents_excluded = [\"/private\"]");
+        r.recorder.record(
+            "app",
+            0,
+            &uris(&["/home/j/.ssh/config.txt"]),
+            1,
+            &is_home_ssh,
+        );
+        assert_eq!(stored(&r).folders[0].path, "/home/j/.ssh");
+    }
+
+    #[test]
+    fn recent_entries_older_than_the_setting_are_dropped_when_recording() {
+        let r = rig("expiry", "recents_days = 30");
+        let day = 86_400;
+        let mut old = recents::Recents::default();
+        old.folders.push(recents::RecentFolder {
+            path: "/old".to_owned(),
+            apps: Vec::new(),
+            at: 10 * day,
+        });
+        recents::save(&r.recorder.recents_path, &old).expect("seed");
+        r.recorder
+            .record("app", 0, &uris(&["/docs/x.txt"]), 100 * day, &real_folders);
+        let folders: Vec<_> = stored(&r).folders.into_iter().map(|f| f.path).collect();
+        assert_eq!(folders, ["/docs"]);
+    }
+
+    #[test]
+    fn two_recorders_finishing_at_once_keep_every_folder() {
+        let r = rig("concurrent", "recents_max = 500");
+        let other = Recorder::new(
+            r.recorder.recents_path.clone(),
+            r.recorder.settings_path.clone(),
+            r.recorder.home.clone(),
+        );
+        let always_a_folder = |_: &Path| true;
+        std::thread::scope(|scope| {
+            for (recorder, tag) in [(&r.recorder, "a"), (&other, "b")] {
+                scope.spawn(move || {
+                    for i in 0..200 {
+                        let w = recorder.record(
+                            "app",
+                            0,
+                            &uris(&[&format!("/{tag}/{i}")]),
+                            i as u64,
+                            &always_a_folder,
+                        );
+                        assert!(w.is_empty(), "{w:?}");
+                    }
+                });
+            }
+        });
+        let s = stored(&r);
+        assert_eq!(s.folders.len(), 400, "no update was lost");
     }
 }

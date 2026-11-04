@@ -2,10 +2,12 @@
 //! JSON file. Nothing here knows about the window.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use ofolder_core::private_file;
 
 use crate::error::StripError;
 use crate::paths;
@@ -197,8 +199,9 @@ fn set_aside(path: &Path) -> io::Result<PathBuf> {
     Ok(target)
 }
 
-/// Writes the favorites to a temporary file in the same folder and renames
-/// it over the real one, so a crash leaves the previous file intact.
+/// Writes the favorites private and whole, under the file's lock. The list is
+/// saved from memory, so a second window that saved since this one loaded
+/// is overwritten: the last save wins, and nothing merges the two lists.
 pub fn save(path: &Path, favorites: &Favorites) -> Result<(), StripError> {
     let write_error = |source| StripError::Write {
         path: path.to_owned(),
@@ -210,23 +213,11 @@ pub fn save(path: &Path, favorites: &Favorites) -> Result<(), StripError> {
     };
     let mut text = serde_json::to_string_pretty(&file)?;
     text.push('\n');
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        fs::create_dir_all(dir).map_err(write_error)?;
-    }
-    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(format!(".tmp{}", std::process::id()));
-    let tmp = path.with_file_name(tmp_name);
-    let written = fs::File::create(&tmp).and_then(|mut f| {
-        f.write_all(text.as_bytes())?;
-        f.sync_all()
-    });
-    let result = written.and_then(|()| fs::rename(&tmp, path));
-    if let Err(e) = result {
-        // The temp file is useless after a failure; a leftover would only confuse.
-        fs::remove_file(&tmp).ok();
-        return Err(write_error(e));
-    }
-    Ok(())
+    private_file::with_lock(path, || {
+        private_file::write_private_atomic(path, text.as_bytes())
+    })
+    .map_err(write_error)?
+    .map_err(write_error)
 }
 
 #[cfg(test)]
@@ -354,11 +345,22 @@ mod tests {
         let dir = scratch();
         let file = dir.path().join("deep/er/fav.json");
         save(&file, &list(&["/a"])).unwrap();
-        let entries: Vec<_> = fs::read_dir(file.parent().unwrap())
+        let mut entries: Vec<_> = fs::read_dir(file.parent().unwrap())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(entries, ["fav.json"]);
+        entries.sort();
+        assert_eq!(entries, ["fav.json", "fav.json.lock"]);
+    }
+
+    #[test]
+    fn saved_favorites_are_readable_by_the_user_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let file = dir.path().join("fav.json");
+        save(&file, &list(&["/a"])).unwrap();
+        let mode = fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
@@ -375,12 +377,13 @@ mod tests {
         let dir = scratch();
         let file = dir.path().join("fav.json");
         save(&file, &list(&["/a"])).unwrap();
-        // A folder where the temp file would go makes creating it fail.
-        let blocked = dir
-            .path()
-            .join(format!("fav.json.tmp{}", std::process::id()));
-        fs::create_dir(&blocked).unwrap();
-        assert!(save(&file, &list(&["/zzz"])).is_err());
+        // A folder that cannot be written to makes the save fail before the old file is touched.
+        use std::os::unix::fs::PermissionsExt;
+        let folder = dir.path();
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o500)).unwrap();
+        let failed = save(&file, &list(&["/zzz"])).is_err();
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(failed);
         assert_eq!(load(&file).favorites, list(&["/a"]));
     }
 

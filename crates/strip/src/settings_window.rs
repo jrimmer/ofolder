@@ -29,6 +29,13 @@ const SIDEBAR: f32 = 180.;
 const LABEL: f32 = 160.;
 /// Messages listed in the Messages pane.
 const RECENT_MESSAGES: usize = 30;
+/// The ages offered for "forget recents older than", in days; zero is never.
+pub const RECENTS_AGE_CHOICES: [(u32, &str); 4] = [
+    (30, "30 days"),
+    (90, "90 days"),
+    (365, "1 year"),
+    (0, "never"),
+];
 
 /// Whether a log line records an error: its kind follows the date and time.
 pub fn is_error_line(line: &str) -> bool {
@@ -117,6 +124,10 @@ pub struct SettingsWindow {
     confirm_guard_off: bool,
     /// What the last change of the guard did, to show under its switch.
     guard_note: Option<String>,
+    /// The "forget all recents?" question is showing.
+    confirm_forget: bool,
+    /// What the last forgetting did, to show under its button.
+    forget_note: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -188,6 +199,8 @@ impl SettingsWindow {
             conflict: None,
             confirm_guard_off: false,
             guard_note: None,
+            confirm_forget: false,
+            forget_note: None,
             _subscriptions: subscriptions,
         }
     }
@@ -198,6 +211,15 @@ impl SettingsWindow {
 
     fn on_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
+        if self.confirm_forget {
+            // The question has the window: Escape keeps the recents, nothing else acts.
+            cx.stop_propagation();
+            if ks.key == "escape" {
+                self.confirm_forget = false;
+                cx.notify();
+            }
+            return;
+        }
         if self.confirm_guard_off {
             // The question has the window: Escape keeps the guard on, nothing else acts.
             cx.stop_propagation();
@@ -569,6 +591,121 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    /// Empties the recents in the background, since it writes a file, and
+    /// says what it did under the button.
+    fn forget_recents(&mut self, cx: &mut Context<Self>) {
+        self.confirm_forget = false;
+        let actions = self.shared.read(cx).actions();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.forget_recents() })
+                .await;
+            this.update(cx, |t, cx| {
+                t.forget_note = Some(match result {
+                    Ok(text) if text.is_empty() => "Forgotten.".to_owned(),
+                    Ok(text) => format!("{}.", capitalised(&text)),
+                    Err(e) => format!("The recents could not be forgotten: {e}"),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The question shown over the window before every recent is forgotten.
+    fn forget_question(&self, cx: &mut Context<Self>) -> AnyElement {
+        let line = |text: &'static str| {
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_none().child("•"))
+                .child(div().flex_1().min_w(px(0.)).child(text))
+        };
+        div()
+            .id("forget-question")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x0000_00b3))
+            .child(
+                div()
+                    .w(px(440.))
+                    .p(px(18.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .rounded(px(8.))
+                    .bg(rgb(colors().panel))
+                    .border_1()
+                    .border_color(rgb(colors().red))
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::BOLD)
+                            .child("Forget all recents?"),
+                    )
+                    .child(line(
+                        "Every recent folder and file is removed from ofolder's list, in every \
+                         application.",
+                    ))
+                    .child(line(
+                        "Favorites are kept, and no folder or file on disk is touched.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .pt_2()
+                            .child(button("recents-forget-keep", "Keep them", true).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.confirm_forget = false;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(
+                                button("recents-forget-yes", "Forget them", true)
+                                    .text_color(rgb(colors().red))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.forget_recents(cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// The age choices for "forget recents older than", the chosen one marked.
+    /// A choice is saved at once and applies to the next read or record.
+    fn recents_age_chips(&self, cx: &mut Context<Self>) -> AnyElement {
+        let kept = self.settings.recents_days;
+        div()
+            .flex()
+            .gap_1()
+            .children(RECENTS_AGE_CHOICES.map(|(days, label)| {
+                let chosen = kept == days;
+                let b = button(("recents-age", days as usize), label, true);
+                let b = if chosen {
+                    b.bg(rgb(colors().chosen)).text_color(rgb(colors().text))
+                } else {
+                    b
+                };
+                b.when(!chosen, |b| {
+                    b.on_click(cx.listener(move |this, _, _, cx| {
+                        this.save(vec![Edit::Int("recents_days", i64::from(days))], cx);
+                    }))
+                })
+            }))
+            .into_any_element()
+    }
+
     /// A switch with its label; a click anywhere on the line flips it.
     fn toggle(
         &self,
@@ -673,6 +810,26 @@ impl SettingsWindow {
             ),
             Self::row("Recent items kept", stepper),
             Self::hint("Recent folders change with the next dialog."),
+            Self::row("Forget recents older than", self.recents_age_chips(cx)),
+            Self::hint(
+                "Older entries are dropped when the lists are next read or a dialog is recorded. \
+                 Folders such as ~/.ssh and the password-manager folders are never recorded \
+                 unless the settings file says otherwise.",
+            ),
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    button("recents-forget", "Forget all recents…", true)
+                        .text_color(rgb(colors().red))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.confirm_forget = true;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            Self::hint(self.forget_note.clone().unwrap_or_default()),
             Self::heading("Keeping ofolder working"),
             self.guard_toggle(s.guard, cx),
             Self::hint(
@@ -1225,6 +1382,7 @@ impl Render for SettingsWindow {
                     ),
             )
             .when(self.confirm_guard_off, |d| d.child(self.guard_question(cx)))
+            .when(self.confirm_forget, |d| d.child(self.forget_question(cx)))
             // Omarchy windows have no title bar, so the window closes itself.
             .child(
                 div()
@@ -1272,6 +1430,21 @@ mod tests {
         assert_eq!(step_recents(5, false), 4);
         assert_eq!(step_recents(1, false), 1);
         assert_eq!(step_recents(MAX_RECENTS_LIMIT, true), MAX_RECENTS_LIMIT);
+    }
+
+    #[test]
+    fn the_age_choices_are_in_range_and_include_the_default() {
+        assert!(
+            RECENTS_AGE_CHOICES
+                .iter()
+                .all(|(days, _)| *days <= settings::MAX_RECENTS_DAYS)
+        );
+        assert!(
+            RECENTS_AGE_CHOICES
+                .iter()
+                .any(|(days, _)| *days == settings::DEFAULT_RECENTS_DAYS)
+        );
+        assert_eq!(RECENTS_AGE_CHOICES.last(), Some(&(0, "never")));
     }
 
     #[test]

@@ -4,16 +4,16 @@
 //! asked to and keeps everything else: comments, order, blank lines and keys
 //! this version does not know. It reads the file again just before writing,
 //! so a hand edit made while the window was open is not lost, refuses to
-//! touch a file it cannot parse, and replaces the file in one step so a
-//! crash never leaves half of it.
+//! touch a file it cannot parse, and replaces the file in one durable step so
+//! a crash never leaves half of it.
 
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use toml_edit::{Array, DocumentMut, Item, Table, Value, value};
 
 use crate::preview::PreviewSettings;
+use crate::private_file;
 use crate::rails::{RailLayout, Side};
 use crate::shortcuts::{COMMANDS, Shortcuts};
 
@@ -159,43 +159,28 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
 }
 
 /// Applies `edits` to the settings file at `path`, creating it when missing.
+/// The read and the write are held under the file's lock, so a write from
+/// another window cannot be built on the same old text and lost.
 pub fn save(path: &Path, edits: &[Edit]) -> Result<(), WriteError> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(WriteError::Read(e)),
-    };
-    let updated = apply(&text, edits)?;
-    if updated == text && path.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(WriteError::Write)?;
-    }
-    let temp = temp_path(path);
-    let written = (|| {
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(updated.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if written.is_err() {
-        fs::remove_file(&temp).ok();
-    }
-    written.map_err(WriteError::Write)
-}
-
-/// A file beside `path`, so the rename stays on one filesystem.
-fn temp_path(path: &Path) -> PathBuf {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "settings.toml".to_owned());
-    path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+    private_file::with_lock(path, || -> Result<(), WriteError> {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(WriteError::Read(e)),
+        };
+        let updated = apply(&text, edits)?;
+        if updated == text && path.exists() {
+            return Ok(());
+        }
+        private_file::write_private_atomic(path, updated.as_bytes()).map_err(WriteError::Write)
+    })
+    .map_err(WriteError::Write)?
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::settings::parse;
 
@@ -349,11 +334,16 @@ mod tests {
         save(&path, &[Edit::Int("recents_max", 7)]).unwrap();
         let after = fs::read_to_string(&path).unwrap();
         assert!(after.contains("# added by hand") && after.contains("recents_max = 7"));
-        let names: Vec<_> = fs::read_dir(path.parent().unwrap())
+        let mut names: Vec<_> = fs::read_dir(path.parent().unwrap())
             .unwrap()
-            .map(|e| e.unwrap().file_name())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, ["settings.toml"]);
+        names.sort();
+        assert_eq!(
+            names,
+            ["settings.toml", "settings.toml.lock"],
+            "no temporary file"
+        );
         fs::remove_dir_all(dir).ok();
     }
 }

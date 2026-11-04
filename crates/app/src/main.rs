@@ -31,6 +31,7 @@ commands:
                the strip for one open dialog (the proxy starts these)
   do <command>  run a rail command in the open dialog's strip (what a shortcut runs),
                e.g. places, find, new_folder, copy_path, settings
+  forget       empty the recent folders and files, and list what went (favorites stay)
   unbind-all   remove every key binding ofolder made, if a crash left any
   live-check [flea|gtk|strata]
                run an adapter against the real dialog (opens a window briefly)
@@ -58,6 +59,7 @@ fn main() -> anyhow::Result<()> {
         Some("doctor") => doctor::doctor(),
         Some("repair") => doctor::repair(&env::args().skip(2).collect::<Vec<_>>()),
         Some("unbind-all") => unbind_all(),
+        Some("forget") => forget(),
         Some("live-check") => live::run(env::args().nth(2).as_deref().unwrap_or("flea")),
         Some("version" | "--version") => {
             println!("ofolder {}", env!("CARGO_PKG_VERSION"));
@@ -426,6 +428,30 @@ fn check_portal(
         "ok: ofolder would forward to {} ({}); the session bus knows that name, and nothing was claimed",
         plan.bus_name, plan.id
     ))
+}
+
+/// Empties the recent folders and files. What went is printed first, so the
+/// owner sees it; favorites are a separate list and are not touched.
+fn forget() -> anyhow::Result<()> {
+    let home =
+        PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
+    let path = ofolder_core::recents::recents_path(
+        env::var_os("OFOLDER_RECENTS").map(PathBuf::from),
+        env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        &home,
+    );
+    let gone = ofolder_core::recents::forget_all(&path)?;
+    for folder in &gone.folders {
+        println!("folder  {folder}");
+    }
+    for file in &gone.files {
+        println!("file    {file}");
+    }
+    if gone.unreadable {
+        println!("the recents file could not be read, so it was replaced with an empty one");
+    }
+    println!("{} in {}", gone.summary(), path.display());
+    Ok(())
 }
 
 fn settings_file() -> anyhow::Result<(PathBuf, PathBuf)> {

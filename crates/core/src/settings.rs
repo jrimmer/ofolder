@@ -17,6 +17,37 @@ use crate::rails::{RailLayout, Side};
 use crate::shortcuts::Shortcuts;
 
 pub const MAX_RECENTS_LIMIT: usize = 500;
+/// The longest age, in days, recents are kept for: a century.
+pub const MAX_RECENTS_DAYS: u32 = 36_500;
+/// Recents kept for this many days when the file does not say otherwise.
+pub const DEFAULT_RECENTS_DAYS: u32 = 90;
+
+/// Folders under the home folder that hold keys, passwords, wallets, browser
+/// profiles and deleted files. They are never recorded as recent unless the
+/// settings file names its own list in `recents_excluded`.
+const SENSITIVE_UNDER_HOME: [&str; 12] = [
+    ".ssh",
+    ".gnupg",
+    ".password-store",
+    ".local/share/keyrings",
+    ".config/Bitwarden",
+    ".config/1Password",
+    ".config/KeePassXC",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/BraveSoftware",
+    ".local/share/Trash",
+];
+
+/// The folders excluded from recents when the settings file does not name
+/// its own: see [`SENSITIVE_UNDER_HOME`].
+pub fn default_recents_excluded(home: &Path) -> Vec<PathBuf> {
+    SENSITIVE_UNDER_HOME
+        .iter()
+        .map(|rel| home.join(rel))
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
@@ -32,7 +63,16 @@ pub struct Settings {
     /// ofolder program is deleted. On unless the maintainer turns it off.
     pub guard: bool,
     pub recents_max: usize,
+    /// How many days a recent folder or file is kept after its last use;
+    /// zero keeps them for ever.
+    pub recents_days: u32,
     /// Folders, and everything below them, that are never recorded as recent.
+    /// When the settings file sets `recents_excluded`, its list replaces the
+    /// defaults: an empty list excludes nothing, and a list none of whose
+    /// entries is a usable folder keeps the defaults, so a typo cannot open a
+    /// sensitive folder to recording. [`Settings::default`] has none, since it
+    /// does not know the home folder; [`parse`] and [`load`] fill in the
+    /// defaults for the home they are given.
     pub recents_excluded: Vec<PathBuf>,
     /// Applications by id for which the strip is not shown.
     pub excluded_apps: Vec<String>,
@@ -59,6 +99,7 @@ impl Default for Settings {
             recents_enabled: true,
             guard: true,
             recents_max: 20,
+            recents_days: DEFAULT_RECENTS_DAYS,
             recents_excluded: Vec::new(),
             excluded_apps: Vec::new(),
             start_folders: BTreeMap::new(),
@@ -78,13 +119,14 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 14] = [
+const KNOWN: [&str; 15] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
     "recents_enabled",
     "guard",
     "recents_max",
+    "recents_days",
     "recents_excluded",
     "excluded_apps",
     "start_folders",
@@ -155,8 +197,16 @@ impl Reader<'_> {
     }
 }
 
+/// The settings with every default that depends on the home folder filled in.
+fn defaults_for(home: &Path) -> Settings {
+    Settings {
+        recents_excluded: default_recents_excluded(home),
+        ..Settings::default()
+    }
+}
+
 pub fn parse(text: &str, home: &Path) -> Loaded {
-    let mut out = Settings::default();
+    let mut out = defaults_for(home);
     let table: Table = match text.parse() {
         Ok(t) => t,
         Err(error) => {
@@ -197,15 +247,36 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
         Some(_) => r.warn("recents_max", "expected a whole number"),
     }
 
+    match table.get("recents_days") {
+        None => {}
+        Some(Value::Integer(n)) if (0..=i64::from(MAX_RECENTS_DAYS)).contains(n) => {
+            out.recents_days = u32::try_from(*n).unwrap_or(out.recents_days);
+        }
+        Some(Value::Integer(_)) => r.warn(
+            "recents_days",
+            &format!("it must be between 0 and {MAX_RECENTS_DAYS} (0 keeps them for ever)"),
+        ),
+        Some(_) => r.warn("recents_days", "expected a whole number of days"),
+    }
+
     if let Some(items) = r.strings("recents_excluded") {
-        for item in items {
-            match folder(&item, home) {
-                Some(path) => out.recents_excluded.push(path),
+        let mut listed = Vec::new();
+        for item in &items {
+            match folder(item, home) {
+                Some(path) => listed.push(path),
                 None => r.warn(
                     "recents_excluded",
                     &format!("{item:?} is not an absolute folder"),
                 ),
             }
+        }
+        if listed.is_empty() && !items.is_empty() {
+            r.warn(
+                "recents_excluded",
+                "no entry is a usable folder, so the default exclusions stay",
+            );
+        } else {
+            out.recents_excluded = listed;
         }
     }
     if let Some(items) = r.strings("excluded_apps") {
@@ -305,11 +376,11 @@ pub fn load(path: &Path, home: &Path) -> Loaded {
     match fs::read_to_string(path) {
         Ok(text) => parse(&text, home),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Loaded {
-            settings: Settings::default(),
+            settings: defaults_for(home),
             warnings: Vec::new(),
         },
         Err(e) => Loaded {
-            settings: Settings::default(),
+            settings: defaults_for(home),
             warnings: vec![format!(
                 "settings file could not be read, defaults used: {e}"
             )],
@@ -340,6 +411,14 @@ mod tests {
         parse(text, Path::new(HOME))
     }
 
+    /// What no settings file gives for this home folder.
+    fn defaults() -> Settings {
+        Settings {
+            recents_excluded: default_recents_excluded(Path::new(HOME)),
+            ..Settings::default()
+        }
+    }
+
     #[test]
     fn the_guard_is_on_unless_the_file_turns_it_off() {
         let none = parse_ok("");
@@ -358,7 +437,7 @@ mod tests {
     #[test]
     fn an_empty_file_gives_the_defaults_and_no_warnings() {
         let l = parse_ok("");
-        assert_eq!(l.settings, Settings::default());
+        assert_eq!(l.settings, defaults());
         assert!(l.warnings.is_empty());
     }
 
@@ -447,7 +526,7 @@ mod tests {
     #[test]
     fn an_unknown_setting_is_reported_not_silently_dropped() {
         let l = parse_ok("colour = \"blue\"");
-        assert_eq!(l.settings, Settings::default());
+        assert_eq!(l.settings, defaults());
         assert_eq!(l.warnings.len(), 1);
         assert!(l.warnings[0].contains("colour"));
     }
@@ -455,7 +534,7 @@ mod tests {
     #[test]
     fn a_file_that_does_not_parse_never_stops_the_dialogs() {
         let l = parse_ok("this is = = not toml [");
-        assert_eq!(l.settings, Settings::default());
+        assert_eq!(l.settings, defaults());
         assert_eq!(l.warnings.len(), 1);
         assert!(l.warnings[0].contains("defaults used"));
     }
@@ -473,7 +552,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("temp dir");
         let missing = load(&dir.join("settings.toml"), Path::new(HOME));
         assert!(missing.warnings.is_empty());
-        assert_eq!(missing.settings, Settings::default());
+        assert_eq!(missing.settings, defaults());
         let unreadable = load(&dir, Path::new(HOME));
         assert_eq!(unreadable.warnings.len(), 1);
         fs::remove_dir_all(&dir).expect("cleanup");
@@ -490,6 +569,76 @@ mod tests {
         fs::write(&file, "paused = true").expect("write");
         assert!(load(&file, Path::new(HOME)).settings.paused);
         fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_sensitive_folders_under_home_are_excluded_from_recents_when_nothing_is_set() {
+        let l = parse_ok("");
+        for rel in [
+            ".ssh",
+            ".gnupg",
+            ".password-store",
+            ".config/Bitwarden",
+            ".mozilla",
+        ] {
+            let folder = PathBuf::from(HOME).join(rel);
+            assert!(l.settings.recents_excluded.contains(&folder), "{rel}");
+        }
+        assert_eq!(l.settings.recents_excluded.len(), 12);
+    }
+
+    #[test]
+    fn a_list_in_the_file_replaces_the_default_exclusions() {
+        let l = parse_ok("recents_excluded = [\"/private\"]");
+        assert_eq!(l.settings.recents_excluded, [PathBuf::from("/private")]);
+        assert!(l.warnings.is_empty(), "{:?}", l.warnings);
+    }
+
+    #[test]
+    fn an_empty_list_in_the_file_excludes_nothing() {
+        let l = parse_ok("recents_excluded = []");
+        assert!(l.settings.recents_excluded.is_empty());
+        assert!(l.warnings.is_empty(), "{:?}", l.warnings);
+    }
+
+    #[test]
+    fn a_list_of_no_usable_folder_keeps_the_defaults_and_says_so() {
+        let l = parse_ok("recents_excluded = [\"relative\", \"~nobody\"]");
+        assert_eq!(l.settings.recents_excluded, defaults().recents_excluded);
+        assert_eq!(
+            l.warnings.len(),
+            3,
+            "two refused entries and the fallback: {:?}",
+            l.warnings
+        );
+    }
+
+    #[test]
+    fn a_tilde_in_an_exclusion_is_expanded_against_the_given_home() {
+        let l = parse(
+            "recents_excluded = [\"~/Secret\", \"~\"]",
+            Path::new("/srv/home/ann"),
+        );
+        assert_eq!(
+            l.settings.recents_excluded,
+            [
+                PathBuf::from("/srv/home/ann/Secret"),
+                PathBuf::from("/srv/home/ann")
+            ]
+        );
+    }
+
+    #[test]
+    fn recents_are_kept_ninety_days_unless_the_file_says_otherwise() {
+        assert_eq!(parse_ok("").settings.recents_days, 90);
+        assert_eq!(parse_ok("recents_days = 0").settings.recents_days, 0);
+        assert_eq!(parse_ok("recents_days = 365").settings.recents_days, 365);
+        let bad = parse_ok("recents_days = -1");
+        assert_eq!(bad.settings.recents_days, 90);
+        assert_eq!(bad.warnings.len(), 1);
+        let text = parse_ok("recents_days = \"week\"");
+        assert_eq!(text.settings.recents_days, 90);
+        assert_eq!(text.warnings.len(), 1);
     }
 
     #[test]
