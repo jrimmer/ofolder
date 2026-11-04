@@ -1,0 +1,51 @@
+# Supply-chain policy, checked by `cargo deny check` (run from bin/canary or weekly: the advisory
+# database needs the network, so bin/check does not run it).
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+# A crate yanked from crates.io is worth knowing about, not worth stopping for.
+yanked = "warn"
+# 13 crates deep in gpui and zbus are marked unmaintained (async-std, paste, ttf-parser, ...); none has a
+# known vulnerability, and ofolder cannot replace them. Only a crate ofolder itself depends on stops the check.
+unmaintained = "workspace"
+
+[licenses]
+version = 2
+# Permissive licences, and the weak copyleft MPL-2.0 that three build or support crates use. The
+# GPL and AGPL families are deliberately not listed, so a crate that is only available under them is
+# refused (AGENTS.md: no Zed GPL or AGPL crates). A crate offered under "MIT OR GPL-2.0" passes on its MIT.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "NCSA",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# gpui pulls in several versions of a few crates; that is its business, not a reason to stop.
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace's own crates depend on each other by path, which is not a wildcard version.
+allow-wildcard-paths = true
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

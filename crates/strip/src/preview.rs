@@ -120,6 +120,16 @@ fn is_svg(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
 }
 
+/// What a decoder may allocate and how large a side it may accept. The `image` crate's own default
+/// is 512 MiB with no side limit; stating it here keeps the bound visible and lets it be tested.
+fn decode_limits() -> image::Limits {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(30_000);
+    limits.max_image_height = Some(30_000);
+    limits.max_alloc = Some(512 * 1024 * 1024);
+    limits
+}
+
 /// Decodes a picture, shrinks it to [`KEEP_SIZE`] and hands it over as PNG.
 fn shrink(data: &[u8]) -> Result<Picture, String> {
     let reader = image::ImageReader::new(Cursor::new(data))
@@ -131,9 +141,11 @@ fn shrink(data: &[u8]) -> Result<Picture, String> {
     if !decodable(w, h) {
         return Err(format!("{w} × {h} is too large to preview"));
     }
-    let decoded = image::ImageReader::new(Cursor::new(data))
+    let mut reader = image::ImageReader::new(Cursor::new(data))
         .with_guessed_format()
-        .map_err(|_| "Not a picture this can show".to_owned())?
+        .map_err(|_| "Not a picture this can show".to_owned())?;
+    reader.limits(decode_limits());
+    let decoded = reader
         .decode()
         .map_err(|_| "The picture is damaged or cut short".to_owned())?;
     let (tw, th) = fit((w, h), KEEP_SIZE);
@@ -409,5 +421,44 @@ mod tests {
             .is_none()
         );
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A PNG made by `image`, with its header's size rewritten (and the checksum fixed), as a file
+    /// that claims to be far larger than its data would be.
+    fn png_claiming(w: u32, h: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(1, 1, image::Rgb([1, 2, 3])))
+            .write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+            .expect("encodes");
+        // The IHDR chunk's data starts at byte 16: width, height; its CRC covers type and data.
+        out[16..20].copy_from_slice(&w.to_be_bytes());
+        out[20..24].copy_from_slice(&h.to_be_bytes());
+        let mut crc: u32 = 0xffff_ffff;
+        for byte in &out[12..29] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        out[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        out
+    }
+
+    #[test]
+    fn a_picture_that_claims_to_be_enormous_is_refused_before_anything_is_decoded() {
+        let err = shrink(&png_claiming(60_000, 60_000)).expect_err("refused");
+        assert!(err.contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn the_decoder_limits_are_stated_and_stricter_than_unlimited() {
+        let limits = decode_limits();
+        assert_eq!(limits.max_alloc, Some(512 * 1024 * 1024));
+        assert_eq!(limits.max_image_width, Some(30_000));
+        assert_eq!(limits.max_image_height, Some(30_000));
     }
 }

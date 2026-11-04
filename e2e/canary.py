@@ -57,7 +57,22 @@ def look():
     }
 
 
+def audit():
+    """The supply-chain policy in deny.toml: advisories (needs the network), licences, bans, sources."""
+    if not subprocess.run(["sh", "-c", "command -v cargo-deny"], capture_output=True).stdout:
+        print("audit: cargo-deny is not installed, so the supply chain was not checked.")
+        return 0
+    r = subprocess.run(["cargo", "deny", "--locked", "check"], cwd=REPO, capture_output=True, text=True)
+    tail = [l for l in (r.stdout + r.stderr).splitlines() if l.startswith("advisories") or " ok" in l[:40] or "FAILED" in l]
+    print("audit:", tail[-1] if tail else ("passed" if r.returncode == 0 else "FAILED"))
+    if r.returncode:
+        print((r.stdout + r.stderr)[-1500:])
+    return r.returncode
+
+
 def main():
+    if "--audit" in sys.argv:
+        sys.exit(audit())
     now = look()
     try:
         before = json.load(open(STATE))

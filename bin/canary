@@ -3,6 +3,7 @@
 # look, and warns if ofolder has dropped out of the file-chooser chain.
 #   bin/canary          look, report, remember
 #   bin/canary --run    also run bin/e2e --release when something changed
+#   bin/canary --audit  check the supply chain against deny.toml (needs the network)
 # See docs/e2e.md. It writes only ~/.local/state/ofolder/canary.json.
 set -euo pipefail
 cd "$(dirname "$0")/.."
