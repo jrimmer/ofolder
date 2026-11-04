@@ -46,7 +46,8 @@ with that prefix in `~/.config/ofolder/settings.toml`:
 
 `~/.config/ofolder/settings.toml` is read again for every dialog. The gear at the foot of the
 right rail opens a settings window that writes the same file, keeping its comments, its order
-and any key it does not know. A value of the wrong type is reported and ignored; the rest
+and any key it does not know. The settings window's Apps and privacy pane edits `excluded_apps`,
+`recents_excluded` and `start_folders` (removing one of the default folders asks first). A value of the wrong type is reported and ignored; the rest
 still apply.
 
 | Key | Meaning | Default |
