@@ -12,10 +12,12 @@ adapter that says honestly what it can do.
 - `crates/core`: the adapter contract and the pure, tested logic (no UI, no D-Bus).
 - `crates/strip`: the gpui strip.
 - `crates/app`: the `ofolder` command.
+- `e2e/`: the end-to-end suite behind `bin/e2e`, see `docs/e2e.md`.
 - `spike/`: the throwaway Python spike behind the findings, with its evidence in `spike/runs/`.
 
 ```
 bin/check              # fmt, clippy -D warnings, tests, architecture guard
+bin/e2e                # real dialogs in a private nested Hyprland (docs/e2e.md)
 cargo run -p ofolder -- adapters     # which installed file choosers can be decorated
 cargo run -p ofolder -- strip-demo   # open a sample strip window
 ```

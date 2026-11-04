@@ -278,6 +278,11 @@ impl Shared {
                     _ => self.vm.can_go_up(),
                 };
                 if busy || !can {
+                    if std::env::var_os("OFOLDER_DEBUG").is_some() {
+                        eprintln!(
+                            "ofolder strip: ignored {button:?} (busy: {busy}, possible: {can})"
+                        );
+                    }
                     return;
                 }
                 self.close_menu(cx);
@@ -342,6 +347,9 @@ impl Shared {
                 cx.background_executor().timer(LISTEN).await;
                 let alive = this.update(cx, |s, cx| {
                     for id in s.actions.take_commands() {
+                        if std::env::var_os("OFOLDER_DEBUG").is_some() {
+                            eprintln!("ofolder strip: command {id}");
+                        }
                         s.run_command(id, cx);
                     }
                 });
@@ -401,7 +409,11 @@ impl Shared {
                 }
                 // Closed again before its window came up.
                 Ok(handle) => {
-                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    // Not here: the window's closing is reported to this same state,
+                    // which is being updated now.
+                    cx.defer(move |cx| {
+                        handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    });
                 }
                 Err(error) => {
                     eprintln!("ofolder: could not open the settings: {error}");
@@ -512,7 +524,11 @@ impl Shared {
                 Ok(handle) if s.tip_serial == serial => s.tip_window = Some(handle),
                 // Taken down before its window came up.
                 Ok(handle) => {
-                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    // Not here: the window's closing is reported to this same state,
+                    // which is being updated now.
+                    cx.defer(move |cx| {
+                        handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    });
                 }
                 Err(error) => eprintln!("ofolder: could not open a tooltip: {error}"),
             });
@@ -589,7 +605,11 @@ impl Shared {
                     s.menu_window = Some(handle);
                 }
                 Ok(handle) => {
-                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    // Not here: the window's closing is reported to this same state,
+                    // which is being updated now.
+                    cx.defer(move |cx| {
+                        handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    });
                 }
                 Err(error) => {
                     eprintln!("ofolder: could not open a menu: {error}");
@@ -755,7 +775,11 @@ impl Shared {
                 }
                 // Closed before its window came up.
                 Ok(handle) => {
-                    handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    // Not here: the window's closing is reported to this same state,
+                    // which is being updated now.
+                    cx.defer(move |cx| {
+                        handle.update(cx, |_, w, _| w.remove_window()).ok();
+                    });
                 }
                 Err(error) => {
                     s.preview_open = false;
@@ -980,10 +1004,17 @@ impl Shared {
         let actions = self.actions.clone();
         cx.spawn(async move |this, cx| match job {
             Job::Go(path) => {
+                let debug = std::env::var_os("OFOLDER_DEBUG").is_some();
+                if debug {
+                    eprintln!("ofolder strip: going to {}", path.display());
+                }
                 let result = cx
                     .background_executor()
                     .spawn(async move { actions.go(&path) })
                     .await;
+                if debug {
+                    eprintln!("ofolder strip: go finished: {result:?}");
+                }
                 this.update(cx, |t, cx| {
                     t.vm.finish_go(result);
                     t.changed(cx);

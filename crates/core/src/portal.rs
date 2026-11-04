@@ -85,6 +85,30 @@ pub fn discover(dirs: &[PathBuf]) -> Vec<PortalFile> {
     found
 }
 
+/// The file-chooser preference list of a portal configuration file, in order,
+/// or `None` when the file does not set one.
+pub fn file_chooser_chain(portals_conf: &str) -> Option<Vec<String>> {
+    let mut in_preferred = false;
+    for line in portals_conf.lines().map(str::trim) {
+        if let Some(section) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_preferred = section == "preferred";
+        } else if in_preferred
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == FILE_CHOOSER
+        {
+            return Some(
+                value
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            );
+        }
+    }
+    None
+}
+
 /// The backend ofolder should forward to: the first entry after `own` in the
 /// file-chooser preference list of a portal configuration file that has an
 /// adapter. A `*` entry cannot be resolved here and is skipped.
@@ -137,6 +161,34 @@ pub fn adapter_id(dbus_name: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_file_chooser_chain_is_read_in_order() {
+        let conf = "[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n";
+        assert_eq!(
+            file_chooser_chain(conf),
+            Some(vec!["ofolder".into(), "flea".into(), "gtk".into()])
+        );
+    }
+
+    #[test]
+    fn a_comment_that_names_the_chooser_is_not_the_chain() {
+        let conf = "[preferred]\n# flea replaced: org.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n";
+        assert_eq!(
+            file_chooser_chain(conf),
+            Some(vec!["flea".into(), "gtk".into()])
+        );
+    }
+
+    #[test]
+    fn no_chooser_line_means_no_chain() {
+        assert_eq!(file_chooser_chain("[preferred]\ndefault=gtk\n"), None);
+        assert_eq!(
+            file_chooser_chain("org.freedesktop.impl.portal.FileChooser=ofolder\n"),
+            None,
+            "outside [preferred] the line means nothing"
+        );
+    }
+
     use super::*;
 
     // Verbatim from /usr/share/xdg-desktop-portal/portals on 2026-11-01.

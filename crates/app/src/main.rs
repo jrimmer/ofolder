@@ -130,7 +130,8 @@ fn portal_options(args: &[String]) -> anyhow::Result<(Option<String>, bool)> {
 }
 
 /// The backend named in the portal configuration after ofolder's own entry.
-fn detect_backend(home: &Path) -> Option<&'static str> {
+/// The portal configuration the frontend would read for this desktop, and its text.
+fn portal_conf(home: &Path) -> Option<(PathBuf, String)> {
     let config_home = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".config"));
@@ -144,9 +145,40 @@ fn detect_backend(home: &Path) -> Option<&'static str> {
         .collect();
     files.push(config_home.join("xdg-desktop-portal/portals.conf"));
     files
-        .iter()
-        .find_map(|f| std::fs::read_to_string(f).ok())
-        .and_then(|text| portal::backend_after(&text, "ofolder"))
+        .into_iter()
+        .find_map(|f| std::fs::read_to_string(&f).ok().map(|text| (f, text)))
+}
+
+fn detect_backend(home: &Path) -> Option<&'static str> {
+    portal_conf(home).and_then(|(_, text)| portal::backend_after(&text, "ofolder"))
+}
+
+/// What `status` says about the file-chooser chain: dialogs only reach ofolder
+/// when it is first, and another program (Flea's `--picker`, for one) can
+/// rewrite the line.
+fn chain_report(conf: Option<(PathBuf, String)>) -> Vec<String> {
+    let Some((path, text)) = conf else {
+        return vec!["file chooser chain: no portal configuration found, so the desktop's default applies and dialogs bypass ofolder".to_owned()];
+    };
+    let Some(chain) = portal::file_chooser_chain(&text) else {
+        return vec![format!(
+            "warning: {} sets no file chooser chain, so dialogs bypass ofolder",
+            path.display()
+        )];
+    };
+    let shown = chain.join(";");
+    match chain.iter().position(|e| e == "ofolder") {
+        Some(0) => vec![format!("file chooser chain: {shown} (ofolder first)")],
+        Some(_) => vec![format!(
+            "warning: ofolder is not first in the file chooser chain ({shown} in {}): dialogs open without it",
+            path.display()
+        )],
+        None => vec![format!(
+            "warning: ofolder is not in the file chooser chain ({shown} in {}): dialogs open without it. \
+             Put ofolder first, as in `ofolder;{shown}`",
+            path.display()
+        )],
+    }
 }
 
 fn portal(args: &[String]) -> anyhow::Result<()> {
@@ -240,6 +272,9 @@ fn status() -> anyhow::Result<()> {
     for warning in loaded.warnings {
         println!("warning: {warning}");
     }
+    for line in chain_report(portal_conf(&home)) {
+        println!("{line}");
+    }
     Ok(())
 }
 
@@ -302,5 +337,50 @@ mod own_exe_tests {
             without_deleted_suffix(PathBuf::from("/home/u/.local/bin/ofolder")),
             PathBuf::from("/home/u/.local/bin/ofolder")
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conf(line: &str) -> Option<(PathBuf, String)> {
+        Some((
+            PathBuf::from("/c/hyprland-portals.conf"),
+            format!("[preferred]\n{FILE_CHOOSER}={line}\n"),
+        ))
+    }
+
+    #[test]
+    fn status_is_quiet_when_ofolder_leads_the_chain() {
+        assert_eq!(
+            chain_report(conf("ofolder;flea;gtk")),
+            ["file chooser chain: ofolder;flea;gtk (ofolder first)"]
+        );
+    }
+
+    #[test]
+    fn status_warns_when_another_program_took_the_line() {
+        let report = chain_report(conf("flea;gtk"));
+        assert_eq!(report.len(), 1);
+        assert!(report[0].starts_with("warning: ofolder is not in the file chooser chain"));
+        assert!(report[0].contains("ofolder;flea;gtk"), "{}", report[0]);
+    }
+
+    #[test]
+    fn status_warns_when_ofolder_is_not_first() {
+        let report = chain_report(conf("flea;ofolder;gtk"));
+        assert!(
+            report[0].starts_with("warning: ofolder is not first"),
+            "{}",
+            report[0]
+        );
+    }
+
+    #[test]
+    fn status_warns_when_there_is_no_chain_or_no_file() {
+        let none = chain_report(Some((PathBuf::from("/c/p.conf"), "[preferred]\n".into())));
+        assert!(none[0].starts_with("warning:") && none[0].contains("bypass"));
+        assert!(chain_report(None)[0].contains("bypass ofolder"));
     }
 }

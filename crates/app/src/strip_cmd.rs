@@ -696,7 +696,10 @@ fn dock_forever(
 fn copy_with_wl_copy(text: &str) -> Result<(), String> {
     use std::io::Write;
     use std::process::Stdio;
+    // The type is named so `wl-copy` does not run `xdg-mime` on the text to guess one: that is a
+    // shell script, it makes the copy slow, and a path can be guessed as something other than text.
     let mut child = std::process::Command::new("wl-copy")
+        .args(["--type", "text/plain;charset=utf-8"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

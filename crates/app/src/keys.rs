@@ -418,11 +418,27 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str) -> PathBuf {
+    /// A scratch folder that removes itself when the test ends.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("ofolder-keys-{}-{name}", std::process::id()));
         fs::remove_dir_all(&dir).ok();
         fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     fn shortcuts(pairs: &[(&str, &str)]) -> Shortcuts {

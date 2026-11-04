@@ -125,8 +125,22 @@ impl PickerIpc for QsIpc {
             "fleapicker",
             "snapshot",
         ]);
-        run_limited(command)
+        run_limited(command).map(|out| json_from_first_object(&out))
     }
+}
+
+/// `qs` logs a warning on its output before the answer when the process has
+/// no usable locale (a service started by D-Bus often has none), so the
+/// answer starts at the first line that opens a JSON object.
+fn json_from_first_object(output: &str) -> String {
+    let mut offset = 0;
+    for line in output.split_inclusive('\n') {
+        if line.trim_start().starts_with('{') {
+            return output[offset..].to_owned();
+        }
+        offset += line.len();
+    }
+    output.to_owned()
 }
 
 /// The picker's IPC through `flea ipc`, Flea's own client. Flea 0.4's picker
@@ -336,6 +350,19 @@ mod tests {
         ] {
             assert_eq!(flea_path_bar_open(unsaid), None, "{unsaid}");
         }
+    }
+
+    #[test]
+    fn a_warning_before_the_answer_does_not_hide_the_answer() {
+        let warned = "\u{1b}[33m  WARN\u{1b}[0m: Detected locale \"C\", which is not UTF-8.\n{\"path\":\"/a\",\"pathBarOpen\":true}\n";
+        let snapshot = json_from_first_object(warned);
+        assert_eq!(snapshot, "{\"path\":\"/a\",\"pathBarOpen\":true}\n");
+        assert_eq!(flea_path_bar_open(&snapshot), Some(true));
+        assert_eq!(json_from_first_object("{\"a\":1}"), "{\"a\":1}");
+        assert_eq!(
+            json_from_first_object("no object here\n"),
+            "no object here\n"
+        );
     }
 
     #[test]

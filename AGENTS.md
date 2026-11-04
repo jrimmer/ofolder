@@ -16,7 +16,7 @@ that produced those findings; `spike/runs/` is its evidence.
 5. **Tests never touch real folders.** Fixtures live in temporary folders. A check that opens a dialog uses a scratch folder, never `~`.
 6. **Git.** Work on your own branch. Never push to `main`, never force-push, and read `git remote -v` out loud before any push. Do not push without being told to. Commit messages are short and imperative.
 7. **Dependencies.** Pin gpui 0.2.2 from crates.io and keep `libc` at 0.2.186. Build with `--locked`. Do not depend on Zed's GPL or AGPL crates, and do not copy code from them.
-8. **Gate.** `bin/check` must pass before you report done.
+8. **Gate.** `bin/check` must pass before you report done. A change to what a dialog shows or does also needs `bin/e2e` to pass (it needs a display; `docs/e2e.md`).
 9. **Never weaken a check to make it pass.** Do not delete or loosen a test or edit expected output to match. If a check is wrong, say so and why.
 10. **Prove it.** A claim in a report needs the command you ran and its output, or an artifact path such as a screenshot or a log.
 
