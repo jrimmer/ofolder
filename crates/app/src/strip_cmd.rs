@@ -15,7 +15,6 @@ use anyhow::{Context, bail};
 use crate::keys;
 use ofolder_adapters::flea::{FleaAdapter, find_new_picker};
 use ofolder_adapters::gtk::GtkAdapter;
-use ofolder_adapters::hyprctl::Hyprctl;
 use ofolder_adapters::strata::StrataAdapter;
 use ofolder_adapters::wtype::Wtype;
 use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
@@ -30,6 +29,7 @@ use ofolder_core::private_file;
 use ofolder_core::settings;
 use ofolder_core::shortcuts::{Combo, Shortcuts};
 use ofolder_core::system::{Compositor, Typist};
+use ofolder_core::wake::Wake;
 use ofolder_strip::{
     APP_ID_LEFT, APP_ID_MENU, APP_ID_PREVIEW, APP_ID_RIGHT, APP_ID_SETTINGS, APP_ID_TIP,
     LEFT_WIDTH, MenuRequest, RIGHT_WIDTH, RailSide, SettingsRequest, StripActions, StripOptions,
@@ -140,6 +140,8 @@ struct Actions {
     home: PathBuf,
     compositor: Arc<dyn Compositor>,
     dock: Mutex<Dock>,
+    /// Tells the docking thread that the dock changed, so it need not wait out its timer.
+    wake: Arc<Wake>,
     /// Binds the shortcuts; None without a runtime folder to record them in.
     binder: Option<keys::Binder>,
     /// Commands from shortcuts, as the socket receives them.
@@ -344,6 +346,7 @@ impl StripActions for Actions {
             let menu = menu?;
             Some((menu, menu_rect(dock.dialog?, dock.bounds, &menu)))
         });
+        self.wake.notify();
         // The rule must be in force before the window maps, or it opens tiled
         // and then jumps. A menu that is typed into takes the keyboard.
         if let Some((menu, rect)) = placed
@@ -367,6 +370,7 @@ impl StripActions for Actions {
             let tip = tip?;
             Some(tip_rect(dock.dialog?, dock.bounds, &tip))
         });
+        self.wake.notify();
         // In force before the window maps, so it never opens tiled, and it
         // never takes the keyboard.
         if let Some(rect) = placed {
@@ -444,6 +448,7 @@ impl StripActions for Actions {
             open.then_some(())?;
             preview_rect(dock.dialog?, dock.bounds)
         });
+        self.wake.notify();
         // In force before the window maps, and it does not take the keyboard
         // when it appears. Unlike a tooltip it must take the pointer, for the
         // click on its caption, so it is focusable the way the rails are.
@@ -508,6 +513,7 @@ impl StripActions for Actions {
             let settings = settings?;
             Some(settings_rect(dock.dialog?, dock.bounds, &settings))
         });
+        self.wake.notify();
         // In force before the window maps, so it opens where it belongs; it
         // takes the keyboard, since the user clicked the gear for it.
         if let Some(rect) = placed {
@@ -605,6 +611,17 @@ fn panels_for(compositor: &dyn Compositor, dialog: &ofolder_core::hypr::Client) 
     )
 }
 
+/// How often the docking thread looks when the compositor's events are not arriving: the pace
+/// that was used before events were read.
+const DOCK_NO_EVENTS: Duration = Duration::from_millis(150);
+/// How often it looks while events are arriving and nothing has changed for a while. Events
+/// make it look at once; this is the net for a change that is not announced.
+const DOCK_IDLE: Duration = Duration::from_millis(300);
+/// How often it looks right after a change, so a dialog being dragged is followed smoothly.
+const DOCK_BUSY: Duration = Duration::from_millis(100);
+/// How long after the last change the quicker pace is kept.
+const DOCK_BUSY_FOR: Duration = Duration::from_millis(1500);
+
 /// Keeps both panels around the dialog: on their own sides, packed to one
 /// side at a monitor edge, following moves, resizes and workspace changes.
 /// Runs until the process exits.
@@ -615,8 +632,23 @@ fn dock_forever(
 ) {
     let me = std::process::id();
     let mut checked_focus = false;
+    let events_live = compositor.watch_events(actions.wake.clone());
+    let mut busy_until = Instant::now();
+    let mut limit = DOCK_NO_EVENTS;
+    let mut previous: Option<Rect> = None;
     loop {
-        sleep(Duration::from_millis(150));
+        // An event or a request from the strip ends the wait at once; the timer is only the
+        // net under them, because a window dragged to a new place is not announced.
+        if actions.wake.wait(limit) {
+            busy_until = Instant::now() + DOCK_BUSY_FOR;
+        }
+        limit = if !events_live.load(std::sync::atomic::Ordering::Relaxed) {
+            DOCK_NO_EVENTS
+        } else if Instant::now() < busy_until {
+            DOCK_BUSY
+        } else {
+            DOCK_IDLE
+        };
         let Some(window) = actions.window() else {
             continue;
         };
@@ -629,6 +661,12 @@ fn dock_forever(
         if let Ok(mut seen) = last_seen.lock() {
             *seen = Some(dialog.rect());
         }
+        // A dialog that is on the move is looked at often until it stops.
+        if previous.is_some_and(|p| p != dialog.rect()) {
+            busy_until = Instant::now() + DOCK_BUSY_FOR;
+            limit = DOCK_BUSY;
+        }
+        previous = Some(dialog.rect());
         let bounds = bounds_for(&*compositor, dialog);
         let (menu, focus_menu, tip, settings, focus_settings, preview) = actions
             .dock
@@ -776,7 +814,8 @@ fn note(message: &str) {
 pub fn run(raw: &[String]) -> anyhow::Result<()> {
     let args = parse_args(raw).map_err(|e| anyhow::anyhow!("{e}"))?;
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
-    let compositor: Arc<dyn Compositor> = Arc::new(Hyprctl);
+    let compositor = ofolder_adapters::hyprsock::compositor();
+    let wake = Arc::new(Wake::default());
     let typist: Arc<dyn Typist> = Arc::new(Wtype);
     let adapter = build_adapter(&args, &compositor, &typist, &home)?;
     note("adapter attached");
@@ -809,6 +848,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         home: home.clone(),
         compositor: compositor.clone(),
         dock: Mutex::new(Dock::default()),
+        wake: wake.clone(),
         binder,
         commands: keys::Queue::default(),
         problems: Mutex::new(Vec::new()),

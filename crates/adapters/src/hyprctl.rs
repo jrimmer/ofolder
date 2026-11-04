@@ -75,12 +75,23 @@ impl Hyprctl {
 }
 
 /// The pointer position from `hyprctl cursorpos -j`, in layout pixels.
-fn parse_cursor(json: &str) -> Option<(i32, i32)> {
+pub(crate) fn parse_cursor(json: &str) -> Option<(i32, i32)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     Some((
         value.get("x")?.as_f64()? as i32,
         value.get("y")?.as_f64()? as i32,
     ))
+}
+
+/// The address in an `activewindow` reply: none when no window has focus (Hyprland then answers
+/// with an empty object).
+pub(crate) fn parse_active(json: &str) -> Result<Option<String>, SystemError> {
+    let json: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| failure("activewindow", e))?;
+    Ok(json
+        .get("address")
+        .and_then(|a| a.as_str())
+        .map(str::to_owned))
 }
 
 impl Compositor for Hyprctl {
@@ -93,12 +104,7 @@ impl Compositor for Hyprctl {
     }
 
     fn active_window(&self) -> Result<Option<String>, SystemError> {
-        let json: serde_json::Value = serde_json::from_str(&Self::run(&["activewindow", "-j"])?)
-            .map_err(|e| failure("activewindow", e))?;
-        Ok(json
-            .get("address")
-            .and_then(|a| a.as_str())
-            .map(str::to_owned))
+        parse_active(&Self::run(&["activewindow", "-j"])?)
     }
 
     fn cursor(&self) -> Result<(i32, i32), SystemError> {
