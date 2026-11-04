@@ -24,6 +24,14 @@ use crate::sources::{self, RecentsRead, Sources};
 
 /// How long an informational message stays.
 const INFO_TTL: Duration = Duration::from_millis(2500);
+/// What the two rails are, said once on the first dialog. Resting the pointer on it keeps it and
+/// a click dismisses it.
+const RAILS_HINT: &str = "Two rails now sit beside your dialogs. The left one goes back, forward \
+and up, and opens favorites, places and recent folders and files. The right one makes a folder, \
+finds one, adds this folder to your favorites, copies its path and opens a file manager or \
+terminal here. Rest the pointer on an icon for its name. Click this note to close it; it is \
+shown once.";
+const HINT_TTL: Duration = Duration::from_secs(25);
 /// The shortest time an error stays; the user needs time to read it.
 const ERROR_TTL: Duration = Duration::from_secs(10);
 /// The longest an error stays without the pointer on it.
@@ -199,6 +207,17 @@ impl ViewModel {
                 MessageKind::Error,
                 NOTICE_TTL,
             );
+        } else if let Some(marker) = options.hint_marker.as_deref().filter(|m| !m.exists()) {
+            // Once: the marker is made as the note is shown, so a dialog that closes at once
+            // does not bring it back. A marker that cannot be written shows the note again next
+            // time, which is better than never saying what the rails are.
+            vm.say(
+                "welcome",
+                RAILS_HINT.to_owned(),
+                MessageKind::Info,
+                HINT_TTL,
+            );
+            ofolder_core::private_file::write_private_atomic(marker, b"shown\n").ok();
         }
         vm
     }
@@ -1055,6 +1074,7 @@ mod tests {
             palette: Default::default(),
             messages_path: None,
             update_state_path: None,
+            hint_marker: None,
         }
     }
 
@@ -1802,6 +1822,41 @@ mod tests {
         assert_eq!(
             vm.open_current(true),
             Some(Job::OpenTerminal("/srv/a".into()))
+        );
+    }
+
+    #[test]
+    fn the_first_dialog_says_what_the_rails_are_and_later_ones_do_not() {
+        let d = Dir::new("rails-hint");
+        let mut options = options(&d);
+        let marker = d.0.join("state/rails-hint-shown");
+        options.hint_marker = Some(marker.clone());
+        let first = ViewModel::new(&options);
+        let message = first.message().expect("no note on the first dialog");
+        assert_eq!(message.kind, MessageKind::Info);
+        assert!(message.text.contains("left one"), "{}", message.text);
+        assert!(
+            marker.is_file(),
+            "the marker was not made, so it would be shown every time"
+        );
+        assert!(
+            ViewModel::new(&options).message().is_none(),
+            "the note came back on the second dialog"
+        );
+    }
+
+    #[test]
+    fn a_settings_error_is_not_covered_by_the_welcome_and_leaves_it_for_later() {
+        let d = Dir::new("rails-hint-error");
+        let mut options = options(&d);
+        let marker = d.0.join("rails-hint-shown");
+        options.hint_marker = Some(marker.clone());
+        fs::write(&options.settings_path, "this is not [valid toml").unwrap();
+        let vm = ViewModel::new(&options);
+        assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Error));
+        assert!(
+            !marker.exists(),
+            "the welcome was spent on a dialog that showed an error instead"
         );
     }
 

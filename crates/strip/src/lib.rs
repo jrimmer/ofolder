@@ -244,6 +244,9 @@ pub struct StripOptions {
     pub messages_path: Option<PathBuf>,
     /// The update state file the settings window reads; `None` shows no update.
     pub update_state_path: Option<PathBuf>,
+    /// A file whose absence means this is the first dialog ever: a note saying what the two rails
+    /// hold is shown once and the file is made. `None` shows no note.
+    pub hint_marker: Option<PathBuf>,
 }
 
 fn window_options(

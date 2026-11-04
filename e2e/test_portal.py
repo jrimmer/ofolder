@@ -111,6 +111,11 @@ class Flavour:
                 os.remove(os.path.join(home, f))
             except FileNotFoundError:
                 pass
+        # The first-dialog note is a window of its own that would be in the way of every test; it is
+        # marked as already shown, and the one test about it takes the mark away.
+        marker = os.path.join(home, ".local/state/ofolder/rails-hint-shown")
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        open(marker, "w").write("shown\n")
         self.proc = self.out = None
 
     def tearDown(self):
@@ -559,6 +564,23 @@ class Features:
         self.open_dialog(mode=mode, folder=folder)
         self.assertTrue(self.strips())
         self.ready(folder)
+
+    def test_the_first_dialog_ever_says_what_the_rails_are_once_and_a_click_closes_it(self):
+        marker = os.path.join(self.home(), ".local/state/ofolder/rails-hint-shown")
+        os.remove(marker)
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        self.assertTrue(wait_for(10, lambda: self.s.client(MENU)), "no note appeared on the first dialog")
+        self.assertTrue(os.path.isfile(marker), "the note was shown but not remembered")
+        time.sleep(0.5)
+        self.shot("welcome")
+        self.assertTrue(self.s.click(MENU, 100, 30), "the click did not land")
+        self.assertTrue(wait_for(8, lambda: not self.s.client(MENU)), "a click did not close the note")
+        self.close_dialog()
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        time.sleep(3)
+        self.assertFalse(self.s.client(MENU), "the note came back on the second dialog")
 
     def test_a_folder_is_added_to_the_favorites_and_taken_off_again(self):
         self.start()
