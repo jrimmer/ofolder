@@ -18,15 +18,36 @@ The portal files and the `FileChooser=` chain live in the private home, so your 
 read nor written. Keys reach a dialog only through `hyprctl dispatch send_shortcut` aimed at that
 dialog's own window, never through whatever has the keyboard (`wtype` did not reach the GTK dialog). Folders are scratch folders under `/tmp`.
 
-## What it proves (34 checks, about two minutes)
+## What it proves (88 checks, about eight minutes)
 
-Per backend: the rails dock either side of the dialog and do not take the keyboard; the folder the dialog
-is in reads back (copy path); parent and back move the dialog and read back, and for Flea the dialog
-itself is asked as a second witness; cancelling leaves no windows, no key bindings and tells the
-application "cancelled"; confirming returns the chosen file; a confirmed dialog is remembered and a
-cancelled one is not; pause leaves the dialog untouched; the rails follow a moved dialog; forty quick
-presses of a command do not bring the rails down; `ofolder status` reports the file-chooser chain and
-warns when ofolder is not in it. Flea 0.4 also checks its graceful `fleapicker.quit`. Moves are confirmed by the dialog itself first (Flea's own `path`), then by the rails.
+Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12 and GTK; Flea 0.4 has one more):
+
+- Docking and moving: the rails dock either side of the dialog and do not take the keyboard; they follow
+  a moved dialog; the folder reads back (copy path); parent and back move the dialog and read back (for
+  Flea the dialog itself is asked as a second witness); forty quick presses do not bring the rails down.
+- Ending a dialog: cancel leaves no windows or key bindings and tells the application "cancelled";
+  confirm returns the chosen file; a confirmed dialog is remembered and a cancelled one is not; pause
+  leaves the dialog untouched.
+- Favorites: the folder is added and taken off again; a favorite chosen from its menu takes the dialog
+  there; from a row's own menu a favorite is removed, moved down and renamed.
+- Menus, chosen with a real click: recent folders, recent files (to the file's folder) and places (home).
+- Making and finding: a new folder is created from its prompt and the dialog goes into it; find ranks
+  the folders it knows and Enter goes to the best.
+- Settings window: it opens and closes; a general switch is saved, the recents count is stepped down and
+  saved, the preview size cap is chosen, a rail icon is hidden and the default layout restores it, each
+  checked in `settings.toml`.
+- Preview: it shows under the dialog while an image is selected, is hidden by its shortcut, and does not
+  show for a text file.
+- Shortcuts: one set in the settings is bound while the dialog is open and is gone after it closes.
+- `ofolder status` reports the file-chooser chain and warns when ofolder is not in it.
+
+Flea 0.4 also checks its graceful `fleapicker.quit`. Moves are confirmed by the dialog itself first
+(Flea's own `path`), then by the rails.
+
+Clicks go to the verified window at a position inside it (`Session.click`), moving the pointer in steps
+first. The positions of controls in the settings window and in a favorite's row menu are fixed numbers
+read from screenshots; if the layout changes they must change too. `E2E_SHOTS=<folder>` keeps a
+picture of a menu during a test.
 
 ## What it touches on the real session
 
@@ -50,8 +71,11 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
 
 - The nested compositor is the Hyprland on disk. After a Hyprland update that has not been logged into
   yet, the tests run a newer one than the session you are using.
-- Not covered: Strata, the preview panel, the settings window, the menus, a real mouse click, theme
-  changes and key bindings made from the settings window.
+- Not covered: Strata; the search below a folder (the Search button and its results); the Shortcuts pane
+  that records a key combination; the Rails pane beyond hiding an icon and resetting; the Messages pane;
+  file manager and terminal launching; theme changes; the preview of a video.
+- A configured shortcut cannot be pressed: a virtual keyboard (`wtype`) does not trigger any bind in the
+  nested compositor, not even a plain one, so only the binding itself is checked.
 - The first Return into a fresh Flea 0.4 Save dialog is ignored and the second confirms it. Measured
   twice with ofolder paused and twice with the rails up, always two presses, so it is Flea's and not
   ofolder's. The suite repeats the press, one at a time, each sent to the dialog's own window.

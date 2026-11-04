@@ -279,6 +279,14 @@ class Session:
             return open(os.path.join(self.dir, name + ".log")).read()
         return ""
 
+    def focus(self, cls):
+        """Gives the keyboard to the window of class `cls`, as a click on it would."""
+        window = self.client(cls)
+        if not window:
+            return False
+        self.hypr("dispatch", 'hl.dsp.focus({ window = "address:%s" })' % window["address"])
+        return bool(wait_for(3, lambda: self.active_class() == cls))
+
     def press(self, cls, key):
         """Sends one key to the window of class `cls` and to no other, through the compositor.
         It is refused when no such window is open, so a key can never land elsewhere."""
@@ -289,6 +297,24 @@ class Session:
             "dispatch",
             'hl.dsp.send_shortcut({ mods = "", key = "%s", window = "address:%s" })' % (key, window["address"]),
         )
+        return r.stdout.strip() == "ok"
+
+    def click(self, cls, dx, dy):
+        """Left-clicks at (dx, dy) inside the window of class `cls`, and nowhere else. The pointer
+        moves in steps first, as a real one does, so the toolkit sees hover before the press."""
+        window = self.client(cls)
+        if not window:
+            return False
+        x, y = window["at"][0] + dx, window["at"][1] + dy
+        for ox, oy in ((-40, -25), (-12, -8), (-3, -2), (0, 0)):
+            self.hypr("dispatch", "hl.dsp.cursor.move({ x = %d, y = %d })" % (x + ox, y + oy))
+            time.sleep(0.08)
+        time.sleep(0.25)
+        r = self.hypr(
+            "dispatch",
+            'hl.dsp.send_shortcut({ mods = "", key = "mouse:272", window = "address:%s" })' % window["address"],
+        )
+        time.sleep(0.3)
         return r.stdout.strip() == "ok"
 
     def type_text(self, expect_class, text=None, key=None):

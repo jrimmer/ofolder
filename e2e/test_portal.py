@@ -85,6 +85,13 @@ class Flavour:
     def setUp(self):
         self.s.run([OFOLDER, "resume"])
         self.clear_clipboard()
+        # Each test starts with no favorites, recents or settings of its own making.
+        home = self.s.env["HOME"]
+        for f in (".config/ofolder/favorites.json", ".local/share/ofolder/recents.json", ".config/ofolder/settings.toml"):
+            try:
+                os.remove(os.path.join(home, f))
+            except FileNotFoundError:
+                pass
         self.proc = self.out = None
 
     def tearDown(self):
@@ -405,7 +412,323 @@ class Rails(Flavour):
         self.assertTrue(moved, "the left rail did not follow the dialog")
 
 
-class Flea04(Rails, unittest.TestCase):
+def write_png(path):
+    """A 2 by 2 PNG, made here so the suite needs no imaging library."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    rows = b"".join(b"\x00" + bytes([200, 40, 40]) * 2 for _ in range(2))
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
+
+
+MENU = "ofolder.strip.menu"
+HEAD_LIST = 44  # a menu's fixed top, then rows of 48; recents carry a switch above their rows
+HEAD_RECENT = 76
+ROW = 48
+
+
+class Features:
+    """What the rails offer beyond moving: favorites, places, recents, new folder, find, settings,
+    preview. A menu is opened with its command and an item is chosen with a real click."""
+
+    def home(self):
+        return self.s.env["HOME"]
+
+    def data(self, *parts):
+        return os.path.join(self.home(), ".local/share/ofolder", *parts)
+
+    def config(self, *parts):
+        return os.path.join(self.home(), ".config/ofolder", *parts)
+
+    def favorites_text(self):
+        try:
+            return open(self.config("favorites.json")).read()
+        except OSError:
+            return ""
+
+    def seed_recents(self, folders=(), files=()):
+        os.makedirs(self.data(), exist_ok=True)
+        now = int(time.time())
+        doc = {
+            "folders": [{"path": f, "apps": [], "at": now - i} for i, f in enumerate(folders)],
+            "files": [{"path": f, "apps": [], "at": now - i} for i, f in enumerate(files)],
+        }
+        open(self.data("recents.json"), "w").write(json.dumps(doc))
+
+    def open_menu(self, command):
+        # A message ("Path copied") lives in a window of the same class as the menus, so it must
+        # be gone before a menu's window can be told from it.
+        self.assertTrue(wait_for(15, lambda: not self.s.client(MENU)), "a message window would not go away")
+        self.do(command)
+        menu = wait_for(10, lambda: self.s.client(MENU))
+        self.assertTrue(menu, "%s opened no menu" % command)
+        return menu
+
+    def choose(self, command, row, head=HEAD_LIST):
+        """Opens the menu for `command` and clicks its row `row`."""
+        self.open_menu(command)
+        time.sleep(0.5)
+        self.assertTrue(self.s.click(MENU, 150, head + row * ROW + ROW // 2), "the click did not land")
+
+    def start(self, folder=None, mode="save"):
+        self.open_dialog(mode=mode, folder=folder)
+        self.assertTrue(self.strips())
+        self.ready(folder)
+
+    def test_a_folder_is_added_to_the_favorites_and_taken_off_again(self):
+        self.start()
+        self.assertNotIn(self.one, self.favorites_text())
+        self.do("favorite")
+        self.assertTrue(wait_for(10, lambda: self.one in self.favorites_text()), "the folder was not added")
+        time.sleep(1.2)  # the rails ignore a second press while the first is being shown
+        self.do("favorite")
+        self.assertTrue(
+            wait_for(10, lambda: self.one not in self.favorites_text()), "the folder was not taken off again"
+        )
+
+    def test_a_favorite_chosen_from_its_menu_takes_the_dialog_there(self):
+        self.start()
+        self.do("favorite")
+        self.assertTrue(wait_for(10, lambda: self.one in self.favorites_text()))
+        self.move("parent", self.root)
+        self.choose("favorites", 0)
+        self.assertTrue(self.folder_is(self.one, 12), "the favorite did not take the dialog to its folder")
+
+    def shot(self, name):
+        """A picture of the menu window, kept when E2E_SHOTS names a folder, to see what a click saw."""
+        folder = os.environ.get("E2E_SHOTS")
+        menu = self.s.client(MENU)
+        if folder and menu:
+            self.s.run(["grim", "-g", "%d,%d %dx%d" % (*menu["at"], *menu["size"]), os.path.join(folder, name + ".png")])
+            open(os.path.join(folder, name + ".txt"), "w").write(json.dumps(menu["at"]) + json.dumps(menu["size"]))
+
+    def seed_favorites(self, *entries):
+        os.makedirs(self.config(), exist_ok=True)
+        open(self.config("favorites.json"), "w").write(json.dumps({"favorites": list(entries)}))
+
+    def favorite_paths(self):
+        try:
+            return [f["path"] for f in json.load(open(self.config("favorites.json")))["favorites"]]
+        except (OSError, ValueError, KeyError):
+            return []
+
+    def row_menu(self, button_xy):
+        """Opens the favorites menu, then the first row's own menu (the dots), then presses a button
+        in it. The positions are those of a 300 pixel menu with its first row at the top."""
+        first = self.open_menu("favorites")["size"][1]
+        time.sleep(1.0)
+        # A click that arrives before the window takes input is lost, so it is repeated until the
+        # row's menu has opened, which makes the window taller.
+        for _ in range(4):
+            self.assertTrue(self.s.click(MENU, 283, 52), "the dots did not click")
+            if wait_for(2, lambda: self.s.client(MENU)["size"][1] > first):
+                break
+        else:
+            self.fail("the row's menu never opened")
+        self.shot("row-menu")
+        self.assertTrue(self.s.click(MENU, *button_xy), "the row's button did not click")
+
+    def test_a_favorite_is_removed_from_its_row_menu(self):
+        self.seed_favorites({"path": self.one}, {"path": self.two, "name": "Second"})
+        self.start()
+        self.row_menu((145, 120))  # Remove favorite
+        self.assertTrue(
+            wait_for(8, lambda: self.favorite_paths() == [self.two]),
+            "the favorite was not removed: %s" % self.favorite_paths(),
+        )
+
+    def test_a_favorite_is_moved_down_the_list_from_its_row_menu(self):
+        self.seed_favorites({"path": self.one}, {"path": self.two})
+        self.start()
+        self.row_menu((263, 120))  # Down
+        self.assertTrue(
+            wait_for(8, lambda: self.favorite_paths() == [self.two, self.one]),
+            "the favorite did not move: %s" % self.favorite_paths(),
+        )
+
+    def test_a_favorite_is_renamed_from_its_row_menu(self):
+        # Two favorites: with one the menu window is too short to show the Rename button.
+        self.seed_favorites({"path": self.one}, {"path": self.two})
+        self.start()
+        self.row_menu((51, 151))  # Rename
+        time.sleep(1.0)
+        # A click would have focused the menu; a click sent to a window does not, so it is done here.
+        self.assertTrue(self.s.focus(MENU), "the menu would not take the keyboard")
+        # The field opens with the old name selected; clear it, then type the new one.
+        for _ in range(8):
+            self.s.type_text(MENU, key="BackSpace")
+        self.assertTrue(self.s.type_text(MENU, "Work"))
+        self.assertTrue(self.s.type_text(MENU, key="Return"))
+        self.assertTrue(
+            wait_for(8, lambda: '"name": "Work"' in self.favorites_text()),
+            "the new name was not saved:\n" + self.favorites_text(),
+        )
+
+    def test_a_shortcut_set_in_the_settings_is_bound_while_the_dialog_is_open_and_gone_after(self):
+        """Pressing the combination is not tested: a virtual keyboard does not reach the nested
+        compositor's binds, not even a plain one. The command it runs is `ofolder do`, tested above."""
+        os.makedirs(self.config(), exist_ok=True)
+        open(self.config("settings.toml"), "w").write('[shortcuts]\nfavorite = "SUPER+ALT+G"\n')
+        self.start()
+        ours = lambda: [b for b in json.loads(self.s.hypr("binds", "-j").stdout or "[]") if "ofolder" in json.dumps(b)]
+        bound = wait_for(10, ours)
+        self.assertTrue(bound, "the shortcut was not bound")
+        self.assertEqual((bound[0]["modmask"], bound[0]["key"]), (72, "G"), "bound to the wrong keys")
+        self.close_dialog()
+        self.assertTrue(wait_for(10, lambda: not ours()), "the binding was left behind after the dialog closed")
+
+    def test_a_recent_folder_chosen_from_its_menu_takes_the_dialog_there(self):
+        self.seed_recents(folders=[self.two])
+        self.start()
+        self.choose("recent_folders", 0, HEAD_RECENT)
+        self.assertTrue(self.folder_is(self.two, 12), "the recent folder did not take the dialog there")
+
+    def test_a_recent_file_chosen_from_its_menu_takes_the_dialog_to_its_folder(self):
+        note = os.path.join(self.two, "note.txt")
+        open(note, "w").write("x")
+        self.seed_recents(files=[note])
+        self.start()
+        self.choose("recent_files", 0, HEAD_RECENT)
+        self.assertTrue(self.folder_is(self.two, 12), "the recent file did not take the dialog to its folder")
+
+    def test_a_place_chosen_from_its_menu_takes_the_dialog_there(self):
+        self.start()
+        self.open_menu("places")
+        time.sleep(0.5)
+        self.assertTrue(self.s.click(MENU, 150, HEAD_LIST + ROW // 2))
+        self.assertTrue(self.folder_is(self.home(), 12), "the first place was not the home folder or did not open")
+
+    def test_a_new_folder_is_made_from_its_prompt_and_the_dialog_goes_into_it(self):
+        self.start()
+        self.open_menu("new_folder")
+        made = os.path.join(self.one, "made")
+        self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "the prompt did not take the keyboard")
+        self.assertTrue(self.s.type_text(MENU, "made"))
+        self.assertTrue(self.s.type_text(MENU, key="Return"))
+        self.assertTrue(wait_for(10, lambda: os.path.isdir(made)), "the folder was not made")
+        self.assertTrue(self.folder_is(made, 12), "the dialog did not go into the new folder")
+
+    def test_find_ranks_the_folders_it_knows_and_enter_goes_to_the_best(self):
+        """The box ranks favorites, recents and places as you type; the search below the folder
+        is a separate button and is not exercised here."""
+        self.seed_recents(folders=[self.two, self.one])
+        self.start(self.root)
+        self.open_menu("find")
+        self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "find did not take the keyboard")
+        self.assertTrue(self.s.type_text(MENU, "two"))
+        time.sleep(1.5)
+        self.assertTrue(self.s.type_text(MENU, key="Return"))
+        self.assertTrue(self.folder_is(self.two, 12), "find did not take the dialog to the match")
+
+    # The settings window: pane buttons and controls are found by their place in the window, which
+    # is fixed at 780 by 560. Each change is saved to settings.toml at once, so that is what is read.
+    SETTINGS = "ofolder.strip.settings"
+
+    def settings_text(self):
+        try:
+            return open(self.config("settings.toml")).read()
+        except OSError:
+            return ""
+
+    def open_settings(self):
+        self.start()
+        self.do("settings")
+        self.assertTrue(wait_for(10, lambda: self.s.client(self.SETTINGS)), "no settings window")
+        time.sleep(1.0)
+
+    def click_settings(self, x, y):
+        self.assertTrue(self.s.click(self.SETTINGS, x, y), "the click did not land")
+        time.sleep(0.6)
+
+    def test_a_general_setting_is_saved_when_it_is_switched(self):
+        self.open_settings()
+        self.assertNotIn("recents_enabled = false", self.settings_text())
+        self.click_settings(221, 115)  # Remember recent folders and files
+        self.assertTrue(
+            wait_for(8, lambda: "recents_enabled = false" in self.settings_text()),
+            "switching it off was not saved:\n" + self.settings_text(),
+        )
+        self.click_settings(221, 115)
+        self.assertTrue(
+            wait_for(8, lambda: "recents_enabled = true" in self.settings_text()),
+            "switching it on again was not saved:\n" + self.settings_text(),
+        )
+
+    def test_the_recents_count_is_stepped_down_and_saved(self):
+        self.open_settings()
+        self.click_settings(388, 152)  # the minus beside "Recent items kept"
+        self.assertTrue(
+            wait_for(8, lambda: "recents_max" in self.settings_text() and "recents_max = 20" not in self.settings_text()),
+            "the count was not lowered:\n" + self.settings_text(),
+        )
+
+    def test_the_preview_size_cap_is_chosen_in_its_pane(self):
+        self.open_settings()
+        self.click_settings(44, 97)  # the Preview pane
+        self.click_settings(453, 240)  # 32 MB
+        self.assertTrue(
+            wait_for(8, lambda: "max_mb = 32" in self.settings_text()),
+            "the cap was not saved:\n" + self.settings_text(),
+        )
+
+    def test_hiding_a_rail_icon_is_saved_and_the_default_layout_brings_it_back(self):
+        self.open_settings()
+        self.click_settings(44, 63)  # the Rails pane
+        before = self.settings_text()
+        self.click_settings(725, 164)  # Hide, on Back
+        self.assertTrue(
+            wait_for(8, lambda: self.settings_text() != before), "hiding Back was not saved:\n" + self.settings_text()
+        )
+        hidden = self.settings_text()
+        self.click_settings(684, 77)  # Reset to default layout
+        self.assertTrue(
+            wait_for(8, lambda: self.settings_text() != hidden),
+            "the default layout was not restored:\n" + self.settings_text(),
+        )
+
+    def test_the_preview_shows_while_an_image_is_selected_and_the_shortcut_hides_it(self):
+        pics = os.path.join(self.root, "pics")
+        os.makedirs(pics, exist_ok=True)
+        write_png(os.path.join(pics, "a.png"))
+        # An Open dialog, where choosing a file is the point, and one Down to select the image
+        # in the list when the dialog has not already.
+        self.start(pics, mode="open")
+        PREVIEW = "ofolder.strip.preview"
+        if not wait_for(4, lambda: self.s.client(PREVIEW)):
+            self.s.press(self.picker_class, "Down")
+        self.assertTrue(wait_for(15, lambda: self.s.client(PREVIEW)), "no preview for the selected image")
+        dialog = self.s.client(self.picker_class)
+        shown = self.s.client(PREVIEW)
+        self.assertGreaterEqual(shown["at"][1], dialog["at"][1] + dialog["size"][1], "the preview is not under the dialog")
+        self.do("preview")
+        self.assertTrue(wait_for(10, lambda: not self.s.client(PREVIEW)), "the shortcut did not hide the preview")
+
+    def test_a_folder_with_no_image_selected_shows_no_preview(self):
+        plain = os.path.join(self.root, "plain")
+        os.makedirs(plain, exist_ok=True)
+        open(os.path.join(plain, "a.txt"), "w").write("x")
+        self.start(plain, mode="open")
+        self.s.press(self.picker_class, "Down")
+        self.assertFalse(wait_for(5, lambda: self.s.client("ofolder.strip.preview")), "a preview for a text file")
+
+    def test_the_settings_window_opens_and_closes(self):
+        self.start()
+        self.do("settings")
+        self.assertTrue(wait_for(10, lambda: self.s.client("ofolder.strip.settings")), "no settings window")
+        self.do("settings")
+        self.assertTrue(
+            wait_for(10, lambda: not self.s.client("ofolder.strip.settings")), "the settings window did not close"
+        )
+
+
+class Flea04(Features, Rails, unittest.TestCase):
     name = "flea04"
     chain = "ofolder;flea;gtk"
     picker_class = "com.thisisgm.flea.picker"
@@ -423,7 +746,7 @@ class Flea04(Rails, unittest.TestCase):
         self.proc = None
 
 
-class Flea03(Rails, unittest.TestCase):
+class Flea03(Features, Rails, unittest.TestCase):
     name = "flea03"
     chain = "ofolder;flea;gtk"
     picker_class = "com.thisisgm.flea.picker"
@@ -431,7 +754,7 @@ class Flea03(Rails, unittest.TestCase):
     pick_marker = "picker.qml"
 
 
-class Gtk(Rails, unittest.TestCase):
+class Gtk(Features, Rails, unittest.TestCase):
     name = "gtk"
     chain = "ofolder;gtk"
     picker_class = "xdg-desktop-portal-gtk"
