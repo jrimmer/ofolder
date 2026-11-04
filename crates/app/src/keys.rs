@@ -20,6 +20,7 @@ use std::time::Duration;
 use ofolder_core::keybind::{do_command_line, taken_by};
 use ofolder_core::shortcuts::{Combo, Shortcuts, command};
 use ofolder_core::system::Compositor;
+use ofolder_core::wake::Wake;
 
 const RECORD: &str = "binds";
 const SOCKET_PREFIX: &str = "strip-";
@@ -278,7 +279,10 @@ impl Drop for Server {
 }
 
 /// Listens on this strip's socket and queues each known command.
-pub fn serve(dir: &Path, pid: u32, queue: Queue) -> io::Result<Server> {
+///
+/// `wake` is called after each command is queued, so whoever runs the commands need not look on a
+/// timer.
+pub fn serve(dir: &Path, pid: u32, queue: Queue, wake: Arc<Wake>) -> io::Result<Server> {
     let path = socket_path(dir, pid);
     fs::remove_file(&path).ok();
     let listener = UnixListener::bind(&path)?;
@@ -289,6 +293,8 @@ pub fn serve(dir: &Path, pid: u32, queue: Queue) -> io::Result<Server> {
                 && let Ok(mut q) = queue.lock()
             {
                 q.push_back(id);
+                drop(q);
+                wake.notify();
             }
         }
     });
@@ -623,7 +629,7 @@ mod tests {
     fn a_command_reaches_the_newest_running_strip_over_its_socket() {
         let dir = scratch("socket");
         let queue: Queue = Arc::default();
-        let server = serve(&dir, 4242, queue.clone()).expect("listens");
+        let server = serve(&dir, 4242, queue.clone(), Arc::default()).expect("listens");
         let mode = fs::metadata(socket_path(&dir, 4242))
             .unwrap()
             .permissions()

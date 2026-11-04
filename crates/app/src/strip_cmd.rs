@@ -146,6 +146,8 @@ struct Actions {
     binder: Option<keys::Binder>,
     /// Commands from shortcuts, as the socket receives them.
     commands: keys::Queue,
+    /// Called when a command is queued, for `wait_commands`.
+    commands_wake: Arc<Wake>,
     /// Shortcuts that could not be bound when the strip started.
     problems: Mutex<keys::Problems>,
 }
@@ -463,6 +465,11 @@ impl StripActions for Actions {
                 )
                 .ok();
         }
+    }
+
+    fn wait_commands(&self, limit: Duration) -> Vec<&'static str> {
+        self.commands_wake.wait(limit);
+        self.take_commands()
     }
 
     fn take_commands(&self) -> Vec<&'static str> {
@@ -851,6 +858,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         wake: wake.clone(),
         binder,
         commands: keys::Queue::default(),
+        commands_wake: Arc::default(),
         problems: Mutex::new(Vec::new()),
     });
 
@@ -919,9 +927,14 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
     // this dialog is open. Bindings a dead strip left behind go first.
     let _server = runtime.as_ref().and_then(|dir| {
         keys::clean_stale(&*compositor, dir, &keys::ofolder_alive);
-        keys::serve(dir, std::process::id(), actions.commands.clone())
-            .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
-            .ok()
+        keys::serve(
+            dir,
+            std::process::id(),
+            actions.commands.clone(),
+            actions.commands_wake.clone(),
+        )
+        .map_err(|e| eprintln!("ofolder: shortcuts are off: {e}"))
+        .ok()
     });
     let shortcuts = settings::load(&settings_path, &home).settings.shortcuts;
     if !shortcuts.is_empty() {
