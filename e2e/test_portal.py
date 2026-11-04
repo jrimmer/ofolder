@@ -386,6 +386,33 @@ class Rails(Flavour):
         used = (ticks() - a) * 100 // (5 * os.sysconf("SC_CLK_TCK"))
         self.assertLess(used, 25, "the rails used %d%% of a core while idle" % used)
 
+    def test_the_rails_appear_within_a_second_of_the_dialog(self):
+        """The requirement is under one second from the dialog to its rails. Three dialogs are
+        timed, from the first poll that sees the dialog to the first that sees both rails, so the
+        figure includes the poll itself (about 30 ms each) and is a little high. The portal is
+        already running by now, as it is for every dialog after the first of a login. Judged on
+        the release build only; the debug build is far slower."""
+        if "release" not in OFOLDER:
+            self.skipTest("judged on the release build: run bin/e2e --release")
+        times = []
+        for _ in range(3):
+            self.proc, self.out = self.stack.ask("save", self.one)
+            seen = None
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                classes = {c["class"] for c in self.s.clients()}
+                now = time.monotonic()
+                if seen is None and self.picker_class in classes:
+                    seen = now
+                if seen is not None and all(c in classes for c in STRIPS):
+                    times.append(now - seen)
+                    break
+            self.assertEqual(len(times), _ + 1, "the rails never appeared:\n" + self.s.log("app")[-400:])
+            self.close_dialog()
+        say("rails appeared after %s s" % ", ".join("%.2f" % x for x in times))
+        self.assertLess(sorted(times)[1], 1.0, "median %.2f s; all %s" % (sorted(times)[1], times))
+        self.assertLess(max(times), 2.0, "the slowest took %.2f s; all %s" % (max(times), times))
+
     def is_strip(self, pid):
         try:
             cmd = open("/proc/%d/cmdline" % pid, "rb").read()
