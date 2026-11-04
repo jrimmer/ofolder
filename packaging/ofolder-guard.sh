@@ -11,6 +11,12 @@
 # `ofolder repair --watch on` installs the systemd units that run this when the program or the
 # portal configuration changes, and once at login. Nothing else runs it.
 set -u
+# Started by systemd, this may not have been given the desktop name, which ofolder needs to find
+# the portal configuration the frontend reads; the user manager has it.
+if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+  XDG_CURRENT_DESKTOP=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CURRENT_DESKTOP=//p')
+  export XDG_CURRENT_DESKTOP
+fi
 data="${XDG_DATA_HOME:-$HOME/.local/share}"
 service="$data/dbus-1/services/org.freedesktop.impl.portal.desktop.ofolder.service"
 portal="$data/xdg-desktop-portal/portals/ofolder.portal"

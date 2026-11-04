@@ -144,15 +144,71 @@ fn portal_conf(home: &Path) -> Option<(PathBuf, String)> {
     let config_home = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".config"));
-    let desktops = env::var("XDG_CURRENT_DESKTOP")
-        .unwrap_or_default()
-        .to_lowercase();
+    portal_conf_in(&config_home, &current_desktops())
+}
+
+/// The desktop name or names the portal frontend goes by (`hyprland`), lower case. Taken from this
+/// process's environment; a service started without one (the guard, under systemd) asks the
+/// running portal frontend, whose environment is the one that decides which file it reads.
+fn current_desktops() -> String {
+    if let Ok(own) = env::var("XDG_CURRENT_DESKTOP")
+        && !own.is_empty()
+    {
+        return own.to_lowercase();
+    }
+    for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let pid = entry.file_name();
+        let Some(pid) = pid
+            .to_str()
+            .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
+        else {
+            continue;
+        };
+        let is_frontend = std::fs::read(format!("/proc/{pid}/cmdline"))
+            .ok()
+            .and_then(|c| c.split(|b| *b == 0).next().map(<[u8]>::to_vec))
+            .is_some_and(|argv0| argv0.ends_with(b"/xdg-desktop-portal"));
+        if !is_frontend {
+            continue;
+        }
+        if let Ok(environ) = std::fs::read(format!("/proc/{pid}/environ"))
+            && let Some(value) = environ
+                .split(|b| *b == 0)
+                .find_map(|kv| kv.strip_prefix(b"XDG_CURRENT_DESKTOP="))
+        {
+            return String::from_utf8_lossy(value).to_lowercase();
+        }
+    }
+    String::new()
+}
+
+/// The portal configuration the frontend would read for `desktops`, and its text. With the desktop
+/// unknown, the one `<desktop>-portals.conf` there is wins over `portals.conf`, as it would for the
+/// frontend; guessing wrong would have `repair` change a file the frontend never reads.
+fn portal_conf_in(config_home: &Path, desktops: &str) -> Option<(PathBuf, String)> {
+    let dir = config_home.join("xdg-desktop-portal");
     let mut files: Vec<PathBuf> = desktops
         .split(':')
         .filter(|d| !d.is_empty())
-        .map(|d| config_home.join(format!("xdg-desktop-portal/{d}-portals.conf")))
+        .map(|d| dir.join(format!("{d}-portals.conf")))
         .collect();
-    files.push(config_home.join("xdg-desktop-portal/portals.conf"));
+    if desktops.is_empty() {
+        let mut specific: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.ends_with("-portals.conf"))
+            })
+            .collect();
+        if specific.len() == 1 {
+            files.append(&mut specific);
+        }
+    }
+    files.push(dir.join("portals.conf"));
     files
         .into_iter()
         .find_map(|f| std::fs::read_to_string(&f).ok().map(|text| (f, text)))
@@ -373,6 +429,55 @@ mod own_exe_tests {
 
 #[cfg(test)]
 mod tests {
+    /// A scratch folder that removes itself.
+    struct Dir(PathBuf);
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+    fn config(label: &str, files: &[&str]) -> Dir {
+        let dir = std::env::temp_dir().join(format!("ofolder-conf-{}-{label}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(dir.join("xdg-desktop-portal")).unwrap();
+        for f in files {
+            std::fs::write(dir.join("xdg-desktop-portal").join(f), format!("# {f}\n")).unwrap();
+        }
+        Dir(dir)
+    }
+
+    #[test]
+    fn the_configuration_is_found_by_desktop_name() {
+        let d = config("by-name", &["hyprland-portals.conf", "portals.conf"]);
+        let (path, _) = portal_conf_in(&d.0, "hyprland").unwrap();
+        assert!(path.ends_with("hyprland-portals.conf"));
+    }
+
+    #[test]
+    fn with_no_desktop_name_the_one_desktop_file_beats_portals_conf() {
+        let d = config("one-specific", &["hyprland-portals.conf", "portals.conf"]);
+        let (path, _) = portal_conf_in(&d.0, "").unwrap();
+        assert!(
+            path.ends_with("hyprland-portals.conf"),
+            "the frontend would read this one, so this is the one to repair: {path:?}"
+        );
+    }
+
+    #[test]
+    fn with_no_desktop_name_and_several_desktop_files_it_does_not_guess_between_them() {
+        let d = config(
+            "two-specific",
+            &["hyprland-portals.conf", "sway-portals.conf"],
+        );
+        assert!(portal_conf_in(&d.0, "").is_none());
+        let d = config(
+            "two-and-plain",
+            &["hyprland-portals.conf", "sway-portals.conf", "portals.conf"],
+        );
+        let (path, _) = portal_conf_in(&d.0, "").unwrap();
+        assert_eq!(path.file_name().unwrap(), "portals.conf");
+    }
+
     use super::*;
 
     fn conf(line: &str) -> Option<(PathBuf, String)> {

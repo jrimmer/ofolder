@@ -70,6 +70,19 @@ class Guard(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.portal))
         self.assertFalse(os.path.exists(held))
 
+    def test_the_right_file_is_repaired_even_when_the_guard_was_given_no_desktop_name(self):
+        """Started by a service that was not given XDG_CURRENT_DESKTOP, the guard must still repair
+        hyprland-portals.conf, the file the frontend reads, and not write a new portals.conf."""
+        open(self.conf, "w").write("[preferred]\n%s=flea;gtk\n" % CHOOSER)
+        del self.env["XDG_CURRENT_DESKTOP"]
+        r = self.guard()
+        self.assertIn("is back first", r.stdout, r.stdout + r.stderr)
+        self.assertIn("%s=ofolder;flea;gtk" % CHOOSER, open(self.conf).read())
+        self.assertFalse(
+            os.path.exists(os.path.join(os.path.dirname(self.conf), "portals.conf")),
+            "a stray portals.conf was written that the frontend never reads",
+        )
+
     def test_a_program_that_is_there_but_will_not_start_is_treated_as_gone(self):
         good = open(self.exe, "rb").read()
         os.remove(self.exe)

@@ -281,12 +281,11 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
     }
 
     // The chain.
-    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
-        .unwrap_or_default()
+    let desktop = crate::current_desktops()
         .split(':')
         .next()
         .unwrap_or("")
-        .to_lowercase();
+        .to_owned();
     let (path, text) = crate::portal_conf(&d.home).unwrap_or_else(|| {
         let name = if desktop.is_empty() {
             "portals.conf".to_owned()
