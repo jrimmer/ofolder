@@ -32,6 +32,19 @@ if ! "$new" portal --check; then
   exit 1
 fi
 
+# praeco, the update tool, is fetched and checked against its pinned SHA-256 before the swap, so a
+# bad download stops the install with the installed build still in place.
+praeco_dir=$(mktemp -d)
+trap 'rm -rf "$praeco_dir"' EXIT
+scripts/get-praeco "$praeco_dir" || {
+  echo "praeco could not be fetched or does not match its pinned SHA-256, so the installed build was not touched" >&2
+  exit 1
+}
+mkdir -p "$HOME/.local/lib/ofolder"
+install -m755 "$praeco_dir/praeco" "$HOME/.local/lib/ofolder/praeco.new"
+mv "$HOME/.local/lib/ofolder/praeco.new" "$HOME/.local/lib/ofolder/praeco"
+echo "$("$HOME/.local/lib/ofolder/praeco" --version) (verified against its pinned SHA-256) is at $HOME/.local/lib/ofolder/praeco"
+
 [ -x "$dest" ] && cp -p "$dest" "$previous"
 cp "$new" "$dest.new"
 mv "$dest.new" "$dest"
