@@ -378,8 +378,11 @@ pub fn guard_units(exe_dir: &Path, portal_conf_dir: &Path, script: &Path) -> (St
         exe_dir.display(),
         portal_conf_dir.display()
     );
+    // More than ten runs in a minute means another program rewrites the chain on every launch, and
+    // the limit makes systemd stop starting the guard instead of looping on it.
     let service = format!(
-        "[Unit]\nDescription=ofolder guard\n\n[Service]\nType=oneshot\nExecStart={}\n\n\
+        "[Unit]\nDescription=ofolder guard\nStartLimitIntervalSec=60\nStartLimitBurst=10\n\n\
+         [Service]\nType=oneshot\nExecStart={}\n\n\
          [Install]\nWantedBy=default.target\n",
         script.display()
     );
@@ -592,6 +595,31 @@ mod tests {
         assert!(path.contains("Unit=ofolder-guard.service"));
         assert!(service.contains("ExecStart=/home/u/.local/share/ofolder/ofolder-guard.sh\n"));
         assert!(service.contains("Type=oneshot"));
+    }
+
+    #[test]
+    fn the_guard_service_stops_starting_after_ten_runs_in_a_minute() {
+        let (_, service) = guard_units(
+            Path::new("/home/u/.local/bin"),
+            Path::new("/home/u/.config/xdg-desktop-portal"),
+            Path::new("/home/u/.local/share/ofolder/ofolder-guard.sh"),
+        );
+        let unit_section = service
+            .split("[Service]")
+            .next()
+            .expect("the unit text has a [Service] section after its [Unit] section");
+        assert!(
+            unit_section.contains("\nStartLimitIntervalSec=60\n"),
+            "{unit_section}"
+        );
+        assert!(
+            unit_section.contains("\nStartLimitBurst=10\n"),
+            "{unit_section}"
+        );
+        assert!(
+            !service.contains("[Service]\nStartLimit"),
+            "the limit belongs in [Unit]"
+        );
     }
 
     #[test]
