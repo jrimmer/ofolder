@@ -170,6 +170,23 @@ pub trait StripActions: Send + Sync + 'static {
     fn set_guard(&self, _on: bool) -> Result<String, String> {
         Ok(String::new())
     }
+    /// Whether praeco, which checks for and installs updates, can be found from here; the update
+    /// controls are shown only then.
+    fn updates_available(&self) -> bool {
+        false
+    }
+    /// Registers ofolder with the system's own update (`on`) or takes the registration away, after
+    /// the maintainer chose so in the settings window; says what was done. Called from a background thread.
+    fn set_update_registration(&self, _on: bool) -> Result<String, String> {
+        Ok(String::new())
+    }
+    /// Starts installing `version` (praeco does the work, and restarts the portal) and returns the
+    /// progress file to follow: JSON lines, see `ofolder_core::update::parse_event`. `terminal` asks
+    /// for the terminal window that praeco uses when no password prompt can appear. Called from a
+    /// background thread.
+    fn start_update(&self, _version: &str, _terminal: bool) -> Result<PathBuf, String> {
+        Err("updates cannot be installed from here".to_owned())
+    }
     /// The folders file-manager windows are showing now, as (program, folder), each from the
     /// window's own answer. Called from a background thread every few seconds.
     fn open_folders(&self) -> Vec<(String, PathBuf)> {
@@ -225,6 +242,8 @@ pub struct StripOptions {
     /// Where every message shown is logged, so one that went by can be read
     /// again; `None` keeps no log.
     pub messages_path: Option<PathBuf>,
+    /// The update state file the settings window reads; `None` shows no update.
+    pub update_state_path: Option<PathBuf>,
 }
 
 fn window_options(
@@ -313,12 +332,14 @@ pub fn run_strip_preview(
     let settings_path = options.settings_path.clone();
     let home = options.home.clone();
     let messages_path = options.messages_path.clone();
+    let update_state_path = options.update_state_path.clone();
     Application::new().with_assets(icons::Icons).run(move |cx| {
         let backend = label.clone();
         let shared = cx.new(|cx| {
             let mut shared = Shared::new(vm, actions, settings_path, home, cx);
             shared.label = backend;
             shared.messages_path = messages_path;
+            shared.update_state_path = update_state_path;
             shared
         });
         let left_options = window_options(APP_ID_LEFT, "ofolder go", (LEFT_WIDTH, HEIGHT), cx);

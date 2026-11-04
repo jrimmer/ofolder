@@ -7,11 +7,19 @@ use gpui::{
     Render, Stateful, Subscription, Window, div, prelude::*, px, rgb, svg,
 };
 
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
 use ofolder_core::messages;
 use ofolder_core::preview::{MAX_MB_CHOICES, PreviewSettings};
 use ofolder_core::rails::{Item, RailLayout};
 use ofolder_core::settings::{self, MAX_RECENTS_LIMIT, Settings};
 use ofolder_core::settings_write::{self, Edit};
+use ofolder_core::update::{
+    Event, State, Tail, display_version, offered_version, pill_text, read_state, running_version,
+    modify_state,
+};
 use ofolder_core::shortcuts::{
     COMMANDS, Combo, ComboError, Group, Held, Shortcuts, from_keystroke,
 };
@@ -124,6 +132,16 @@ pub struct SettingsWindow {
     confirm_guard_off: bool,
     /// What the last change of the guard did, to show under its switch.
     guard_note: Option<String>,
+    /// The "let omarchy update update ofolder too?" question is showing.
+    confirm_update_system: bool,
+    /// What the last change of the system registration did.
+    update_note: Option<String>,
+    /// The What's new list under the update pill is open.
+    update_open: bool,
+    /// The install that is running, followed through its progress file.
+    update_job: Option<UpdateJob>,
+    /// Why an install could not be started.
+    update_error: Option<String>,
     /// The "forget all recents?" question is showing.
     confirm_forget: bool,
     /// What the last forgetting did, to show under its button.
@@ -200,6 +218,11 @@ impl SettingsWindow {
             confirm_guard_off: false,
             guard_note: None,
             confirm_forget: false,
+            confirm_update_system: false,
+            update_note: None,
+            update_open: false,
+            update_job: None,
+            update_error: None,
             forget_note: None,
             _subscriptions: subscriptions,
         }
@@ -211,6 +234,15 @@ impl SettingsWindow {
 
     fn on_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
+        if self.confirm_update_system {
+            // The question has the window: Escape keeps the registration off, nothing else acts.
+            cx.stop_propagation();
+            if ks.key == "escape" {
+                self.confirm_update_system = false;
+                cx.notify();
+            }
+            return;
+        }
         if self.confirm_forget {
             // The question has the window: Escape keeps the recents, nothing else acts.
             cx.stop_propagation();
@@ -515,6 +547,397 @@ impl SettingsWindow {
                     this.set_guard(true, cx);
                 }
             }))
+            .into_any_element()
+    }
+
+    /// Records the user's choice about the update that is offered (`change`) in the update state
+    /// file, and redraws the pill from what it now says.
+    fn choose_update(&mut self, change: impl FnOnce(&mut State), cx: &mut Context<Self>) {
+        let Some(path) = self.shared.read(cx).update_state_path.clone() else {
+            return;
+        };
+        if let Err(e) = modify_state(&path, change) {
+            self.update_note = Some(format!("The choice could not be saved: {e}"));
+        }
+        self.update_open = false;
+        cx.notify();
+    }
+
+    /// Starts praeco's install of `version` in the background, then follows its progress.
+    fn begin_install(&mut self, version: String, terminal: bool, cx: &mut Context<Self>) {
+        self.update_job = None;
+        self.update_error = None;
+        let actions = self.shared.read(cx).actions();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.start_update(&version, terminal) })
+                .await;
+            this.update(cx, |t, cx| {
+                match result {
+                    Ok(progress) => {
+                        t.update_job = Some(UpdateJob::new(progress));
+                        t.watch_update(cx);
+                    }
+                    Err(e) => t.update_error = Some(e),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Reads the progress file every quarter second until the install ends.
+    fn watch_update(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                let keep_going = this.update(cx, |t, cx| t.poll_update(cx)).unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Takes what praeco wrote since the last look. Returns whether the install is still running.
+    fn poll_update(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(job) = self.update_job.as_mut() else {
+            return false;
+        };
+        if job.finished {
+            return false;
+        }
+        let bytes = read_from(&job.progress, job.tail.offset());
+        if bytes.is_empty() && job.tail.offset() == 0 && job.started.elapsed() > UPDATER_START {
+            job.failed = Some("The updater did not start.".to_owned());
+            job.finished = true;
+        }
+        for event in job.tail.feed(&bytes) {
+            match event {
+                Event::Working { text, fraction } => {
+                    job.text = text;
+                    job.fraction = fraction;
+                }
+                Event::NeedsTerminal { message } => {
+                    job.text = message;
+                    job.needs_terminal = true;
+                    job.finished = true;
+                }
+                Event::Done { restarted } => {
+                    job.text = if restarted {
+                        "Restarting ofolder".to_owned()
+                    } else {
+                        "Updated. Open ofolder to use the new version.".to_owned()
+                    };
+                    job.finished = true;
+                }
+                Event::Failed { message, .. } => {
+                    job.failed = Some(message);
+                    job.finished = true;
+                }
+                Event::Ignored => {}
+            }
+        }
+        cx.notify();
+        !job.finished
+    }
+
+    /// Turns the system registration on or off, after the maintainer chose so, and says what happened.
+    fn set_registration(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.confirm_update_system = false;
+        self.save(vec![Edit::Bool("update_with_system", on)], cx);
+        let actions = self.shared.read(cx).actions();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.set_update_registration(on) })
+                .await;
+            this.update(cx, |t, cx| {
+                t.update_note = Some(match result {
+                    Ok(message) => message,
+                    Err(e) => format!("The setting was saved, but omarchy update was not changed: {e}"),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The Updates block of the General pane: the check switch; when a newer release is offered, the
+    /// pill, What's new with Install, Later and Skip, and the install's progress; and the switch that
+    /// lets omarchy update update ofolder too.
+    fn update_section(&self, s: &Settings, cx: &mut Context<Self>) -> AnyElement {
+        let mut rows: Vec<AnyElement> = vec![
+            Self::heading("Updates"),
+            self.toggle(
+                "updates",
+                "Check for a newer release of ofolder",
+                s.updates,
+                cx,
+            ),
+            Self::hint(
+                "A check runs a minute after the portal starts, then once a week. Nothing is \
+                 installed without your choice.",
+            ),
+        ];
+        let (state_path, available) = {
+            let shared = self.shared.read(cx);
+            (shared.update_state_path.clone(), shared.actions().updates_available())
+        };
+        if !available {
+            rows.push(Self::hint(
+                "praeco, which checks for and installs releases, was not found beside ofolder, so \
+                 nothing is checked. docs/updates.md says where it is looked for.",
+            ));
+        } else {
+            let state = state_path.as_deref().map(read_state).unwrap_or_default();
+            let running = running_version(
+                std::env::var("OFOLDER_PRETEND_VERSION").ok().as_deref(),
+                env!("CARGO_PKG_VERSION"),
+            );
+            rows.push(Self::hint(checked_text(&state, &running)));
+            if let Some(latest) = offered_version(&state, &running) {
+                rows.push(self.update_pill(latest, cx));
+                if self.update_open {
+                    rows.extend(self.whats_new(&state, latest, cx));
+                }
+            }
+            if let Some(job) = &self.update_job {
+                rows.push(self.job_lines(job, cx));
+            }
+            if let Some(error) = &self.update_error {
+                rows.push(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(rgb(colors().red))
+                        .child(error.clone())
+                        .into_any_element(),
+                );
+            }
+            rows.push(self.system_switch(s.update_with_system, cx));
+            if let Some(note) = self.update_note.clone() {
+                rows.push(Self::hint(note));
+            }
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .children(rows)
+            .into_any_element()
+    }
+
+    /// The chip that says a newer release is out; a click opens or closes What's new.
+    fn update_pill(&self, latest: &str, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("update-pill")
+            .mt_1()
+            .child(
+                button("update-pill-button", &format!("{}  ·  What's new", pill_text(latest)), true)
+                    .text_color(rgb(colors().accent))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.update_open = !this.update_open;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// The releases newer than the running one, newest first, and the three choices.
+    fn whats_new(&self, state: &State, latest: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut out = Vec::new();
+        for release in &state.notes {
+            out.push(
+                div()
+                    .pt_2()
+                    .font_weight(FontWeight::BOLD)
+                    .child(format!(
+                        "{}  ·  {}",
+                        display_version(&release.version),
+                        release.published_at.get(..10).unwrap_or("")
+                    ))
+                    .into_any_element(),
+            );
+            out.push(Self::hint(short_notes(&release.notes)));
+        }
+        let version = latest.to_owned();
+        let mut choices = div().flex().gap_2().pt_1();
+        if state.can_install {
+            choices = choices.child(
+                button("update-install", "Install", true).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        this.begin_install(version.clone(), false, cx);
+                    },
+                )),
+            );
+        } else {
+            out.push(Self::hint(format!(
+                "praeco cannot install this kind of install. The release is at {}.",
+                state.notes.first().map_or("", |n| n.url.as_str())
+            )));
+        }
+        choices = choices
+            .child(button("update-later", "Later", true).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.choose_update(|s| s.later_checked_at = s.checked_at, cx);
+                },
+            )))
+            .child(
+                button("update-skip", "Skip this version", true).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.choose_update(|s| s.skipped = s.latest.clone(), cx);
+                    },
+                )),
+            );
+        out.push(choices.into_any_element());
+        out
+    }
+
+    /// The install in words, with the one choice praeco can need: a terminal, or a retry.
+    fn job_lines(&self, job: &UpdateJob, cx: &mut Context<Self>) -> AnyElement {
+        let mut lines = div().flex().flex_col().gap_1().pt_1().child(Self::hint(job.text.clone()));
+        if let Some(message) = &job.failed {
+            lines = lines.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(colors().red))
+                    .child(message.clone()),
+            );
+        }
+        if job.needs_terminal {
+            lines = lines.child(
+                button("update-terminal", "Install in a terminal window", true).on_click(
+                    cx.listener(|this, _, _, cx| {
+                        if let Some(version) = this.update_version(cx) {
+                            this.begin_install(version, true, cx);
+                        }
+                    }),
+                ),
+            );
+        }
+        if job.failed.is_some() {
+            lines = lines.child(
+                button("update-retry", "Try again", true).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        if let Some(version) = this.update_version(cx) {
+                            this.begin_install(version, false, cx);
+                        }
+                    },
+                )),
+            );
+        }
+        lines.into_any_element()
+    }
+
+    /// The version an install is for: the one the state file offers.
+    fn update_version(&self, cx: &mut Context<Self>) -> Option<String> {
+        let path = self.shared.read(cx).update_state_path.clone()?;
+        let running = running_version(
+            std::env::var("OFOLDER_PRETEND_VERSION").ok().as_deref(),
+            env!("CARGO_PKG_VERSION"),
+        );
+        offered_version(&read_state(&path), &running).map(str::to_owned)
+    }
+
+    /// The switch that lets omarchy update update ofolder too. Turning it on asks first.
+    fn system_switch(&self, on: bool, cx: &mut Context<Self>) -> AnyElement {
+        let row = div()
+            .id("update-system")
+            .flex()
+            .items_center()
+            .gap_3()
+            .min_h(px(30.))
+            .cursor_pointer()
+            .child(Self::switch(on))
+            .child("Let omarchy update also update ofolder")
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if on {
+                    this.set_registration(false, cx);
+                } else {
+                    this.confirm_update_system = true;
+                    cx.notify();
+                }
+            }));
+        div()
+            .flex()
+            .flex_col()
+            .child(row)
+            .child(Self::hint(
+                "When on, omarchy update updates ofolder with praeco, as it updates the rest of \
+                 the system. Turning it off removes that registration again.",
+            ))
+            .into_any_element()
+    }
+
+    /// The question shown over the window before omarchy update is allowed to update ofolder.
+    fn update_system_question(&self, cx: &mut Context<Self>) -> AnyElement {
+        let line = |text: &'static str| {
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_none().child("•"))
+                .child(div().flex_1().min_w(px(0.)).child(text))
+        };
+        div()
+            .id("update-system-question")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x0000_00b3))
+            .child(
+                div()
+                    .w(px(440.))
+                    .p(px(18.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .rounded(px(8.))
+                    .bg(rgb(colors().panel))
+                    .border_1()
+                    .border_color(rgb(colors().accent))
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::BOLD)
+                            .child("Let omarchy update update ofolder?"),
+                    )
+                    .child(line(
+                        "Each time omarchy update runs, it also looks for a newer ofolder and installs it, \
+                         with praeco, the way ofolder was installed.",
+                    ))
+                    .child(line(
+                        "Turning this off again removes that registration (praeco init --remove).",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .pt_2()
+                            .child(button("update-system-keep", "Keep it off", true).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.confirm_update_system = false;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(button("update-system-on", "Turn it on", true).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.set_registration(true, cx);
+                                }),
+                            )),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -838,6 +1261,7 @@ impl SettingsWindow {
                  application keep opening with the next backend instead of failing.",
             ),
             Self::hint(self.guard_note.clone().unwrap_or_default()),
+            self.update_section(&s, cx),
             Self::heading("Programs"),
             Self::row(
                 "File manager",
@@ -1383,6 +1807,9 @@ impl Render for SettingsWindow {
             )
             .when(self.confirm_guard_off, |d| d.child(self.guard_question(cx)))
             .when(self.confirm_forget, |d| d.child(self.forget_question(cx)))
+            .when(self.confirm_update_system, |d| {
+                d.child(self.update_system_question(cx))
+            })
             // Omarchy windows have no title bar, so the window closes itself.
             .child(
                 div()
@@ -1406,6 +1833,75 @@ impl Render for SettingsWindow {
                     .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
             )
     }
+}
+
+/// How long praeco may take to create its progress file before the install is called failed.
+const UPDATER_START: Duration = Duration::from_secs(20);
+/// The most of a release's notes the window shows; the rest is on its page.
+const NOTES_CHARS: usize = 1200;
+
+/// An install praeco is doing, followed through the progress file it writes.
+struct UpdateJob {
+    progress: PathBuf,
+    tail: Tail,
+    started: Instant,
+    text: String,
+    fraction: Option<f64>,
+    /// praeco needs a terminal window to ask for the password.
+    needs_terminal: bool,
+    failed: Option<String>,
+    finished: bool,
+}
+
+impl UpdateJob {
+    fn new(progress: PathBuf) -> Self {
+        UpdateJob {
+            progress,
+            tail: Tail::default(),
+            started: Instant::now(),
+            text: "Getting ready".to_owned(),
+            fraction: None,
+            needs_terminal: false,
+            failed: None,
+            finished: false,
+        }
+    }
+}
+
+/// The bytes of `path` from `offset` on; empty while the file does not exist yet.
+fn read_from(path: &Path, offset: u64) -> Vec<u8> {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let mut bytes = Vec::new();
+    if file.seek(SeekFrom::Start(offset)).is_ok() {
+        file.read_to_end(&mut bytes).ok();
+    }
+    bytes
+}
+
+/// The line under the Updates heading that says when the last check was and what it found.
+fn checked_text(state: &State, running: &str) -> String {
+    let Some(_) = state.checked_at else {
+        return "No check has been made yet.".to_owned();
+    };
+    let latest = state.latest.as_deref().unwrap_or(running);
+    if !state.update_available {
+        return format!("ofolder {running} is the latest release.");
+    }
+    if state.skipped.as_deref() == Some(latest) {
+        return format!("You skipped {latest}; the release after it is offered.");
+    }
+    format!("ofolder {running}; {latest} is the latest release.")
+}
+
+/// The start of a release's notes, cut at a character boundary.
+fn short_notes(notes: &str) -> String {
+    let mut text: String = notes.chars().take(NOTES_CHARS).collect();
+    if notes.chars().count() > NOTES_CHARS {
+        text.push_str("...");
+    }
+    text
 }
 
 /// The text with its first letter capitalised, for a message line.
