@@ -32,6 +32,17 @@ pub enum Edit {
     Shortcuts(Shortcuts),
     /// The preview panel's settings; the defaults remove the table.
     Preview(PreviewSettings),
+    /// The applications left alone; an empty list removes the key, which is
+    /// the default.
+    ExcludedApps(Vec<String>),
+    /// The folders never recorded as recent, as written in the file. `None`
+    /// is the default list and removes the key, so a later version's default
+    /// applies; `Some(vec![])` is a deliberate empty list.
+    RecentsExcluded(Option<Vec<String>>),
+    /// The folder a dialog starts in for one application; `None` removes
+    /// that entry, and the table goes when it is empty. Other entries,
+    /// including ones this version cannot read, are left alone.
+    StartFolder(String, Option<String>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -135,6 +146,36 @@ fn set_preview(doc: &mut DocumentMut, preview: &PreviewSettings) {
     );
 }
 
+fn set_string_list(doc: &mut DocumentMut, key: &str, items: Option<&[String]>) {
+    match items {
+        Some(items) => {
+            let list: Array = items.iter().map(String::as_str).collect();
+            set(doc.as_table_mut(), key, Value::Array(list));
+        }
+        None => {
+            doc.remove(key);
+        }
+    }
+}
+
+fn set_start_folder(doc: &mut DocumentMut, app: &str, folder: Option<&str>) {
+    let Some(folder) = folder else {
+        if let Some(table) = doc.get_mut("start_folders").and_then(Item::as_table_mut) {
+            table.remove(app);
+            if table.is_empty() {
+                doc.remove("start_folders");
+            }
+        }
+        return;
+    };
+    if !doc.get("start_folders").is_some_and(Item::is_table) {
+        doc.insert("start_folders", Item::Table(Table::new()));
+    }
+    if let Some(table) = doc.get_mut("start_folders").and_then(Item::as_table_mut) {
+        set(table, app, Value::from(folder));
+    }
+}
+
 /// `text` with `edits` applied.
 pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
     let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| {
@@ -153,6 +194,17 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, WriteError> {
             Edit::Rails(layout) => set_rails(&mut doc, layout),
             Edit::Shortcuts(shortcuts) => set_shortcuts(&mut doc, shortcuts),
             Edit::Preview(preview) => set_preview(&mut doc, preview),
+            Edit::ExcludedApps(apps) => {
+                set_string_list(
+                    &mut doc,
+                    "excluded_apps",
+                    Some(apps.as_slice()).filter(|a| !a.is_empty()),
+                );
+            }
+            Edit::RecentsExcluded(folders) => {
+                set_string_list(&mut doc, "recents_excluded", folders.as_deref());
+            }
+            Edit::StartFolder(app, folder) => set_start_folder(&mut doc, app, folder.as_deref()),
         }
     }
     Ok(doc.to_string())
@@ -344,6 +396,118 @@ mod tests {
             ["settings.toml", "settings.toml.lock"],
             "no temporary file"
         );
+        fs::remove_dir_all(dir).ok();
+    }
+
+    const LISTS: &str = "# mine\nexcluded_apps = [\"class:old\"] # why\nfuture = 1\n\n\
+                         [start_folders]\n# zen\n\"class:zen\" = \"~/Downloads\"\nbroken = \"nope\"\n";
+
+    #[test]
+    fn excluded_apps_round_trip_keep_comments_and_an_empty_list_removes_the_key() {
+        let apps = vec!["class:kiosk".to_owned(), "org.example.App".to_owned()];
+        let out = apply(LISTS, &[Edit::ExcludedApps(apps.clone())]).unwrap();
+        assert!(
+            out.contains("# mine") && out.contains("future = 1"),
+            "{out}"
+        );
+        assert!(
+            out.contains("# why"),
+            "the comment after the value stays: {out}"
+        );
+        assert_eq!(parse(&out, Path::new("/h")).settings.excluded_apps, apps);
+        let none = apply(&out, &[Edit::ExcludedApps(Vec::new())]).unwrap();
+        assert!(
+            !none.contains("excluded_apps") && none.contains("future = 1"),
+            "{none}"
+        );
+        assert_eq!(apply("", &[Edit::ExcludedApps(Vec::new())]).unwrap(), "");
+        let fresh = apply("", &[Edit::ExcludedApps(apps.clone())]).unwrap();
+        assert_eq!(parse(&fresh, Path::new("/h")).settings.excluded_apps, apps);
+    }
+
+    #[test]
+    fn recents_excluded_round_trips_and_the_default_removes_the_key() {
+        let home = Path::new("/home/j");
+        let text = "# mine\nrecents_excluded = [\"~/.ssh\"]\nfuture = 1\n";
+        let list = vec!["~/Private".to_owned(), "/mnt/secret".to_owned()];
+        let out = apply(text, &[Edit::RecentsExcluded(Some(list))]).unwrap();
+        assert!(
+            out.contains("# mine") && out.contains("future = 1"),
+            "{out}"
+        );
+        assert_eq!(
+            parse(&out, home).settings.recents_excluded,
+            [
+                PathBuf::from("/home/j/Private"),
+                PathBuf::from("/mnt/secret")
+            ]
+        );
+        let empty = apply(&out, &[Edit::RecentsExcluded(Some(Vec::new()))]).unwrap();
+        assert!(
+            parse(&empty, home).settings.recents_excluded.is_empty(),
+            "{empty}"
+        );
+        let back = apply(&empty, &[Edit::RecentsExcluded(None)]).unwrap();
+        assert!(
+            !back.contains("recents_excluded") && back.contains("future = 1"),
+            "{back}"
+        );
+        assert_eq!(
+            parse(&back, home).settings.recents_excluded,
+            crate::settings::default_recents_excluded(home)
+        );
+    }
+
+    #[test]
+    fn a_start_folder_is_set_and_removed_one_entry_at_a_time() {
+        let home = Path::new("/home/j");
+        let out = apply(
+            LISTS,
+            &[
+                Edit::StartFolder("class:kiosk".to_owned(), Some("/srv/kiosk".to_owned())),
+                Edit::StartFolder("class:zen".to_owned(), Some("~/Pictures".to_owned())),
+            ],
+        )
+        .unwrap();
+        assert!(
+            out.contains("# zen") && out.contains("broken = \"nope\""),
+            "{out}"
+        );
+        let read = parse(&out, home).settings.start_folders;
+        assert_eq!(read["class:kiosk"], PathBuf::from("/srv/kiosk"));
+        assert_eq!(read["class:zen"], PathBuf::from("/home/j/Pictures"));
+        let less = apply(&out, &[Edit::StartFolder("class:kiosk".to_owned(), None)]).unwrap();
+        assert!(!less.contains("kiosk") && less.contains("broken"), "{less}");
+        // The last entry takes the table with it; a missing one is not an error.
+        let gone = apply(
+            "[start_folders]\n\"a\" = \"/x\"\n",
+            &[
+                Edit::StartFolder("a".to_owned(), None),
+                Edit::StartFolder("b".to_owned(), None),
+            ],
+        )
+        .unwrap();
+        assert_eq!(gone, "");
+        assert_eq!(
+            apply("", &[Edit::StartFolder("a".to_owned(), None)]).unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_is_left_alone_by_the_list_edits_too() {
+        let dir = scratch("broken-lists");
+        let path = dir.join("settings.toml");
+        for edit in [
+            Edit::ExcludedApps(vec!["a".to_owned()]),
+            Edit::RecentsExcluded(None),
+            Edit::StartFolder("a".to_owned(), Some("/x".to_owned())),
+        ] {
+            fs::write(&path, "excluded_apps = [\n").unwrap();
+            let err = save(&path, &[edit]).unwrap_err();
+            assert!(matches!(err, WriteError::Parse(_)), "{err}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "excluded_apps = [\n");
+        }
         fs::remove_dir_all(dir).ok();
     }
 }

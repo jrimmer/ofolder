@@ -79,6 +79,15 @@ it on runs `praeco init` and off runs it with `--remove`. `UpdateCheck` starts a
 due at once and proves the answer is recorded privately (0600), that praeco is asked with the running
 version and `--json`, and that a failed check writes nothing.
 
+The Apps and privacy pane of the settings window is also tested on GTK only (`AppsUi`), with real clicks and
+typing into its fields (`wtype`, sent only while the settings window has the keyboard). It proves: an excluded
+application is added and removed and seen in `settings.toml`; a bad folder is refused with a reason and changes
+nothing; removing one of the default never-recorded folders asks first, Keep changes nothing, Remove writes the list
+without it, and Restore the default list takes the key out of the file again; a start folder is added and
+removed. The file starts with comments and a key this version does not know, and the last check is that they are
+still there after all of it. The pane scrolls, so each check scrolls the wheel to the top or the bottom first and
+reads the positions from screenshots (`E2E_SHOTS=<folder>` keeps them through `settings_shot`).
+
 ## What it touches on the real session
 
 One thing: a virtual output named `ofe2e-1`. Hyprland draws a window only on a monitor that is drawing,
@@ -148,7 +157,7 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
 - Where a dialog does not act on a click sent to it (Flea 0.3's Qt window), its buttons are reached by
   keyboard instead; the keys are per backend in `test_portal.py`.
 - Not covered: the search below a folder (the Search button and its results); the Shortcuts pane
-  that records a key combination; the Rails pane beyond hiding an icon and resetting; the Messages pane;
+  that records a key combination; the Rails pane beyond hiding an icon and resetting; the Messages pane; a start folder or excluded application taking effect on a real dialog (the pane is tested for what it writes, the loader and `plan` by unit tests);
   file manager and terminal launching; theme changes; the preview of a video.
 - A configured shortcut cannot be pressed: a virtual keyboard (`wtype`) does not trigger any bind in the
   nested compositor, not even a plain one, so only the binding itself is checked.

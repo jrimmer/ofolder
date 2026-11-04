@@ -147,7 +147,9 @@ const KNOWN: [&str; 17] = [
 ];
 
 /// `~` and `~/...` mean the home folder. Anything else must already be absolute.
-fn folder(text: &str, home: &Path) -> Option<PathBuf> {
+/// The settings window checks what a person types through this same function,
+/// so it accepts exactly what the loader would.
+pub fn expand_folder(text: &str, home: &Path) -> Option<PathBuf> {
     let path = if text == "~" {
         home.to_path_buf()
     } else if let Some(rest) = text.strip_prefix("~/") {
@@ -156,6 +158,59 @@ fn folder(text: &str, home: &Path) -> Option<PathBuf> {
         PathBuf::from(text)
     };
     path.is_absolute().then_some(path)
+}
+
+/// How a folder is written back to the settings file: `~/...` under the home
+/// folder, so the file stays the same on another machine, else as it is.
+pub fn collapse_home(path: &Path, home: &Path) -> String {
+    let usable = home.components().count() > 1;
+    match path.strip_prefix(home) {
+        Ok(rest) if usable && rest.as_os_str().is_empty() => "~".to_owned(),
+        Ok(rest) if usable => format!("~/{}", rest.display()),
+        _ => path.display().to_string(),
+    }
+}
+
+/// Why `text` cannot be a folder in the settings, in words for the person who typed it.
+fn folder_refusal(text: &str) -> &'static str {
+    if text.is_empty() {
+        "Type a folder first."
+    } else if text.chars().any(char::is_control) {
+        "A folder cannot contain control characters."
+    } else if text.starts_with('~') {
+        "Only ~ and ~/folder are understood; another user's home is not guessed. Write the full path."
+    } else {
+        "A folder must be written in full, starting with / or ~, because ofolder does not guess where a relative name would be."
+    }
+}
+
+/// The folder a person typed, or why it is refused. `existing` holds the folders already listed.
+pub fn check_folder(text: &str, home: &Path, existing: &[PathBuf]) -> Result<PathBuf, String> {
+    let text = text.trim();
+    let refusal = || folder_refusal(text).to_owned();
+    if text.chars().any(char::is_control) {
+        return Err(refusal());
+    }
+    let path = expand_folder(text, home).ok_or_else(refusal)?;
+    if existing.contains(&path) {
+        return Err(format!("{} is already in the list.", path.display()));
+    }
+    Ok(path)
+}
+
+/// The application key a person typed, or why it is refused. `existing` holds the keys already listed.
+pub fn check_app_key(text: &str, existing: &[String]) -> Result<String, String> {
+    let key = text.trim();
+    if key.is_empty() {
+        return Err("Type an application key first, such as class:kiosk.".to_owned());
+    }
+    if key.chars().any(char::is_control) {
+        return Err("An application key cannot contain control characters.".to_owned());
+    }
+    if existing.iter().any(|k| k == key) {
+        return Err(format!("{key} is already in the list."));
+    }
+    Ok(key.to_owned())
 }
 
 struct Reader<'a> {
@@ -273,7 +328,7 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
     if let Some(items) = r.strings("recents_excluded") {
         let mut listed = Vec::new();
         for item in &items {
-            match folder(item, home) {
+            match expand_folder(item, home) {
                 Some(path) => listed.push(path),
                 None => r.warn(
                     "recents_excluded",
@@ -298,7 +353,7 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
         None => {}
         Some(Value::Table(map)) => {
             for (app, value) in map {
-                match value.as_str().and_then(|s| folder(s, home)) {
+                match value.as_str().and_then(|s| expand_folder(s, home)) {
                     Some(path) => {
                         out.start_folders.insert(app.clone(), path);
                     }
@@ -728,5 +783,83 @@ mod tests {
         let wrong = parse("shortcuts = 1\n", Path::new("/h"));
         assert!(wrong.settings.shortcuts.is_empty());
         assert_eq!(wrong.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_typed_folder_is_expanded_by_the_loader_and_refused_with_a_reason() {
+        let home = Path::new(HOME);
+        assert_eq!(
+            check_folder(" ~/Private ", home, &[]),
+            Ok(PathBuf::from("/home/j/Private"))
+        );
+        assert_eq!(check_folder("~", home, &[]), Ok(PathBuf::from(HOME)));
+        assert_eq!(
+            check_folder("/mnt/x", home, &[]),
+            Ok(PathBuf::from("/mnt/x"))
+        );
+        for bad in [
+            "",
+            "   ",
+            "relative/dir",
+            "Documents",
+            "~bob/x",
+            "./x",
+            "/a\nb",
+        ] {
+            let why = check_folder(bad, home, &[]).unwrap_err();
+            assert!(why.ends_with('.') && why.len() > 15, "{bad:?}: {why}");
+        }
+        assert!(
+            check_folder("relative", home, &[])
+                .unwrap_err()
+                .contains("in full")
+        );
+        assert!(
+            check_folder("~bob/x", home, &[])
+                .unwrap_err()
+                .contains("another user")
+        );
+        let have = [PathBuf::from("/home/j/Private")];
+        let why = check_folder("~/Private/", home, &have).unwrap_err();
+        assert!(why.contains("already in the list"), "{why}");
+    }
+
+    #[test]
+    fn a_typed_application_key_must_be_text_without_control_characters_and_new() {
+        assert_eq!(
+            check_app_key("  class:kiosk ", &[]),
+            Ok("class:kiosk".to_owned())
+        );
+        assert!(
+            check_app_key("  ", &[])
+                .unwrap_err()
+                .contains("Type an application key")
+        );
+        assert!(
+            check_app_key("a\u{7}b", &[])
+                .unwrap_err()
+                .contains("control")
+        );
+        assert!(check_app_key("a\tb", &[]).unwrap_err().contains("control"));
+        let have = ["class:kiosk".to_owned()];
+        assert!(
+            check_app_key("class:kiosk", &have)
+                .unwrap_err()
+                .contains("already")
+        );
+        assert!(check_app_key("class:other", &have).is_ok());
+    }
+
+    #[test]
+    fn a_folder_is_written_back_under_the_home_folder_as_a_tilde() {
+        let home = Path::new(HOME);
+        assert_eq!(collapse_home(Path::new("/home/j/.ssh"), home), "~/.ssh");
+        assert_eq!(collapse_home(Path::new("/home/j"), home), "~");
+        assert_eq!(collapse_home(Path::new("/home/jj/x"), home), "/home/jj/x");
+        assert_eq!(collapse_home(Path::new("/mnt/x"), home), "/mnt/x");
+        assert_eq!(collapse_home(Path::new("/x"), Path::new("/")), "/x");
+        for p in default_recents_excluded(home) {
+            assert_eq!(expand_folder(&collapse_home(&p, home), home), Some(p));
+        }
     }
 }
