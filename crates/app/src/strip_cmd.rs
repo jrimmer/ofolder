@@ -283,13 +283,17 @@ impl StripActions for Actions {
     }
 
     fn go(&self, folder: &Path) -> Result<(), String> {
+        note("go: waiting for the dialog");
         let mut adapter = self
             .adapter
             .lock()
             .map_err(|_| "the dialog is busy".to_owned())?;
-        goto_verified(&mut **adapter, folder, Duration::from_secs(5))
+        note("go: moving");
+        let result = goto_verified(&mut **adapter, folder, Duration::from_secs(5))
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        note(&format!("go: done, {result:?}"));
+        result
     }
 
     fn new_folder(&self, name: &str) -> Result<PathBuf, String> {
@@ -341,6 +345,7 @@ impl StripActions for Actions {
     }
 
     fn place_menu(&self, menu: Option<MenuRequest>) {
+        note(&format!("menu placed: {}", menu.is_some()));
         let placed = self.dock.lock().ok().and_then(|mut dock| {
             dock.menu = menu;
             dock.focus_menu = menu.is_some_and(|m| m.fresh && m.takes_keyboard)
@@ -469,7 +474,11 @@ impl StripActions for Actions {
 
     fn wait_commands(&self, limit: Duration) -> Vec<&'static str> {
         self.commands_wake.wait(limit);
-        self.take_commands()
+        let commands = self.take_commands();
+        for id in &commands {
+            note(&format!("command {id} taken"));
+        }
+        commands
     }
 
     fn take_commands(&self) -> Vec<&'static str> {
@@ -550,6 +559,14 @@ impl StripActions for Actions {
         let alive = self.adapter.lock().is_ok_and(|a| a.alive());
         if !alive {
             note("the dialog is gone, so the strip closes");
+            if std::env::var_os("OFOLDER_DEBUG").is_some() {
+                let seen = self.compositor.clients().map(|cs| {
+                    cs.iter()
+                        .map(|c| format!("{} {:?} {:?}", c.address, c.class, c.title))
+                        .collect::<Vec<_>>()
+                });
+                note(&format!("windows then: {seen:?}"));
+            }
         }
         alive
     }
@@ -701,6 +718,7 @@ fn dock_forever(
         // Once, when the panels first show: they must not hold the keyboard the dialog needs.
         if !checked_focus && left.is_some() && right.is_some() {
             checked_focus = true;
+            note("the rails are up; checking they do not hold the keyboard");
             let active = compositor.active_window().ok().flatten();
             if [left, right]
                 .into_iter()
@@ -721,6 +739,7 @@ fn dock_forever(
             && (window.at[0] - wanted.x).abs() <= 2
             && (window.at[1] - wanted.y).abs() <= 2
         {
+            note("the docker gives the keyboard to the menu");
             compositor.focus(&window.address).ok();
             if let Ok(mut dock) = actions.dock.lock() {
                 dock.focus_menu = false;
@@ -814,7 +833,13 @@ fn copy_with_wl_copy(text: &str) -> Result<(), String> {
 /// Progress notes on stderr when `OFOLDER_DEBUG` is set, to see where a strip stopped.
 fn note(message: &str) {
     if std::env::var_os("OFOLDER_DEBUG").is_some() {
-        eprintln!("ofolder strip: {message}");
+        // The time since the first note, to tell a slow step from a lost one.
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        let ms = START.get_or_init(Instant::now).elapsed().as_millis();
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() % 1_000_000);
+        eprintln!("ofolder strip: [{ms} ms] [{wall}] {message}");
     }
 }
 
