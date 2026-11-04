@@ -21,8 +21,10 @@ const USAGE: &str = "usage: ofolder <command>
 commands:
   adapters     list the installed file-chooser backends and which ofolder can decorate
   strip-demo   open a sample strip window to see how it draws
-  portal [--backend <flea|gtk|strata>] [--no-strip]
-               serve a file-chooser proxy that forwards to a backend
+  portal [--backend <flea|gtk|strata>] [--no-strip] [--check]
+               serve a file-chooser proxy that forwards to a backend; --check only
+               verifies that it could start, and claims nothing (exit 0 when it could,
+               3 when not)
   pause | resume | status
                switch every dialog back to untouched, switch ofolder on again, or show the state
   strip --backend <id> --title <t>
@@ -115,27 +117,44 @@ fn adapters() {
 /// configuration until the user adds it, so the frontend never calls it.
 const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.ofolder";
 
-/// `--backend <id>` and `--no-strip`, in any order. Without a backend, the one
-/// after ofolder in the user's portal configuration is used.
-fn portal_options(args: &[String]) -> anyhow::Result<(Option<String>, bool)> {
-    let (mut backend, mut strip) = (None, true);
+/// The options of `portal`.
+struct PortalArgs {
+    backend: Option<String>,
+    strip: bool,
+    check: bool,
+}
+
+/// The exit status of a failed `portal --check`. The guard treats only this status as "this build
+/// is broken". An older build does not know `--check` and exits 1, so that status must not make the
+/// guard set the portal file aside.
+const CHECK_FAILED: i32 = 3;
+
+/// `--backend <id>`, `--no-strip` and `--check`, in any order. Without a backend, the one after
+/// ofolder in the user's portal configuration is used.
+fn portal_options(args: &[String]) -> anyhow::Result<PortalArgs> {
+    let mut parsed = PortalArgs {
+        backend: None,
+        strip: true,
+        check: false,
+    };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--backend" => {
-                backend = Some(
+                parsed.backend = Some(
                     it.next()
                         .ok_or_else(|| anyhow::anyhow!("--backend needs a value"))?
                         .clone(),
                 )
             }
-            "--no-strip" => strip = false,
+            "--no-strip" => parsed.strip = false,
+            "--check" => parsed.check = true,
             other => anyhow::bail!(
-                "unknown option {other:?}; usage: ofolder portal [--backend <flea|gtk|strata>] [--no-strip]"
+                "unknown option {other:?}; usage: ofolder portal [--backend <flea|gtk|strata>] [--no-strip] [--check]"
             ),
         }
     }
-    Ok((backend, strip))
+    Ok(parsed)
 }
 
 /// The backend named in the portal configuration after ofolder's own entry.
@@ -262,41 +281,71 @@ fn chain_report(conf: Option<(PathBuf, String)>) -> Vec<String> {
     }
 }
 
-fn portal(args: &[String]) -> anyhow::Result<()> {
-    let home =
-        PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
-    let (chosen, strip) = portal_options(args)?;
-    let id: String = match chosen {
+/// What `portal` serves, decided from the configuration before anything is claimed on the bus.
+struct Plan {
+    id: String,
+    bus_name: &'static str,
+    hooks: Arc<dyn ofolder_portal::hooks::Hooks>,
+}
+
+/// The backend and the hooks `portal` starts with. The server and `--check` both build them here,
+/// so the check cannot pass for a setup the server would refuse. `runtime` is only asked for when
+/// there is a strip, and it must not create anything: the check runs beside the real portal.
+fn plan(
+    chosen: Option<String>,
+    strip: bool,
+    home: &Path,
+    runtime: impl FnOnce() -> Option<PathBuf>,
+) -> anyhow::Result<Plan> {
+    let id = match chosen {
         Some(id) => id,
-        None => detect_backend(&home)
+        None => detect_backend(home)
             .ok_or_else(|| anyhow::anyhow!("no backend given and none follows ofolder in the portal configuration; use --backend"))?
             .to_owned(),
     };
-    let id = id.as_str();
-    let backend = dbus_name_for(id).ok_or_else(|| anyhow::anyhow!("no adapter named {id:?}"))?;
+    let bus_name = dbus_name_for(&id).ok_or_else(|| anyhow::anyhow!("no adapter named {id:?}"))?;
     let hooks: Arc<dyn ofolder_portal::hooks::Hooks> = if strip {
-        let home =
-            PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
         Arc::new(hooks::StripHooks::new(
             own_exe()?,
-            id.to_owned(),
+            id.clone(),
             Arc::new(ofolder_adapters::hyprctl::Hyprctl),
             ofolder_core::settings::settings_path(
                 env::var_os("OFOLDER_SETTINGS").map(PathBuf::from),
                 env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
-                &home,
+                home,
             ),
             ofolder_core::recents::recents_path(
                 env::var_os("OFOLDER_RECENTS").map(PathBuf::from),
                 env::var_os("XDG_DATA_HOME").map(PathBuf::from),
-                &home,
+                home,
             ),
-            home,
-            keys::runtime_dir().ok(),
+            home.to_path_buf(),
+            runtime(),
         ))
     } else {
         Arc::new(PassThrough)
     };
+    Ok(Plan {
+        id,
+        bus_name,
+        hooks,
+    })
+}
+
+fn portal(args: &[String]) -> anyhow::Result<()> {
+    let parsed = portal_options(args)?;
+    if parsed.check {
+        return portal_check(parsed);
+    }
+    let home =
+        PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
+    let Plan {
+        bus_name: backend,
+        hooks,
+        ..
+    } = plan(parsed.backend, parsed.strip, &home, || {
+        keys::runtime_dir().ok()
+    })?;
     // The guard is on unless the maintainer turned it off: a first start puts it in place. Not waited on.
     std::thread::spawn(|| {
         if let Err(e) = doctor::reconcile_guard() {
@@ -307,7 +356,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
         let _connection = ofolder_portal::serve_session(BUS_NAME, backend, hooks).await?;
         println!(
             "ofolder portal: {BUS_NAME} forwards to {backend}{}",
-            if strip {
+            if parsed.strip {
                 " with a strip per dialog"
             } else {
                 ""
@@ -316,6 +365,67 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
         std::future::pending::<()>().await;
         Ok(())
     })
+}
+
+/// `portal --check`: prints one line and exits 0 when the portal could start, and exits with
+/// [`CHECK_FAILED`] and says why when it could not. It never claims the bus name, so it is safe while
+/// the real portal runs.
+fn portal_check(parsed: PortalArgs) -> anyhow::Result<()> {
+    let verdict = match env::var_os("HOME") {
+        None => Err("HOME is not set".to_owned()),
+        Some(home) => {
+            // Read, never created: the real portal owns this folder.
+            let runtime =
+                env::var_os("XDG_RUNTIME_DIR").map(|base| PathBuf::from(base).join("ofolder"));
+            check_portal(
+                parsed.backend,
+                parsed.strip,
+                Path::new(&home),
+                runtime,
+                &session_bus_names,
+            )
+        }
+    };
+    match verdict {
+        Ok(line) => {
+            println!("{line}");
+            Ok(())
+        }
+        Err(why) => {
+            eprintln!("ofolder portal --check failed: {why}");
+            std::process::exit(CHECK_FAILED);
+        }
+    }
+}
+
+/// The names on the session bus, or why they cannot be read.
+fn session_bus_names() -> Result<Vec<String>, String> {
+    ofolder_portal::block_on(ofolder_portal::session_bus_names())
+        .map_err(|e| format!("session bus unavailable: {e}"))
+}
+
+/// Everything `portal` does before it claims its bus name, then whether the session bus knows the
+/// backend's name. `session_names` only reads the bus.
+fn check_portal(
+    chosen: Option<String>,
+    strip: bool,
+    home: &Path,
+    runtime: Option<PathBuf>,
+    session_names: &dyn Fn() -> Result<Vec<String>, String>,
+) -> Result<String, String> {
+    own_exe().map_err(|e| format!("the program cannot find its own path: {e}"))?;
+    let plan = plan(chosen, strip, home, || runtime).map_err(|e| format!("{e:#}"))?;
+    let names = session_names()?;
+    if !names.iter().any(|name| name == plan.bus_name) {
+        return Err(format!(
+            "the session bus does not know {} (the name of {}), so the portal frontend could not reach it",
+            plan.bus_name, plan.id
+        ));
+    }
+    Ok(format!(
+        "ok: ofolder would forward to {} ({}); the session bus knows that name, and nothing was claimed",
+        plan.bus_name, plan.id
+    ))
 }
 
 fn settings_file() -> anyhow::Result<(PathBuf, PathBuf)> {
@@ -518,5 +628,110 @@ mod tests {
         let none = chain_report(Some((PathBuf::from("/c/p.conf"), "[preferred]\n".into())));
         assert!(none[0].starts_with("warning:") && none[0].contains("bypass"));
         assert!(chain_report(None)[0].contains("bypass ofolder"));
+    }
+}
+
+#[cfg(test)]
+mod portal_check_tests {
+    use super::*;
+
+    const GTK: &str = "org.freedesktop.impl.portal.desktop.gtk";
+
+    /// A folder under the system temporary folder, removed on drop. It stands in for `HOME`.
+    struct Home(PathBuf);
+
+    impl Home {
+        fn new(label: &str) -> Self {
+            let dir = env::temp_dir().join(format!("ofolder-check-{label}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("the temporary folder can be created");
+            Self(dir)
+        }
+    }
+
+    impl Drop for Home {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    fn names(known: &[&str]) -> impl Fn() -> Result<Vec<String>, String> + use<> {
+        let known: Vec<String> = known.iter().map(|s| (*s).to_owned()).collect();
+        move || Ok(known.clone())
+    }
+
+    #[test]
+    fn a_check_passes_when_the_session_bus_knows_the_backend() {
+        let home = Home::new("known");
+        let line = check_portal(
+            Some("gtk".to_owned()),
+            false,
+            &home.0,
+            None,
+            &names(&[":1.4", GTK]),
+        )
+        .expect("a known backend passes the check");
+        assert!(line.starts_with("ok:"), "{line}");
+        assert!(line.contains(GTK), "{line}");
+    }
+
+    #[test]
+    fn a_check_fails_and_names_the_backend_when_the_bus_does_not_know_it() {
+        let home = Home::new("unknown");
+        let why = check_portal(
+            Some("gtk".to_owned()),
+            false,
+            &home.0,
+            None,
+            &names(&["org.freedesktop.impl.portal.desktop.flea"]),
+        )
+        .expect_err("an absent backend fails the check");
+        assert!(why.contains(GTK), "{why}");
+        assert!(why.contains("does not know"), "{why}");
+    }
+
+    #[test]
+    fn a_check_says_plainly_when_there_is_no_session_bus() {
+        let home = Home::new("no-bus");
+        let why = check_portal(Some("gtk".to_owned()), false, &home.0, None, &|| {
+            Err("session bus unavailable: no address".to_owned())
+        })
+        .expect_err("no bus means the check fails");
+        assert!(why.contains("session bus unavailable"), "{why}");
+    }
+
+    #[test]
+    fn a_check_fails_for_an_adapter_that_does_not_exist() {
+        let home = Home::new("no-adapter");
+        let why = check_portal(Some("nope".to_owned()), true, &home.0, None, &names(&[GTK]))
+            .expect_err("an unknown adapter fails the check");
+        assert!(why.contains("no adapter named"), "{why}");
+    }
+
+    #[test]
+    fn a_check_with_the_strip_builds_the_same_hooks_and_passes() {
+        let home = Home::new("strip");
+        let runtime = home.0.join("runtime");
+        check_portal(
+            Some("gtk".to_owned()),
+            true,
+            &home.0,
+            Some(runtime.clone()),
+            &names(&[GTK]),
+        )
+        .expect("the strip's hooks can be built");
+        assert!(
+            !runtime.exists(),
+            "the check must not create the runtime folder"
+        );
+    }
+
+    #[test]
+    fn the_check_flag_is_read_and_a_bad_option_is_still_a_usage_error() {
+        let parsed = portal_options(&["--check".to_owned(), "--no-strip".to_owned()])
+            .expect("the flags parse");
+        assert!(parsed.check);
+        assert!(!parsed.strip);
+        assert!(portal_options(&["--bogus".to_owned()]).is_err());
+        assert!(!portal_options(&[]).expect("no options").check);
     }
 }

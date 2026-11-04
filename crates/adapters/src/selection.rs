@@ -7,10 +7,10 @@
 //! exists; anything else is `None`.
 
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
+use ofolder_core::exec::run_with_deadline;
 use serde_json::Value;
 
 use crate::a11y::{Node, Role, walk};
@@ -102,26 +102,10 @@ const IPC_LIMIT: Duration = Duration::from_millis(800);
 /// Runs `command` and returns its output when it succeeds within
 /// [`IPC_LIMIT`]; a stuck client is killed.
 fn run_limited(mut command: Command) -> Option<String> {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let start = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) | Err(_) => return None,
-            Ok(None) if start.elapsed() > IPC_LIMIT => {
-                child.kill().ok();
-                child.wait().ok();
-                return None;
-            }
-            Ok(None) => sleep(Duration::from_millis(5)),
-        }
+    let output = run_with_deadline(&mut command, IPC_LIMIT).ok()?;
+    if !output.status.success() {
+        return None;
     }
-    let output = child.wait_with_output().ok()?;
     String::from_utf8(output.stdout).ok()
 }
 
@@ -453,7 +437,7 @@ mod tests {
         assert_eq!(run_limited(fails), None);
         let mut hangs = Command::new("sh");
         hangs.args(["-c", "sleep 5"]);
-        let started = Instant::now();
+        let started = std::time::Instant::now();
         assert_eq!(run_limited(hangs), None);
         assert!(started.elapsed() < Duration::from_secs(3));
         let mut works = Command::new("sh");

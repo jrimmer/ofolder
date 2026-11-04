@@ -320,10 +320,15 @@ impl Shared {
                 };
                 if let Some(text) = copied {
                     if from_shortcut {
-                        if let Err(e) = self.actions.copy_text(&text) {
-                            self.vm
-                                .show_error("copy-path", &format!("Could not copy: {e}"));
-                        }
+                        self.copy_in_background(
+                            text,
+                            |t, result| {
+                                if let Err(e) = result {
+                                    t.vm.show_error("copy-path", &format!("Could not copy: {e}"));
+                                }
+                            },
+                            cx,
+                        );
                     } else {
                         cx.write_to_clipboard(ClipboardItem::new_string(text));
                     }
@@ -849,17 +854,45 @@ impl Shared {
             return;
         };
         match path.to_str() {
-            Some(text) => match self.actions.copy_text(text) {
-                Ok(()) => self.vm.show_info("preview", "Path copied"),
-                Err(why) => self
-                    .vm
-                    .show_error("preview", &format!("Could not copy: {why}")),
-            },
+            Some(text) => self.copy_in_background(
+                text.to_owned(),
+                |t, result| match result {
+                    Ok(()) => t.vm.show_info("preview", "Path copied"),
+                    Err(why) => {
+                        t.vm.show_error("preview", &format!("Could not copy: {why}"))
+                    }
+                },
+                cx,
+            ),
             None => self
                 .vm
                 .show_error("preview", "Cannot copy: the path is not valid text"),
         }
         self.changed(cx);
+    }
+
+    /// Sets the clipboard through the actions on a background thread, since the helper that does it
+    /// may take a moment, and `done` says what the result was on the UI thread. Clipboard helpers
+    /// are not allowed to hold up the rails.
+    fn copy_in_background(
+        &self,
+        text: String,
+        done: fn(&mut Self, Result<(), String>),
+        cx: &mut Context<Self>,
+    ) {
+        let actions = self.actions.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.copy_text(&text) })
+                .await;
+            this.update(cx, |t, cx| {
+                done(t, result);
+                t.changed(cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Notes which window holds the keyboard. When none of the strip's does

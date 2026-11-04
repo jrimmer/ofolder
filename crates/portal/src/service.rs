@@ -185,6 +185,23 @@ pub async fn serve(
         .await?)
 }
 
+/// The names the session bus knows: those with an owner now, and those a service would be started
+/// under. A check reads them and claims nothing.
+pub async fn session_bus_names() -> Result<Vec<String>, PortalError> {
+    let connection = Connection::session().await?;
+    let bus = fdo::DBusProxy::new(&connection).await?;
+    let running = bus.list_names().await.map_err(zbus::Error::from)?;
+    let activatable = bus
+        .list_activatable_names()
+        .await
+        .map_err(zbus::Error::from)?;
+    Ok(running
+        .into_iter()
+        .chain(activatable)
+        .map(|name| name.to_string())
+        .collect())
+}
+
 /// [`serve`] on the user's session bus, which is where a real portal backend runs.
 pub async fn serve_session(
     bus_name: &str,

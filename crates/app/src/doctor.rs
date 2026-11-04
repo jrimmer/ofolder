@@ -10,10 +10,11 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use ofolder_core::exec::run_with_deadline;
 use ofolder_core::portal::{self, put_first};
 
 const PORTAL_FILE: &str = include_str!("../../../packaging/ofolder.portal");
@@ -189,9 +190,7 @@ pub fn doctor() -> anyhow::Result<()> {
     } else if !systemd_allowed() {
         r.ok("the guard's files are in place (systemd is not asked here)");
     } else {
-        let enabled = Command::new("systemctl")
-            .args(["--user", "is-enabled", "ofolder-guard.path"])
-            .output()
+        let enabled = systemctl_output(&["is-enabled", "ofolder-guard.path"])
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
             .unwrap_or_default();
         match enabled.as_str() {
@@ -349,10 +348,8 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
                 "a dialog is open, so the portal was not restarted; close it and run: systemctl --user restart xdg-desktop-portal.service"
             );
         } else {
-            let ok = Command::new("systemctl")
-                .args(["--user", "restart", "xdg-desktop-portal.service"])
-                .status()
-                .is_ok_and(|s| s.success());
+            let ok = systemctl_output(&["restart", "xdg-desktop-portal.service"])
+                .is_some_and(|o| o.status.success());
             println!(
                 "{}",
                 if ok {
@@ -381,8 +378,11 @@ pub fn guard_units(exe_dir: &Path, portal_conf_dir: &Path, script: &Path) -> (St
         exe_dir.display(),
         portal_conf_dir.display()
     );
+    // More than ten runs in a minute means another program rewrites the chain on every launch, and
+    // the limit makes systemd stop starting the guard instead of looping on it.
     let service = format!(
-        "[Unit]\nDescription=ofolder guard\n\n[Service]\nType=oneshot\nExecStart={}\n\n\
+        "[Unit]\nDescription=ofolder guard\nStartLimitIntervalSec=60\nStartLimitBurst=10\n\n\
+         [Service]\nType=oneshot\nExecStart={}\n\n\
          [Install]\nWantedBy=default.target\n",
         script.display()
     );
@@ -404,13 +404,21 @@ fn systemd_allowed() -> bool {
     std::env::var_os("OFOLDER_NO_SYSTEMD").is_none()
 }
 
+/// How long a `systemctl --user` request may take. The user manager answers in well under a second;
+/// a longer wait means it is wedged, and the doctor or repair would otherwise wait with it forever.
+const SYSTEMCTL_LIMIT: Duration = Duration::from_secs(10);
+
+/// Runs `systemctl --user` with `args`, and returns its output when it finished in time.
+fn systemctl_output(args: &[&str]) -> Option<Output> {
+    run_with_deadline(
+        Command::new("systemctl").arg("--user").args(args),
+        SYSTEMCTL_LIMIT,
+    )
+    .ok()
+}
+
 fn systemctl(args: &[&str]) -> bool {
-    systemd_allowed()
-        && Command::new("systemctl")
-            .arg("--user")
-            .args(args)
-            .status()
-            .is_ok_and(|s| s.success())
+    systemd_allowed() && systemctl_output(args).is_some_and(|o| o.status.success())
 }
 
 /// Puts the guard in place (`on`) or takes it away, and says what it did. `enable` is false when
@@ -587,6 +595,31 @@ mod tests {
         assert!(path.contains("Unit=ofolder-guard.service"));
         assert!(service.contains("ExecStart=/home/u/.local/share/ofolder/ofolder-guard.sh\n"));
         assert!(service.contains("Type=oneshot"));
+    }
+
+    #[test]
+    fn the_guard_service_stops_starting_after_ten_runs_in_a_minute() {
+        let (_, service) = guard_units(
+            Path::new("/home/u/.local/bin"),
+            Path::new("/home/u/.config/xdg-desktop-portal"),
+            Path::new("/home/u/.local/share/ofolder/ofolder-guard.sh"),
+        );
+        let unit_section = service
+            .split("[Service]")
+            .next()
+            .expect("the unit text has a [Service] section after its [Unit] section");
+        assert!(
+            unit_section.contains("\nStartLimitIntervalSec=60\n"),
+            "{unit_section}"
+        );
+        assert!(
+            unit_section.contains("\nStartLimitBurst=10\n"),
+            "{unit_section}"
+        );
+        assert!(
+            !service.contains("[Service]\nStartLimit"),
+            "the limit belongs in [Unit]"
+        );
     }
 
     #[test]

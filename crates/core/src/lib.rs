@@ -7,6 +7,7 @@
 pub mod adapter;
 pub mod browse;
 pub mod dialog_memory;
+pub mod exec;
 pub mod fuzzy;
 pub mod geometry;
 pub mod hypr;

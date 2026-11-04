@@ -2,9 +2,11 @@
 # Keeps file dialogs working, and ofolder in front of them, without anyone having to notice.
 # It is plain shell on purpose: it must still run when the ofolder program is gone.
 #
-#  * ofolder is missing, or will not run `ofolder version`: its portal file is set aside, so the portal skips ofolder
-#    and the next backend (Flea, GTK) answers. When ofolder is back the file is put back. The portal
-#    frontend is restarted after either, so it takes notice.
+#  * ofolder is missing, will not run `ofolder version`, or fails `ofolder portal --check` with status 3:
+#    its portal file is set aside, so the portal skips ofolder and the next backend (Flea, GTK) answers.
+#    When ofolder is back the file is put back. The portal frontend is restarted after either, so it
+#    takes notice. Any other status from `--check` is not a verdict: an older build does not know the
+#    option and exits 1, and it must keep its portal file.
 #  * ofolder is there but another program took it out of the file-chooser chain: `ofolder repair`
 #    puts it back (a copy of the file is kept; `ofolder repair --undo` goes back).
 #
@@ -40,12 +42,21 @@ exe=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service" 2>/dev/null | head -n 1)
 
 # A program that is there but cannot start (a bad copy, a missing library) would stop every file
 # dialog as surely as one that is gone, so it has to answer `version` to count as there.
+state=""
 if [ -z "$exe" ] || [ ! -x "$exe" ] || ! "$exe" version >/dev/null 2>&1; then
+  state="is missing or will not start"
+else
+  # A build can answer `version` and still fail once it serves the portal. `portal --check` runs the
+  # portal's start-up without claiming its name, and only status 3 says that it failed.
+  "$exe" portal --check >/dev/null 2>&1
+  [ $? -eq 3 ] && state="starts but fails its portal check"
+fi
+if [ -n "$state" ]; then
   if [ -f "$portal" ]; then
     mkdir -p "$(dirname "$held")"
     mv "$portal" "$held"
     restart
-    say "ofolder is missing or will not start${exe:+ ($exe)}, so file dialogs are using the next backend. Put a working one back and they return."
+    say "ofolder $state${exe:+ ($exe)}, so file dialogs are using the next backend. Put a working one back and they return."
   fi
   exit 0
 fi

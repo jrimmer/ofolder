@@ -1,5 +1,7 @@
 """The guard script and `ofolder repair --watch`, in a temporary home. No display, no systemctl, no
-restart of any portal: the guard is run with OFOLDER_GUARD_NO_RESTART and `--no-enable`."""
+restart of any portal: the guard is run with OFOLDER_GUARD_NO_RESTART and `--no-enable`. The session
+bus is a private dbus-daemon that the test starts, because `portal --check` asks the bus for the
+backend's name; the real desktop bus is never used."""
 import os
 import shutil
 import subprocess
@@ -8,9 +10,12 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-OFOLDER = os.environ.get("OFOLDER_BIN") or os.path.join(REPO, "target", "debug", "ofolder")
+TARGET = os.environ.get("CARGO_TARGET_DIR") or os.path.join(REPO, "target")
+OFOLDER = os.environ.get("OFOLDER_BIN") or os.path.join(TARGET, "debug", "ofolder")
 GUARD = os.path.join(REPO, "packaging", "ofolder-guard.sh")
 CHOOSER = "org.freedesktop.impl.portal.FileChooser"
+BACKEND = "gtk"
+BACKEND_NAME = "org.freedesktop.impl.portal.desktop.%s" % BACKEND
 
 
 @unittest.skipUnless(os.path.exists(OFOLDER), "build first: cargo build --locked")
@@ -27,9 +32,16 @@ class Guard(unittest.TestCase):
         self.service = os.path.join(self.data, "dbus-1/services/org.freedesktop.impl.portal.desktop.ofolder.service")
         self.portal = os.path.join(self.data, "xdg-desktop-portal/portals/ofolder.portal")
         self.conf = os.path.join(self.home, ".config/xdg-desktop-portal/hyprland-portals.conf")
+        # The backend the chain names after ofolder is installed in the private data folder, and it
+        # is the only one: the system's own portal files are not read, so the choice is the same on
+        # every machine.
+        backend_portal = os.path.join(self.data, "xdg-desktop-portal/portals/%s.portal" % BACKEND)
+        backend_service = os.path.join(self.home, "bus-services/%s.service" % BACKEND_NAME)
         for path, text in (
             (self.service, "[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.ofolder\nExec=%s portal\n" % self.exe),
             (self.portal, "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.ofolder\nInterfaces=%s;\n" % CHOOSER),
+            (backend_portal, "[portal]\nDBusName=%s\nInterfaces=%s;\n" % (BACKEND_NAME, CHOOSER)),
+            (backend_service, "[D-BUS Service]\nName=%s\nExec=/bin/true\n" % BACKEND_NAME),
             (self.conf, "[preferred]\n%s=ofolder;flea;gtk\n" % CHOOSER),
         ):
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -38,10 +50,48 @@ class Guard(unittest.TestCase):
             "HOME": self.home,
             "PATH": os.environ["PATH"],
             "XDG_CURRENT_DESKTOP": "Hyprland",
+            "XDG_DATA_DIRS": os.path.join(self.home, "no-system-data"),
             "OFOLDER_GUARD_NO_RESTART": "1",
             "OFOLDER_GUARD_QUIET": "1",
             "OFOLDER_NO_SYSTEMD": "1",
         }
+        self.start_private_bus(os.path.join(self.home, "bus-services"))
+
+    def start_private_bus(self, service_dir):
+        """A session bus of the test's own, with the backend's name activatable on it."""
+        config = os.path.join(self.home, "bus.conf")
+        with open(config, "w") as f:
+            f.write(
+                '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" '
+                '"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">\n'
+                "<busconfig><type>session</type>"
+                "<listen>unix:tmpdir=%s</listen>"
+                "<servicedir>%s</servicedir>"
+                '<policy context="default"><allow send_destination="*" eavesdrop="true"/>'
+                '<allow eavesdrop="true"/><allow own="*"/></policy></busconfig>\n' % (self.home, service_dir)
+            )
+        bus = subprocess.Popen(
+            ["dbus-daemon", "--config-file", config, "--nofork", "--print-address=1"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.addCleanup(self.stop_bus, bus)
+        address = bus.stdout.readline().strip()
+        if not address.startswith("unix:"):
+            bus.kill()
+            self.fail("the private session bus did not start: %s" % bus.stderr.read())
+        self.env["DBUS_SESSION_BUS_ADDRESS"] = address
+
+    @staticmethod
+    def stop_bus(bus):
+        bus.terminate()
+        bus.wait(timeout=10)
+
+    def stand_in(self, body):
+        """Replaces the program with a shell script that answers as an ofolder build would."""
+        os.remove(self.exe)
+        with open(self.exe, "w") as f:
+            f.write("#!/bin/sh\n" + body)
+        os.chmod(self.exe, 0o755)
 
     def guard(self):
         return subprocess.run(["sh", GUARD], env=self.env, capture_output=True, text=True, timeout=30)
@@ -83,6 +133,31 @@ class Guard(unittest.TestCase):
             os.path.exists(os.path.join(os.path.dirname(self.conf), "portals.conf")),
             "a stray portals.conf was written that the frontend never reads",
         )
+
+    def test_a_build_that_starts_but_fails_its_portal_check_is_set_aside_and_returns_with_a_good_one(self):
+        self.stand_in('case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check") exit 3 ;;\n  *) exit 0 ;;\nesac\n')
+        r = self.guard()
+        self.assertIn("fails its portal check", r.stdout)
+        self.assertFalse(os.path.exists(self.portal), "a build that fails its portal check must not stay registered")
+        held = os.path.join(self.data, "ofolder/ofolder.portal.held")
+        self.assertTrue(os.path.isfile(held))
+        self.stand_in('case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check") exit 0 ;;\n  *) exit 0 ;;\nesac\n')
+        r = self.guard()
+        self.assertIn("ofolder is back", r.stdout)
+        self.assertTrue(os.path.isfile(self.portal))
+        self.assertFalse(os.path.exists(held))
+
+    def test_an_older_build_that_does_not_know_the_check_keeps_its_portal_file(self):
+        """An older build exits 1 on `portal --check` (an unknown option). That says nothing about
+        whether it works, so the guard must leave the portal file where it is, for any status but 3."""
+        for status in (1, 2, 124):
+            with self.subTest(status=status):
+                self.stand_in('case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check") exit %d ;;\n  *) exit 0 ;;\nesac\n' % status)
+                r = self.guard()
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertNotIn("fails its portal check", r.stdout)
+                self.assertTrue(os.path.isfile(self.portal), "status %d must not set the portal file aside" % status)
+                self.assertFalse(os.path.exists(os.path.join(self.data, "ofolder/ofolder.portal.held")))
 
     def test_a_program_that_is_there_but_will_not_start_is_treated_as_gone(self):
         os.remove(self.exe)
