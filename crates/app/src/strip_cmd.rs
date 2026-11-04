@@ -298,6 +298,7 @@ impl StripActions for Actions {
             return Err("that folder already exists".to_owned());
         }
         std::fs::create_dir_all(&target).map_err(|e| format!("could not create it: {e}"))?;
+        std::thread::sleep(adapter.settle_after_create());
         goto_verified(&mut **adapter, &target, Duration::from_secs(5))
             .map_err(|e| e.to_string())?;
         Ok(target)

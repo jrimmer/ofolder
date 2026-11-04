@@ -52,6 +52,8 @@ class Flavour:
             cls.flea_env = env
         elif cls.name == "flea04" and not shutil.which("flea"):
             raise unittest.SkipTest("flea is not installed")
+        elif cls.name == "strata" and not os.access(os.path.expanduser("~/.local/bin/strata"), os.X_OK):
+            raise unittest.SkipTest("strata is not installed")
         elif cls.name == "gtk" and not os.path.exists("/usr/lib/xdg-desktop-portal-gtk"):
             raise unittest.SkipTest("xdg-desktop-portal-gtk is not installed")
         require_build()
@@ -613,7 +615,10 @@ class Features:
         self.assertTrue(self.s.type_text(MENU, "made"))
         self.assertTrue(self.s.type_text(MENU, key="Return"))
         self.assertTrue(wait_for(10, lambda: os.path.isdir(made)), "the folder was not made")
-        self.assertTrue(self.folder_is(made, 12), "the dialog did not go into the new folder")
+        self.assertTrue(
+            self.folder_is(made, 12),
+            "the dialog did not go into the new folder; the rails read %r\n%s" % (self.clipboard(1), self.messages()),
+        )
 
     def test_find_ranks_the_folders_it_knows_and_enter_goes_to_the_best(self):
         """The box ranks favorites, recents and places as you type; the search below the folder
@@ -758,6 +763,14 @@ class Gtk(Features, Rails, unittest.TestCase):
     name = "gtk"
     chain = "ofolder;gtk"
     picker_class = "xdg-desktop-portal-gtk"
+    ipc = None
+    pick_marker = ""
+
+
+class Strata(Features, Rails, unittest.TestCase):
+    name = "strata"
+    chain = "ofolder;strata;gtk"
+    picker_class = "io.github.lgse.Strata.FileChooser"
     ipc = None
     pick_marker = ""
 

@@ -21,6 +21,6 @@ cd e2e
 if [ "$#" -eq 0 ]; then
   set -- test_portal
 else
-  case "$1" in Flea04|Flea03|Gtk) first="test_portal.$1"; shift; set -- "$first" "$@" ;; esac
+  case "$1" in Flea04|Flea03|Gtk|Strata) first="test_portal.$1"; shift; set -- "$first" "$@" ;; esac
 fi
 exec python3 -W ignore::ResourceWarning -m unittest -v "$@"

@@ -172,6 +172,10 @@ class Session:
             XDG_CURRENT_DESKTOP="Hyprland",
             XDG_SESSION_TYPE="wayland",
         )
+        # The nested compositor has a pointer only if the real seat does. Give it its own.
+        self.pointer = self.spawn([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vpointer.py")], name="vpointer")
+        if not wait_for(10, lambda: "ready" in self.log("vpointer")):
+            raise SystemExit("the virtual pointer was not accepted:\n" + self.log("vpointer"))
         # Park the nested window on the virtual output without following it.
         addr = wait_for(
             10,

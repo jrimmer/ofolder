@@ -5,8 +5,8 @@ tests and `bin/check` need no display; this does, so it is a separate command.
 
 ## What runs
 
-For each of three backends (Flea 0.4.0 as installed, Flea 0.3.12 unpacked from a pinned release, and the
-GTK portal) the suite starts its own copy of the stack inside a private Hyprland:
+For each of four backends (Flea 0.4.0 as installed, Flea 0.3.12 unpacked from a pinned release, the
+GTK portal, and Strata 1.1.1 as installed) the suite starts its own copy of the stack inside a private Hyprland:
 
 ```
 nested Hyprland (own sockets, own clipboard, own keys)  <- drawn on a virtual output of the real session
@@ -18,9 +18,9 @@ The portal files and the `FileChooser=` chain live in the private home, so your 
 read nor written. Keys reach a dialog only through `hyprctl dispatch send_shortcut` aimed at that
 dialog's own window, never through whatever has the keyboard (`wtype` did not reach the GTK dialog). Folders are scratch folders under `/tmp`.
 
-## What it proves (88 checks, about eight minutes)
+## What it proves (117 checks, about ten minutes)
 
-Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12 and GTK; Flea 0.4 has one more):
+Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12, GTK and Strata; Flea 0.4 has one more):
 
 - Docking and moving: the rails dock either side of the dialog and do not take the keyboard; they follow
   a moved dialog; the folder reads back (copy path); parent and back move the dialog and read back (for
@@ -44,6 +44,11 @@ Per backend (each of the 29 below runs on Flea 0.4, Flea 0.3.12 and GTK; Flea 0.
 Flea 0.4 also checks its graceful `fleapicker.quit`. Moves are confirmed by the dialog itself first
 (Flea's own `path`), then by the rails.
 
+A nested compositor offers its clients a pointer only when the real seat has one, so with no mouse
+attached (a dock, a remote session) no click would land. `e2e/vpointer.py` makes the nested session a
+virtual pointer of its own (the wlroots virtual pointer protocol, spoken directly), so the suite does not
+depend on the machine it runs on having one.
+
 Clicks go to the verified window at a position inside it (`Session.click`), moving the pointer in steps
 first. The positions of controls in the settings window and in a favorite's row menu are fixed numbers
 read from screenshots; if the layout changes they must change too. `E2E_SHOTS=<folder>` keeps a
@@ -60,6 +65,13 @@ exactly as they were. Never give the output a position by hand: doing so once mo
 
 `bin/e2e --cleanup` removes the output, the nested compositor and the scratch folders a killed run left.
 
+## Strata
+
+Strata's `--install-portal` restarts the real session's portal frontend, so the suite does not run it.
+It writes the two files that command would (`strata.portal` and the D-Bus service running
+`strata --portal`) into the private data directory instead. Strata's dialog opens tiled; ofolder floats it
+with a rule before it opens, as it does on the desktop.
+
 ## Needs
 
 Hyprland with `hyprctl output create headless`, `wtype`, `wl-clipboard`, `busctl`, `dbus-daemon`,
@@ -71,7 +83,7 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
 
 - The nested compositor is the Hyprland on disk. After a Hyprland update that has not been logged into
   yet, the tests run a newer one than the session you are using.
-- Not covered: Strata; the search below a folder (the Search button and its results); the Shortcuts pane
+- Not covered: the search below a folder (the Search button and its results); the Shortcuts pane
   that records a key combination; the Rails pane beyond hiding an icon and resetting; the Messages pane;
   file manager and terminal launching; theme changes; the preview of a video.
 - A configured shortcut cannot be pressed: a virtual keyboard (`wtype`) does not trigger any bind in the
@@ -89,6 +101,9 @@ a pinned SHA-256 (`e2e/flea03.py`); it needs `/usr/share/omarchy/shell/{Commons,
 - Under Flea 0.3.12 with no locale set (as in a portal started by D-Bus), `qs ipc` logs a warning before
   its answer, ofolder read the snapshot as nothing and refused every move. The answer is now taken from
   the first line that opens an object.
+- Strata checks a typed path against a folder listing that lags a folder made a moment ago, so entering
+  a new folder at once left its path bar open and the dialog where it was (two failures in three). The
+  adapter now asks for a second's pause after the folder is made; five of five then passed.
 - Copy path ran `wl-copy` with no type, so `wl-copy` ran the `xdg-mime` shell script on the text and the
   strip waited for it on its UI thread. The type is now named. Failures that looked like a command being
   ignored stopped after this change (five full runs in a row, against four failures in eleven before),

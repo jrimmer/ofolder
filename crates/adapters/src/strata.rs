@@ -222,6 +222,13 @@ impl Adapter for StrataAdapter {
         self.guard.type_path(&window, target)
     }
 
+    /// Strata checks a typed path against the folder listing it keeps, which
+    /// lags a folder made a moment ago: entering one at once leaves its path
+    /// bar open and the dialog where it was. A second is enough (measured).
+    fn settle_after_create(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+
     fn close(&mut self) -> Result<(), AdapterError> {
         if let Some(root) = self.root() {
             cancel(&root);

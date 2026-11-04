@@ -66,6 +66,13 @@ pub trait Adapter: Send {
     /// borrowing a field, and this is where it is given back.
     fn after_arrival(&mut self) {}
 
+    /// How long to wait after making a folder before moving the dialog into
+    /// it. A dialog that checks a typed path against a listing it keeps can
+    /// refuse a folder that is a moment old.
+    fn settle_after_create(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+
     /// The one item selected in the dialog's file list, as a path that
     /// exists. `None` when nothing or more than one item is selected, when
     /// the dialog cannot say, or when the name read cannot be tied to one
@@ -158,6 +165,15 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn an_adapter_waits_nothing_after_making_a_folder_unless_it_says_so() {
+        assert_eq!(
+            Scripted::new(&[]).settle_after_create(),
+            Duration::ZERO,
+            "only a dialog that lags a new folder asks for time"
+        );
+    }
 
     /// An adapter whose folder reads come from a script.
     struct Scripted(Mutex<VecDeque<Option<PathBuf>>>);

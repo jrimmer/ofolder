@@ -50,6 +50,20 @@ class Stack:
                 "[portal]\nDBusName=org.ofolder.e2e.NoSuchBackend\n"
                 "Interfaces=org.freedesktop.impl.portal.Screenshot;\nUseIn=none\n"
             )
+        if self.chain.startswith("ofolder;strata"):
+            # What `strata --install-portal` writes, by hand, into the private data directory. The
+            # command itself also restarts the real session's portal frontend, which a test must not.
+            strata = os.path.realpath(os.path.expanduser("~/.local/bin/strata"))
+            with open(os.path.join(portals, "strata.portal"), "w") as f:
+                f.write(
+                    "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.strata\n"
+                    "Interfaces=org.freedesktop.impl.portal.FileChooser;\n"
+                )
+            with open(os.path.join(services, "org.freedesktop.impl.portal.desktop.strata.service"), "w") as f:
+                f.write(
+                    "[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.strata\n"
+                    "Exec=%s --portal\n" % strata
+                )
         with open(os.path.join(services, "org.freedesktop.impl.portal.desktop.ofolder.service"), "w") as f:
             f.write(
                 "[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.ofolder\n"
