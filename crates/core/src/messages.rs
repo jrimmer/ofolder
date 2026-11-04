@@ -5,10 +5,11 @@
 //! the user, rewritten whole and swapped into place so a crash never leaves
 //! half a file. A message is one line; it never carries a file's contents.
 
-use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+
+use crate::private_file;
 
 /// Lines the log keeps; older ones are dropped as new ones arrive.
 pub const KEEP: usize = 200;
@@ -92,41 +93,25 @@ pub fn format_line(entry: &Entry) -> String {
 }
 
 /// Adds `entries` to the log at `path`, keeping only the last [`KEEP`]
-/// lines. The folder is created private when missing.
+/// lines. The log and its folder are created private when missing.
 pub fn append(path: &Path, entries: &[Entry]) -> io::Result<()> {
     if entries.is_empty() {
         return Ok(());
     }
-    if let Some(dir) = path.parent() {
-        DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    }
-    let old = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
-    };
-    let mut lines: Vec<String> = old.lines().map(str::to_owned).collect();
-    lines.extend(entries.iter().map(format_line));
-    let skip = lines.len().saturating_sub(KEEP);
-    let mut text = lines[skip..].join("\n");
-    text.push('\n');
-    let tmp = path.with_extension(format!("log.{}.tmp", std::process::id()));
-    let written = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        // Only the temporary file is ours to clean; the log is untouched.
-        fs::remove_file(&tmp).ok();
-    }
-    written
+    // Two strips can log at once, so the read and the rewrite are held under the lock.
+    private_file::with_lock(path, || {
+        let old = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
+        let mut lines: Vec<String> = old.lines().map(str::to_owned).collect();
+        lines.extend(entries.iter().map(format_line));
+        let skip = lines.len().saturating_sub(KEEP);
+        let mut text = lines[skip..].join("\n");
+        text.push('\n');
+        private_file::write_private_atomic(path, text.as_bytes())
+    })?
 }
 
 /// The last `n` lines of the log, newest first. A missing or unreadable
@@ -224,13 +209,14 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(dir_mode, 0o700);
-        // No temporary file is left beside it.
-        let names: Vec<_> = fs::read_dir(path.parent().expect("dir"))
+        // No temporary file is left beside it: only the log and its lock.
+        let mut names: Vec<_> = fs::read_dir(path.parent().expect("dir"))
             .expect("list")
             .filter_map(Result::ok)
-            .map(|e| e.file_name())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names.len(), 1);
+        names.sort();
+        assert_eq!(names, ["messages.log", "messages.log.lock"]);
         fs::remove_dir_all(&dir).ok();
     }
 

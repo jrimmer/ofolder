@@ -14,6 +14,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::private_file;
+
+const SECONDS_PER_DAY: u64 = 86_400;
+
 /// What the settings allow the store to record.
 #[derive(Debug, Clone, Copy)]
 pub struct Policy<'a> {
@@ -178,6 +182,17 @@ impl Recents {
         self.folders.truncate(max);
         self.files.truncate(max);
     }
+
+    /// Drops entries last used more than `days` days before `now`. Zero keeps
+    /// everything, as the setting's documentation says.
+    pub fn prune(&mut self, days: u32, now: u64) {
+        if days == 0 {
+            return;
+        }
+        let cutoff = now.saturating_sub(u64::from(days) * SECONDS_PER_DAY);
+        self.folders.retain(|f| f.at >= cutoff);
+        self.files.retain(|f| f.at >= cutoff);
+    }
 }
 
 /// The paths named by a list of `file://` URIs. Anything that is not a local
@@ -283,16 +298,59 @@ fn set_aside(path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Writes the store through a temporary file and a rename, so an interrupted
-/// write leaves the previous file whole.
+/// Writes the store private and whole: see [`private_file::write_private_atomic`].
 pub fn save(path: &Path, recents: &Recents) -> Result<(), RecentsError> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(recents)?)?;
-    fs::rename(&tmp, path)?;
+    let bytes = serde_json::to_vec_pretty(recents)?;
+    private_file::write_private_atomic(path, &bytes)?;
     Ok(())
+}
+
+/// What [`forget_all`] removed, by path, for the maintainer to see.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Forgotten {
+    pub folders: Vec<String>,
+    pub files: Vec<String>,
+    /// Set when the file could not be read; it was replaced by an empty store
+    /// anyway, since forgetting is what was asked.
+    pub unreadable: bool,
+}
+
+impl Forgotten {
+    /// One line for the maintainer: how many entries went.
+    pub fn summary(&self) -> String {
+        let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+        if self.folders.is_empty() && self.files.is_empty() {
+            return "there were no recent folders or files to forget".to_owned();
+        }
+        format!(
+            "forgot {} and {}",
+            plural(self.folders.len(), "folder"),
+            plural(self.files.len(), "file")
+        )
+    }
+}
+
+/// Empties the store, folders and files alike, and says what was in it. A
+/// store that does not exist is left that way, and an unreadable one is
+/// replaced with an empty store. Favorites are not recents and are not touched.
+pub fn forget_all(path: &Path) -> Result<Forgotten, RecentsError> {
+    if !path.exists() {
+        return Ok(Forgotten::default());
+    }
+    private_file::with_lock(path, || {
+        let text = fs::read_to_string(path)?;
+        let (recents, unreadable) = match serde_json::from_str::<Recents>(&text) {
+            Ok(recents) => (recents, false),
+            Err(_) => (Recents::default(), true),
+        };
+        let forgotten = Forgotten {
+            folders: recents.folders.iter().map(|f| f.path.clone()).collect(),
+            files: recents.files.iter().map(|f| f.path.clone()).collect(),
+            unreadable,
+        };
+        save(path, &Recents::default())?;
+        Ok(forgotten)
+    })?
 }
 
 /// Where the store lives: an override, else the user's data folder.
@@ -587,10 +645,13 @@ mod tests {
         let mut r = Recents::default();
         r.record_folder(Path::new("/a"), "app", 1, &policy(10, &[]), &dirs(&["/a"]));
         save(&file, &r).expect("save");
-        // A directory where the temp file must go makes the write fail.
-        fs::create_dir(dir.join("recents.json.tmp")).expect("blocker");
+        // A folder that cannot be written to makes the write fail before the old file is touched.
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).expect("lock folder");
         r.record_folder(Path::new("/b"), "app", 2, &policy(10, &[]), &dirs(&["/b"]));
-        assert!(save(&file, &r).is_err());
+        let failed = save(&file, &r).is_err();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).expect("unlock folder");
+        assert!(failed);
         let loaded = load(&file);
         assert_eq!(
             loaded.recents.folders.len(),
@@ -612,5 +673,107 @@ mod tests {
             recents_path(Some(PathBuf::from("/x.json")), None, home),
             PathBuf::from("/x.json")
         );
+    }
+
+    #[test]
+    fn entries_not_used_within_the_limit_are_pruned_and_zero_keeps_everything() {
+        let mut r = Recents::default();
+        let is_dir = dirs(&["/old", "/new"]);
+        let day = 86_400;
+        let now = 100 * day;
+        r.record_folder(
+            Path::new("/old"),
+            "app",
+            now - 91 * day,
+            &policy(10, &[]),
+            &is_dir,
+        );
+        r.record_folder(
+            Path::new("/new"),
+            "app",
+            now - 89 * day,
+            &policy(10, &[]),
+            &is_dir,
+        );
+        r.record_file(
+            Path::new("/old/f.txt"),
+            "app",
+            now - 91 * day,
+            &policy(10, &[]),
+        );
+        let mut kept = r.clone();
+        kept.prune(0, now);
+        assert_eq!(kept, r, "zero days keeps everything");
+        r.prune(90, now);
+        let folders: Vec<_> = r.folders.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(folders, ["/new"]);
+        assert!(r.files.is_empty());
+    }
+
+    #[test]
+    fn a_store_is_written_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("private");
+        let file = dir.join("recents.json");
+        save(&file, &Recents::default()).expect("save");
+        let mode = fs::metadata(&file).expect("meta").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn forgetting_empties_folders_and_files_and_says_what_it_removed() {
+        let dir = temp("forget");
+        let file = dir.join("recents.json");
+        let mut r = Recents::default();
+        r.record_folder(Path::new("/a"), "app", 1, &policy(10, &[]), &dirs(&["/a"]));
+        r.record_file(Path::new("/a/f.txt"), "app", 1, &policy(10, &[]));
+        save(&file, &r).expect("save");
+        let gone = forget_all(&file).expect("forget");
+        assert_eq!(gone.folders, ["/a"]);
+        assert_eq!(gone.files, ["/a/f.txt"]);
+        assert!(!gone.unreadable);
+        assert_eq!(load(&file).recents, Recents::default());
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn forgetting_an_unreadable_store_leaves_a_valid_empty_one() {
+        let dir = temp("forget-bad");
+        let file = dir.join("recents.json");
+        fs::write(&file, "{ not json").expect("write");
+        let gone = forget_all(&file).expect("forget");
+        assert!(gone.unreadable);
+        assert!(gone.folders.is_empty() && gone.files.is_empty());
+        assert_eq!(load(&file).recents, Recents::default());
+        assert!(
+            load(&file).warning.is_none(),
+            "the file is valid JSON again"
+        );
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_forget_summary_counts_folders_and_files() {
+        let one = Forgotten {
+            folders: vec!["/a".to_owned()],
+            files: vec!["/a/x".to_owned(), "/a/y".to_owned()],
+            unreadable: false,
+        };
+        assert_eq!(one.summary(), "forgot 1 folder and 2 files");
+        assert_eq!(
+            Forgotten::default().summary(),
+            "there were no recent folders or files to forget"
+        );
+    }
+
+    #[test]
+    fn forgetting_when_there_is_no_store_creates_nothing() {
+        let dir = temp("forget-none");
+        let file = dir.join("recents.json");
+        assert_eq!(forget_all(&file).expect("forget"), Forgotten::default());
+        assert!(!file.exists());
+        assert!(!dir.join("recents.json.lock").exists());
+        fs::remove_dir_all(&dir).expect("cleanup");
     }
 }

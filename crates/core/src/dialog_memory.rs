@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::Rect;
+use crate::private_file;
 
 const MIN_WIDTH: i32 = 300;
 const MIN_HEIGHT: i32 = 200;
@@ -93,13 +94,10 @@ pub fn load(path: &Path) -> DialogMemory {
         .unwrap_or_default()
 }
 
+/// Writes the memory private and whole: see [`private_file::write_private_atomic`].
 pub fn save(path: &Path, memory: &DialogMemory) -> Result<(), MemoryError> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(memory)?)?;
-    fs::rename(&tmp, path)?;
+    let bytes = serde_json::to_vec_pretty(memory)?;
+    private_file::write_private_atomic(path, &bytes)?;
     Ok(())
 }
 
@@ -200,6 +198,9 @@ mod tests {
         m.remember("app", dialog(1500));
         save(&file, &m).expect("save");
         assert_eq!(load(&file), m);
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&file).expect("meta").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the memory is private");
         fs::write(&file, "not json").expect("write");
         assert_eq!(load(&file), DialogMemory::default());
         assert_eq!(load(&dir.join("missing.json")), DialogMemory::default());
