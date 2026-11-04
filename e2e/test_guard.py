@@ -21,7 +21,8 @@ class Guard(unittest.TestCase):
         self.bin = os.path.join(self.home, ".local/bin")
         os.makedirs(self.bin)
         self.exe = os.path.join(self.bin, "ofolder")
-        shutil.copy(OFOLDER, self.exe)
+        # A link, not a copy: the debug build is hundreds of megabytes and /tmp is a memory disk.
+        os.symlink(OFOLDER, self.exe)
         self.data = os.path.join(self.home, ".local/share")
         self.service = os.path.join(self.data, "dbus-1/services/org.freedesktop.impl.portal.desktop.ofolder.service")
         self.portal = os.path.join(self.data, "xdg-desktop-portal/portals/ofolder.portal")
@@ -64,7 +65,7 @@ class Guard(unittest.TestCase):
         self.assertTrue(os.path.isfile(held))
         self.guard()  # idempotent
         self.assertTrue(os.path.isfile(held))
-        shutil.copy(OFOLDER, self.exe)
+        os.symlink(OFOLDER, self.exe)
         r = self.guard()
         self.assertIn("ofolder is back", r.stdout)
         self.assertTrue(os.path.isfile(self.portal))
@@ -84,7 +85,6 @@ class Guard(unittest.TestCase):
         )
 
     def test_a_program_that_is_there_but_will_not_start_is_treated_as_gone(self):
-        good = open(self.exe, "rb").read()
         os.remove(self.exe)
         open(self.exe, "w").write("#!/bin/sh\nexit 1\n")  # a bad build: there, runnable, and dead
         os.chmod(self.exe, 0o755)
@@ -92,8 +92,7 @@ class Guard(unittest.TestCase):
         self.assertIn("will not start", r.stdout)
         self.assertFalse(os.path.exists(self.portal), "a dead program must not stay registered")
         os.remove(self.exe)
-        open(self.exe, "wb").write(good)
-        os.chmod(self.exe, 0o755)
+        os.symlink(OFOLDER, self.exe)
         self.assertIn("ofolder is back", self.guard().stdout)
         self.assertTrue(os.path.isfile(self.portal))
 

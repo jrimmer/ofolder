@@ -1099,7 +1099,8 @@ class FailOpen(unittest.TestCase):
         folder = os.path.join(self.session.dir, "installed")
         os.makedirs(folder, exist_ok=True)
         copy = os.path.join(folder, "ofolder")
-        shutil.copy(OFOLDER, copy)
+        # A link, not a copy: the debug build is hundreds of megabytes and /tmp is a memory disk.
+        os.symlink(OFOLDER, copy)
         return copy
 
     def test_ofolder_deleted_while_the_portal_runs_still_gets_a_dialog_once_the_guard_has_run(self):
