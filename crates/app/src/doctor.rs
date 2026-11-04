@@ -54,6 +54,12 @@ impl Dirs {
         self.data.join("dbus-1/services").join(SERVICE_NAME)
     }
 
+    /// Present after `repair --undo`: the maintainer took ofolder out of the chain on purpose, so the
+    /// guard must not put it back. `repair` run by hand removes it.
+    fn chain_hold(&self) -> PathBuf {
+        self.state.join("ofolder/chain-hold")
+    }
+
     fn backups(&self) -> PathBuf {
         self.state.join("ofolder/portal-backups")
     }
@@ -150,10 +156,16 @@ pub fn doctor() -> anyhow::Result<()> {
         );
     }
     let conf = crate::portal_conf(&d.home);
+    let held = d.chain_hold().is_file();
     for line in crate::chain_report(conf) {
-        match line.strip_prefix("warning: ") {
-            Some(problem) => r.problem(problem, "ofolder repair"),
-            None if line.contains("bypass") => r.problem(&line, "ofolder repair"),
+        let problem = line
+            .strip_prefix("warning: ")
+            .or_else(|| line.contains("bypass").then_some(line.as_str()));
+        match problem {
+            Some(why) if held => r.ok(&format!(
+                "{why} (left this way on purpose since you undid a repair; ofolder repair puts it back)"
+            )),
+            Some(why) => r.problem(why, "ofolder repair"),
             None => r.ok(&line),
         }
     }
@@ -305,7 +317,23 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
         .into_iter()
         .filter(|id| installed.contains(id))
         .collect();
-    match put_first(&text, "ofolder", &others) {
+    // A repair run by hand is the maintainer asking for ofolder back, which ends an undo's hold; the
+    // guard runs it with --from-guard and must leave a held chain as it was left.
+    let from_guard = args.iter().any(|a| a == "--from-guard");
+    let held = d.chain_hold().is_file();
+    if held && !from_guard {
+        fs::remove_file(d.chain_hold()).ok();
+    }
+    let fixed = if held && from_guard {
+        println!(
+            "the chain was left without ofolder on purpose (you undid a repair): run ofolder repair to put it back"
+        );
+        None
+    } else {
+        put_first(&text, "ofolder", &others)
+    };
+    match fixed {
+        None if held && from_guard => {}
         None => println!("the file-chooser chain already starts with ofolder: left alone"),
         Some(fixed) => {
             if path.is_file() {
@@ -552,8 +580,13 @@ fn undo(d: &Dirs) -> anyhow::Result<()> {
         target.display(),
         backup.display()
     );
+    // Without this the guard would put ofolder straight back, since the file just changed.
+    atomic_write(
+        &d.chain_hold(),
+        "Set by `ofolder repair --undo`; `ofolder repair` removes it and puts ofolder back in the chain.\n",
+    )?;
     println!(
-        "the change takes effect when the portal restarts: systemctl --user restart xdg-desktop-portal.service"
+        "the guard will leave the chain as it is now until you run ofolder repair; the change takes effect when the portal restarts: systemctl --user restart xdg-desktop-portal.service"
     );
     Ok(())
 }

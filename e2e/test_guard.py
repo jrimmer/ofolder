@@ -54,6 +54,8 @@ class Guard(unittest.TestCase):
             "OFOLDER_GUARD_NO_RESTART": "1",
             "OFOLDER_GUARD_QUIET": "1",
             "OFOLDER_NO_SYSTEMD": "1",
+            # No waiting between the guard's asks: the tests are about what it decides, not how long.
+            "OFOLDER_GUARD_RETRY_WAITS": "0 0",
         }
         self.start_private_bus(os.path.join(self.home, "bus-services"))
 
@@ -147,10 +149,36 @@ class Guard(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.portal))
         self.assertFalse(os.path.exists(held))
 
+    def test_a_check_that_fails_once_and_then_passes_does_not_take_ofolder_out(self):
+        """A hiccup that lands on one asking (a bus restarting) must not switch ofolder off: status 3
+        is asked again before anything is moved."""
+        counter = os.path.join(self.home, "asked")
+        self.stand_in(
+            'case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check")\n'
+            '    n=$(cat "%s" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "%s"\n'
+            '    [ "$n" -ge 2 ] && exit 0; exit 3 ;;\n  *) exit 0 ;;\nesac\n' % (counter, counter)
+        )
+        r = self.guard()
+        self.assertNotIn("fails its portal check", r.stdout)
+        self.assertTrue(os.path.isfile(self.portal), "one failed asking set the portal file aside")
+        self.assertEqual(open(counter).read().strip(), "2", "it did not ask again before deciding")
+
+    def test_a_check_that_keeps_failing_is_still_acted_on_after_asking_three_times(self):
+        counter = os.path.join(self.home, "asked")
+        self.stand_in(
+            'case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check")\n'
+            '    n=$(cat "%s" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "%s"; exit 3 ;;\n  *) exit 0 ;;\nesac\n' % (counter, counter)
+        )
+        r = self.guard()
+        self.assertIn("fails its portal check", r.stdout)
+        self.assertFalse(os.path.exists(self.portal))
+        self.assertEqual(open(counter).read().strip(), "3", "it should have asked three times")
+
     def test_an_older_build_that_does_not_know_the_check_keeps_its_portal_file(self):
         """An older build exits 1 on `portal --check` (an unknown option). That says nothing about
-        whether it works, so the guard must leave the portal file where it is, for any status but 3."""
-        for status in (1, 2, 124):
+        whether it works, and 4 means the check could not be made (no session bus to ask); the guard must
+        leave the portal file where it is, for any status but 3."""
+        for status in (1, 2, 4, 124):
             with self.subTest(status=status):
                 self.stand_in('case "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check") exit %d ;;\n  *) exit 0 ;;\nesac\n' % status)
                 r = self.guard()
@@ -158,6 +186,29 @@ class Guard(unittest.TestCase):
                 self.assertNotIn("fails its portal check", r.stdout)
                 self.assertTrue(os.path.isfile(self.portal), "status %d must not set the portal file aside" % status)
                 self.assertFalse(os.path.exists(os.path.join(self.data, "ofolder/ofolder.portal.held")))
+
+    def test_an_undo_sticks_because_the_guard_leaves_the_chain_alone_until_repair_is_run(self):
+        """The guard puts ofolder back; `repair --undo` must not be undone by the very file change it
+        makes, so it leaves a hold that only a repair run by hand removes."""
+        flea_first = "[preferred]\n%s=flea;gtk\n" % CHOOSER
+        open(self.conf, "w").write(flea_first)
+        self.assertIn("is back first", self.guard().stdout)
+        self.assertIn("ofolder;flea;gtk", open(self.conf).read())
+        self.ofolder("repair", "--undo")
+        self.assertEqual(open(self.conf).read(), flea_first, "undo did not restore the file")
+        # The file changed, so the guard runs: it must leave it.
+        r = self.guard()
+        self.assertNotIn("is back first", r.stdout)
+        self.assertEqual(open(self.conf).read(), flea_first, "the guard undid the undo")
+        # doctor calls it a choice, not a problem.
+        report = self.ofolder("doctor")
+        self.assertIn("on purpose", report.stdout)
+        self.assertNotIn("PROBLEM  ofolder is not in the file chooser chain", report.stdout)
+        # A repair run by hand ends the hold, and the guard then keeps ofolder in front again.
+        self.ofolder("repair", "--no-restart")
+        self.assertIn("ofolder;flea;gtk", open(self.conf).read())
+        open(self.conf, "w").write(flea_first)
+        self.assertIn("is back first", self.guard().stdout)
 
     def test_a_program_that_is_there_but_will_not_start_is_treated_as_gone(self):
         os.remove(self.exe)

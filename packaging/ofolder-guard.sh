@@ -6,7 +6,8 @@
 #    its portal file is set aside, so the portal skips ofolder and the next backend (Flea, GTK) answers.
 #    When ofolder is back the file is put back. The portal frontend is restarted after either, so it
 #    takes notice. Any other status from `--check` is not a verdict: an older build does not know the
-#    option and exits 1, and it must keep its portal file.
+#    option and exits 1, and status 4 means the check could not be made; both keep their portal file.
+#    A status 3 is confirmed by asking again twice before anything is moved.
 #  * ofolder is there but another program took it out of the file-chooser chain: `ofolder repair`
 #    puts it back (a copy of the file is kept; `ofolder repair --undo` goes back).
 #
@@ -49,8 +50,19 @@ if [ -z "$exe" ] || [ ! -x "$exe" ] || ! "$exe" version >/dev/null 2>&1; then
 else
   # A build can answer `version` and still fail once it serves the portal. `portal --check` runs the
   # portal's start-up without claiming its name, and only status 3 says that it failed.
-  "$exe" portal --check >/dev/null 2>&1
-  [ $? -eq 3 ] && state="starts but fails its portal check"
+  # Status 4 means the check could not be made (the session bus was not there to ask), which says
+  # nothing about the build. Even status 3 is asked again twice, a few seconds apart, so a hiccup
+  # that lands on one asking cannot take ofolder out of the dialogs.
+  check() { "$exe" portal --check >/dev/null 2>&1; return $?; }
+  check
+  status=$?
+  for wait in ${OFOLDER_GUARD_RETRY_WAITS-2 5}; do
+    [ "$status" -eq 3 ] || break
+    sleep "$wait"
+    check
+    status=$?
+  done
+  [ "$status" -eq 3 ] && state="starts but fails its portal check"
 fi
 if [ -n "$state" ]; then
   if [ -f "$portal" ]; then
@@ -72,8 +84,8 @@ fi
 flags=""
 [ -n "${OFOLDER_GUARD_NO_RESTART:-}" ] && flags="--no-restart"
 # shellcheck disable=SC2086
-result=$("$exe" repair $flags 2>&1) || exit 0
+result=$("$exe" repair --from-guard $flags 2>&1) || exit 0
 case "$result" in
-  *"put ofolder first"*) say "another program had taken ofolder out of the file-chooser chain; it is back first. To undo: ofolder repair --undo" ;;
+  *"put ofolder first"*) say "another program had taken ofolder out of the file-chooser chain; it is back first. To undo: ofolder repair --undo (the guard then leaves the chain alone until you run ofolder repair)" ;;
 esac
 exit 0

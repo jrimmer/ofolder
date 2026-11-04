@@ -131,6 +131,25 @@ struct PortalArgs {
 /// guard set the portal file aside.
 const CHECK_FAILED: i32 = 3;
 
+/// The exit status when the check could not be made at all: the session bus was not there to
+/// ask. Nothing is known to be wrong with the build, so the guard leaves it alone.
+const CHECK_UNKNOWN: i32 = 4;
+
+/// Why a check did not pass: the build or its setup is broken, or the check itself could not be made.
+#[derive(Debug, PartialEq, Eq)]
+enum CheckFailure {
+    Broken(String),
+    CannotTell(String),
+}
+
+impl std::fmt::Display for CheckFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Broken(why) | Self::CannotTell(why) => f.write_str(why),
+        }
+    }
+}
+
 /// `--backend <id>`, `--no-strip` and `--check`, in any order. Without a backend, the one after
 /// ofolder in the user's portal configuration is used.
 fn portal_options(args: &[String]) -> anyhow::Result<PortalArgs> {
@@ -374,7 +393,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
 /// the real portal runs.
 fn portal_check(parsed: PortalArgs) -> anyhow::Result<()> {
     let verdict = match env::var_os("HOME") {
-        None => Err("HOME is not set".to_owned()),
+        None => Err(CheckFailure::Broken("HOME is not set".to_owned())),
         Some(home) => {
             // Read, never created: the real portal owns this folder.
             let runtime =
@@ -395,7 +414,10 @@ fn portal_check(parsed: PortalArgs) -> anyhow::Result<()> {
         }
         Err(why) => {
             eprintln!("ofolder portal --check failed: {why}");
-            std::process::exit(CHECK_FAILED);
+            std::process::exit(match why {
+                CheckFailure::Broken(_) => CHECK_FAILED,
+                CheckFailure::CannotTell(_) => CHECK_UNKNOWN,
+            });
         }
     }
 }
@@ -414,15 +436,18 @@ fn check_portal(
     home: &Path,
     runtime: Option<PathBuf>,
     session_names: &dyn Fn() -> Result<Vec<String>, String>,
-) -> Result<String, String> {
-    own_exe().map_err(|e| format!("the program cannot find its own path: {e}"))?;
-    let plan = plan(chosen, strip, home, || runtime).map_err(|e| format!("{e:#}"))?;
-    let names = session_names()?;
+) -> Result<String, CheckFailure> {
+    own_exe()
+        .map_err(|e| CheckFailure::Broken(format!("the program cannot find its own path: {e}")))?;
+    let plan = plan(chosen, strip, home, || runtime)
+        .map_err(|e| CheckFailure::Broken(format!("{e:#}")))?;
+    // A bus that cannot be asked is not a verdict on the build: it may be restarting.
+    let names = session_names().map_err(CheckFailure::CannotTell)?;
     if !names.iter().any(|name| name == plan.bus_name) {
-        return Err(format!(
+        return Err(CheckFailure::Broken(format!(
             "the session bus does not know {} (the name of {}), so the portal frontend could not reach it",
             plan.bus_name, plan.id
-        ));
+        )));
     }
     Ok(format!(
         "ok: ofolder would forward to {} ({}); the session bus knows that name, and nothing was claimed",
@@ -711,6 +736,8 @@ mod portal_check_tests {
             &names(&["org.freedesktop.impl.portal.desktop.flea"]),
         )
         .expect_err("an absent backend fails the check");
+        assert!(matches!(why, CheckFailure::Broken(_)), "{why}");
+        let why = why.to_string();
         assert!(why.contains(GTK), "{why}");
         assert!(why.contains("does not know"), "{why}");
     }
@@ -721,15 +748,20 @@ mod portal_check_tests {
         let why = check_portal(Some("gtk".to_owned()), false, &home.0, None, &|| {
             Err("session bus unavailable: no address".to_owned())
         })
-        .expect_err("no bus means the check fails");
-        assert!(why.contains("session bus unavailable"), "{why}");
+        .expect_err("no bus means the check cannot be made");
+        assert_eq!(
+            why,
+            CheckFailure::CannotTell("session bus unavailable: no address".to_owned()),
+            "a bus that cannot be asked is not a verdict on the build"
+        );
     }
 
     #[test]
     fn a_check_fails_for_an_adapter_that_does_not_exist() {
         let home = Home::new("no-adapter");
         let why = check_portal(Some("nope".to_owned()), true, &home.0, None, &names(&[GTK]))
-            .expect_err("an unknown adapter fails the check");
+            .expect_err("an unknown adapter fails the check")
+            .to_string();
         assert!(why.contains("no adapter named"), "{why}");
     }
 
