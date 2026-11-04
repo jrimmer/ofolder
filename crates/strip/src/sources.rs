@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ofolder_core::places::{self, Place};
 use ofolder_core::recents::{self, Recents};
@@ -16,6 +17,8 @@ pub struct Sources {
     pub recents_path: PathBuf,
     pub home: PathBuf,
     pub user: String,
+    /// How many days recents are kept, as the settings said when the dialog opened.
+    pub recents_days: u32,
 }
 
 pub struct RecentsRead {
@@ -34,18 +37,29 @@ impl Sources {
         out
     }
 
+    /// The recents as they stand, with entries past the keep-days limit
+    /// left out. The file itself is rewritten only when something is recorded.
     pub fn read_recents(&self) -> RecentsRead {
         let loaded = recents::load(&self.recents_path);
+        let mut recents = loaded.recents;
+        recents.prune(self.recents_days, now_secs());
         RecentsRead {
-            recents: loaded.recents,
+            recents,
             warning: loaded.warning,
         }
     }
 }
 
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
 /// What the settings file says that the strip uses, and what is wrong with it.
 pub struct SettingsRead {
     pub recents_enabled: bool,
+    pub recents_days: u32,
     pub rails: ofolder_core::rails::RailLayout,
     pub warnings: Vec<String>,
     /// The preview panel's settings.
@@ -56,6 +70,7 @@ pub fn read_settings(path: &Path, home: &Path) -> SettingsRead {
     let loaded = settings::load(path, home);
     SettingsRead {
         recents_enabled: loaded.settings.recents_enabled,
+        recents_days: loaded.settings.recents_days,
         rails: loaded.settings.rails,
         preview: loaded.settings.preview,
         warnings: loaded.warnings,
@@ -88,6 +103,7 @@ mod tests {
             recents_path: d.0.join("recents.json"),
             home: "/home/ann".into(),
             user: "ann".into(),
+            recents_days: 90,
         }
     }
 
@@ -139,12 +155,42 @@ mod tests {
         let d = Dir::new("recents");
         let s = sources(&d);
         assert!(s.read_recents().recents.folders.is_empty());
+        // Recent enough to survive the keep-days limit.
         fs::write(
             d.0.join("recents.json"),
-            r#"{"folders":[{"path":"/srv/a","apps":["x"],"at":5}],"files":[]}"#,
+            format!(
+                r#"{{"folders":[{{"path":"/srv/a","apps":["x"],"at":{}}}],"files":[]}}"#,
+                super::now_secs()
+            ),
         )
         .unwrap();
         assert_eq!(s.read_recents().recents.folders.len(), 1);
+    }
+
+    #[test]
+    fn a_listing_leaves_out_recents_older_than_the_keep_days_limit() {
+        let d = Dir::new("expiry");
+        let now = super::now_secs();
+        let day = 86_400;
+        fs::write(
+            d.0.join("recents.json"),
+            format!(
+                r#"{{"folders":[{{"path":"/srv/old","apps":[],"at":1}},{{"path":"/srv/new","apps":[],"at":{}}}],"files":[]}}"#,
+                now - day
+            ),
+        )
+        .unwrap();
+        let folders: Vec<_> = sources(&d)
+            .read_recents()
+            .recents
+            .folders
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        assert_eq!(folders, ["/srv/new"]);
+        let mut keep_all = sources(&d);
+        keep_all.recents_days = 0;
+        assert_eq!(keep_all.read_recents().recents.folders.len(), 2);
     }
 
     #[test]

@@ -185,6 +185,7 @@ impl ViewModel {
                 recents_path: options.recents_path.clone(),
                 home: options.home.clone(),
                 user: options.user.clone(),
+                recents_days: settings.recents_days,
             },
         };
         let notices: Vec<String> = loaded.notice.into_iter().chain(settings.warnings).collect();
