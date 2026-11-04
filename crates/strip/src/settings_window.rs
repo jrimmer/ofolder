@@ -698,7 +698,7 @@ impl SettingsWindow {
         if !available {
             rows.push(Self::hint(
                 "praeco, which checks for and installs releases, was not found beside ofolder, so \
-                 nothing is checked. docs/updates.md says where it is looked for.",
+                 nothing is checked or installed.",
             ));
         } else {
             let state = state_path.as_deref().map(read_state).unwrap_or_default();
@@ -1995,5 +1995,46 @@ mod tests {
     fn both_panes_have_titles_and_general_comes_first() {
         assert_eq!(Pane::ALL[0], Pane::General);
         assert!(Pane::ALL.iter().all(|p| !p.title().is_empty()));
+    }
+
+    #[test]
+    fn the_check_line_says_what_was_found_or_that_nothing_was_checked() {
+        let fresh = State::default();
+        assert_eq!(checked_text(&fresh, "0.1.0"), "No check has been made yet.");
+        let found = State {
+            checked_at: Some(5),
+            latest: Some("0.2.0".to_owned()),
+            update_available: true,
+            ..State::default()
+        };
+        assert_eq!(
+            checked_text(&found, "0.1.0"),
+            "ofolder 0.1.0; 0.2.0 is the latest release."
+        );
+        let skipped = State {
+            skipped: Some("0.2.0".to_owned()),
+            ..found.clone()
+        };
+        assert_eq!(
+            checked_text(&skipped, "0.1.0"),
+            "You skipped 0.2.0; the release after it is offered."
+        );
+        let current = State {
+            update_available: false,
+            ..found
+        };
+        assert_eq!(
+            checked_text(&current, "0.2.0"),
+            "ofolder 0.2.0 is the latest release."
+        );
+    }
+
+    #[test]
+    fn long_release_notes_are_cut_at_a_character_not_a_byte() {
+        let notes = "é".repeat(NOTES_CHARS + 5);
+        let shown = short_notes(&notes);
+        assert_eq!(shown.chars().count(), NOTES_CHARS + 3);
+        assert!(shown.ends_with("..."));
+        assert_eq!(short_notes("Fixed"), "Fixed");
     }
 }

@@ -540,6 +540,19 @@ mod tests {
     }
 
     #[test]
+    fn an_up_to_date_answer_is_recorded_and_offers_nothing() {
+        let f = Fixture::new("current");
+        f.answer(
+            "check.json",
+            r#"{"ok":true,"current":"0.1.0","latest":"0.1.0","update_available":false,"releases":[]}"#,
+        );
+        let u = f.updates(Duration::from_secs(10));
+        assert!(matches!(u.check_now(NOW), Outcome::Checked(s) if !s.update_available));
+        assert_eq!(read_state(&f.state_path()).checked_at, Some(NOW));
+        assert_eq!(offered(&f), None);
+    }
+
+    #[test]
     fn later_hides_the_offer_until_the_next_check_and_skip_hides_that_version() {
         let f = Fixture::new("choices");
         f.answer("check.json", OFFER);
