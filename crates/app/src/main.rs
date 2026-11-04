@@ -38,6 +38,7 @@ commands:
   live-check [flea|gtk|strata]
                run an adapter against the real dialog (opens a window briefly)
   doctor       check how ofolder is set up and say what is wrong and how to fix it
+               (--report adds versions and hides your home folder, user and host name)
   update register | unregister
                let `omarchy update` also update ofolder (praeco does it; off by default), or
                take that back; the same choice as the settings window's switch
@@ -61,7 +62,7 @@ fn main() -> anyhow::Result<()> {
         Some("status") => status(),
         Some("strip") => strip_cmd::run(&env::args().skip(2).collect::<Vec<_>>()),
         Some("do") => do_command(env::args().nth(2).as_deref()),
-        Some("doctor") => doctor::doctor(),
+        Some("doctor") => doctor::doctor(&env::args().skip(2).collect::<Vec<_>>()),
         Some("update") => update_command(&env::args().skip(2).collect::<Vec<_>>()),
         Some("repair") => doctor::repair(&env::args().skip(2).collect::<Vec<_>>()),
         Some("unbind-all") => unbind_all(),

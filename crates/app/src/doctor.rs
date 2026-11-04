@@ -112,29 +112,124 @@ fn a_strip_is_open() -> bool {
 
 struct Report {
     problems: u32,
+    lines: Vec<String>,
 }
 
 impl Report {
-    fn ok(&self, what: &str) {
-        println!("ok       {what}");
+    fn ok(&mut self, what: &str) {
+        self.lines.push(format!("ok       {what}"));
     }
 
     /// Something that is not a fault: it is said, and the exit status is not affected.
-    fn note(&self, what: &str) {
-        println!("note     {what}");
+    fn note(&mut self, what: &str) {
+        self.lines.push(format!("note     {what}"));
     }
 
     fn problem(&mut self, what: &str, fix: &str) {
         self.problems += 1;
-        println!("PROBLEM  {what}");
-        println!("         fix: {fix}");
+        self.lines.push(format!("PROBLEM  {what}"));
+        self.lines.push(format!("         fix: {fix}"));
     }
 }
 
+/// The text with the user's home folder written as `~`, and the user name and host name replaced,
+/// so that a report can be pasted into a bug report without saying whose machine it came from.
+/// Names shorter than three letters are left alone: replacing them would damage ordinary words.
+pub(crate) fn redact(text: &str, home: &str, user: &str, host: &str) -> String {
+    let mut out = text.to_owned();
+    if home.len() > 1 {
+        out = out.replace(home, "~");
+    }
+    if user.len() >= 3 {
+        out = out.replace(user, "<user>");
+    }
+    if host.len() >= 3 {
+        out = out.replace(host, "<host>");
+    }
+    out
+}
+
+/// First line of what `program args` prints, when it answers within a few seconds.
+fn first_line(program: &str, args: &[&str]) -> Option<String> {
+    let out = run_with_deadline(Command::new(program).args(args), Duration::from_secs(3)).ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.chars().take(120).collect())
+}
+
+/// What a bug report needs to know about the machine, as lines: versions and plain on/off
+/// settings. No folder, file or application name is read for it.
+fn report_header(d: &Dirs) -> Vec<String> {
+    let settings = crate::settings_file()
+        .map(|(path, _)| ofolder_core::settings::load(&path, &d.home).settings)
+        .unwrap_or_default();
+    let os = fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|t| {
+            t.lines().find_map(|l| {
+                l.strip_prefix("PRETTY_NAME=")
+                    .map(|v| v.trim_matches('"').to_owned())
+            })
+        })
+        .unwrap_or_else(|| "unknown".to_owned());
+    let strata = d.home.join(".local/bin/strata");
+    let strata = if strata.is_file() {
+        strata.to_string_lossy().into_owned()
+    } else {
+        "strata".to_owned()
+    };
+    let version = |what: &str, found: Option<String>| {
+        format!(
+            "{what:<22}{}",
+            found.unwrap_or_else(|| "not found".to_owned())
+        )
+    };
+    let on_off = |b: bool| if b { "on" } else { "off" };
+    vec![
+        "ofolder report".to_owned(),
+        version("ofolder", Some(env!("CARGO_PKG_VERSION").to_owned())),
+        version("system", Some(os)),
+        version(
+            "desktop",
+            Some(std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "not set".to_owned())),
+        ),
+        version(
+            "Hyprland",
+            first_line("Hyprland", &["--version"])
+                .map(|l| l.split(" built").next().unwrap_or("").to_owned()),
+        ),
+        version(
+            "portal frontend",
+            first_line("/usr/lib/xdg-desktop-portal", &["--version"]),
+        ),
+        version("Flea", first_line("flea", &["--version"])),
+        version("Strata", first_line(&strata, &["--version"])),
+        format!(
+            "settings              paused {}, guard {}, recents {}, updates {}, update with system {}",
+            on_off(settings.paused),
+            on_off(settings.guard),
+            on_off(settings.recents_enabled),
+            on_off(settings.updates),
+            on_off(settings.update_with_system),
+        ),
+        "left out              folder and file names, recents, favorites, the messages log"
+            .to_owned(),
+        String::new(),
+    ]
+}
+
 /// Reads the setup and prints what is right and wrong with it. The exit status says which.
-pub fn doctor() -> anyhow::Result<()> {
+/// `--report` adds the versions a bug report needs and hides the home folder, user and host name.
+pub fn doctor(args: &[String]) -> anyhow::Result<()> {
+    let report = args.iter().any(|a| a == "--report");
+    if let Some(other) = args.iter().find(|a| a.as_str() != "--report") {
+        anyhow::bail!("usage: ofolder doctor [--report] (not {other})");
+    }
     let d = dirs()?;
-    let mut r = Report { problems: 0 };
+    let mut r = Report {
+        problems: 0,
+        lines: Vec::new(),
+    };
 
     match fs::read_to_string(d.service_file()) {
         Err(_) => r.problem(
@@ -252,11 +347,30 @@ pub fn doctor() -> anyhow::Result<()> {
     } else {
         r.note(&line);
     }
+    r.lines.push(String::new());
+    r.lines.push(if r.problems == 0 {
+        "Nothing is wrong.".to_owned()
+    } else {
+        format!("{} thing(s) to fix.", r.problems)
+    });
+    let mut text = if report {
+        report_header(&d)
+    } else {
+        Vec::new()
+    };
+    text.append(&mut r.lines);
+    let mut text = text.join("\n") + "\n";
+    if report {
+        let user = std::env::var("USER").unwrap_or_default();
+        let host = fs::read_to_string("/etc/hostname")
+            .map(|h| h.trim().to_owned())
+            .unwrap_or_default();
+        text = redact(&text, &d.home.to_string_lossy(), &user, &host);
+    }
+    print!("{text}");
     if r.problems == 0 {
-        println!("\nNothing is wrong.");
         Ok(())
     } else {
-        println!("\n{} thing(s) to fix.", r.problems);
         std::process::exit(1);
     }
 }
@@ -621,6 +735,26 @@ fn undo(d: &Dirs) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_report_hides_the_home_folder_the_user_and_the_host() {
+        let text =
+            "the portal starts /home/user/.local/bin/ofolder\nwritten by user on host\n";
+        let shown = redact(text, "/home/user", "user", "host");
+        assert_eq!(
+            shown,
+            "the portal starts ~/.local/bin/ofolder\nwritten by <user> on <host>\n"
+        );
+        assert!(!shown.contains("user"));
+    }
+
+    #[test]
+    fn names_too_short_to_replace_safely_are_left_alone() {
+        // A user called "al" must not turn every "also" and "all" into "<user>so".
+        assert_eq!(redact("all is well", "/home/al", "al", "pc"), "all is well");
+        // A home of "/" would replace every slash.
+        assert_eq!(redact("/usr/bin", "/", "root", "box"), "/usr/bin");
+    }
     use super::*;
 
     #[test]
