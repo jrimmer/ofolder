@@ -897,6 +897,9 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
             note(&format!("the guard could not be put in order: {e}"));
         }
     });
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"));
     note("opening the strip window");
     let result = ofolder_strip::run_strip(
         StripOptions {
@@ -924,12 +927,9 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
                 std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
                 &home,
             )),
-            hint_marker: Some(
-                std::env::var_os("XDG_STATE_HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| home.join(".local/state"))
-                    .join("ofolder/rails-hint-shown"),
-            ),
+            version_note: crate::backend_version::note_for(&args.backend, &state)
+                .map(|(text, marker)| ofolder_strip::OnceNote { text, marker }),
+            hint_marker: Some(state.join("ofolder/rails-hint-shown")),
             home,
         },
         actions.clone(),

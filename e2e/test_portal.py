@@ -54,8 +54,9 @@ class Flavour:
 
     @classmethod
     def session_env(cls):
-        """Extra environment for everything run in the private session, the portal included."""
-        return {}
+        """Extra environment for everything run in the private session, the portal included. The
+        portal is not to ask the backend its version, so that a test can say what it was."""
+        return {"OFOLDER_NO_VERSION_PROBE": "1"}
 
     @classmethod
     def setUpClass(cls):
@@ -581,6 +582,40 @@ class Features:
         self.assertTrue(self.strips())
         time.sleep(3)
         self.assertFalse(self.s.client(MENU), "the note came back on the second dialog")
+
+    def test_a_backend_version_nobody_tried_is_said_once_and_a_tried_one_says_nothing(self):
+        backend = {"flea04": "flea", "flea03": "flea", "strata": "strata"}.get(self.name)
+        if not backend:
+            self.skipTest("the GTK portal has no version to ask for")
+        state = os.path.join(self.home(), ".local/state/ofolder")
+        version_file = os.path.join(state, "backend-version")
+        marker = os.path.join(state, "version-noted-%s-9.9.9" % backend)
+        for f in (marker,):
+            if os.path.exists(f):
+                os.remove(f)
+        open(version_file, "w").write("%s 9.9.9\n" % backend)
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        self.assertTrue(wait_for(10, lambda: self.s.client(MENU)), "no note about the untried version")
+        self.assertTrue(os.path.isfile(marker), "the note was shown but not remembered")
+        time.sleep(0.5)
+        self.shot("version-note")
+        self.assertTrue(self.s.click(MENU, 100, 30))
+        self.assertTrue(wait_for(8, lambda: not self.s.client(MENU)), "a click did not close the note")
+        self.close_dialog()
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        time.sleep(3)
+        self.assertFalse(self.s.client(MENU), "the note came back for the same version")
+        self.close_dialog()
+        # a version that was tried says nothing, even on a first sight
+        tried = {"flea": "0.4.0", "strata": "1.1.1"}[backend]
+        open(version_file, "w").write("%s %s\n" % (backend, tried))
+        self.open_dialog()
+        self.assertTrue(self.strips())
+        time.sleep(3)
+        self.assertFalse(self.s.client(MENU), "a note was shown for a version that was tried")
+        os.remove(version_file)
 
     def test_a_folder_is_added_to_the_favorites_and_taken_off_again(self):
         self.start()
@@ -1393,6 +1428,7 @@ class UpdatesUi:
         cls.fake_dir = tempfile.mkdtemp(prefix="ofe2e-praeco.")
         os.symlink(FAKE_PRAECO, os.path.join(cls.fake_dir, "praeco"))
         return {
+            **super().session_env(),
             "OFOLDER_PRAECO": os.path.join(cls.fake_dir, "praeco"),
             "OFOLDER_PRETEND_VERSION": "0.0.1",
             # No automatic check: the tests write the state a check would have written.

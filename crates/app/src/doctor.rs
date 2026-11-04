@@ -324,6 +324,16 @@ pub fn doctor(args: &[String]) -> anyhow::Result<()> {
             );
         }
     }
+    if let Some((id, version)) = crate::detect_backend(&d.home)
+        .and_then(|id| crate::backend_version::installed(id, &d.home).map(|v| (id, v)))
+    {
+        match ofolder_core::known::untested_note(id, &version) {
+            Some(note) => r.note(&note),
+            None => r.ok(&format!(
+                "{id} {version} is one of the versions tried with ofolder"
+            )),
+        }
+    }
     match crate::own_exe().ok().and_then(|exe| crate::update::praeco_path(&exe)) {
         Some(path) => r.ok(&format!("praeco, which does the updates, is at {}", path.display())),
         None => r.note("praeco is not beside ofolder, so nothing is checked or installed (a note, not a problem)"),

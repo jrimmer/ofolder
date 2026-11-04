@@ -207,6 +207,10 @@ impl ViewModel {
                 MessageKind::Error,
                 NOTICE_TTL,
             );
+        } else if let Some(note) = options.version_note.as_ref().filter(|n| !n.marker.exists()) {
+            // More useful than the welcome, which waits for the next dialog.
+            vm.say("version", note.text.clone(), MessageKind::Info, HINT_TTL);
+            ofolder_core::private_file::write_private_atomic(&note.marker, b"shown\n").ok();
         } else if let Some(marker) = options.hint_marker.as_deref().filter(|m| !m.exists()) {
             // Once: the marker is made as the note is shown, so a dialog that closes at once
             // does not bring it back. A marker that cannot be written shows the note again next
@@ -1075,6 +1079,7 @@ mod tests {
             messages_path: None,
             update_state_path: None,
             hint_marker: None,
+            version_note: None,
         }
     }
 
@@ -1843,6 +1848,30 @@ mod tests {
             ViewModel::new(&options).message().is_none(),
             "the note came back on the second dialog"
         );
+    }
+
+    #[test]
+    fn an_untried_backend_version_is_said_once_and_the_welcome_waits_for_the_next_dialog() {
+        let d = Dir::new("version-note");
+        let mut options = options(&d);
+        let welcome = d.0.join("welcome");
+        options.hint_marker = Some(welcome.clone());
+        options.version_note = Some(crate::OnceNote {
+            text: "Flea 0.5.0 has not been tried with ofolder".into(),
+            marker: d.0.join("noted-flea-0.5.0"),
+        });
+        let first = ViewModel::new(&options);
+        assert!(first.message().unwrap().text.starts_with("Flea 0.5.0"));
+        assert!(
+            !welcome.exists(),
+            "the welcome was spent on the version note"
+        );
+        let second = ViewModel::new(&options);
+        assert!(
+            second.message().unwrap().text.contains("left one"),
+            "the welcome did not follow"
+        );
+        assert!(ViewModel::new(&options).message().is_none());
     }
 
     #[test]

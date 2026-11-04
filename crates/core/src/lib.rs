@@ -13,6 +13,7 @@ pub mod geometry;
 pub mod hypr;
 pub mod identity;
 pub mod keybind;
+pub mod known;
 pub mod launch;
 pub mod messages;
 pub mod naming;

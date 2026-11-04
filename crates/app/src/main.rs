@@ -4,6 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod backend_version;
 mod doctor;
 mod hooks;
 mod keys;
@@ -360,6 +361,13 @@ fn plan(
     })
 }
 
+/// `$XDG_STATE_HOME`, or `~/.local/state`.
+fn state_dir(home: &Path) -> PathBuf {
+    env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"))
+}
+
 fn portal(args: &[String]) -> anyhow::Result<()> {
     let parsed = portal_options(args)?;
     if parsed.check {
@@ -370,9 +378,9 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
     let home =
         PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
     let Plan {
+        id,
         bus_name: backend,
         hooks,
-        ..
     } = plan(parsed.backend, parsed.strip, &home, || {
         keys::runtime_dir().ok()
     })?;
@@ -394,6 +402,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
     );
     let (settings_path, _) = settings_file()?;
     update::start_portal_checks(&own_exe()?, &home, settings_path);
+    backend_version::start_probe(id, home.clone(), state_dir(&home));
     // A strip for an open dialog is not stopped here: it ends with its dialog, as it does when the
     // portal dies, because stopping it mid-dialog would leave its key bindings behind.
     while !signals::terminate_requested() {

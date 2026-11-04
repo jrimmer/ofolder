@@ -217,6 +217,13 @@ pub trait StripActions: Send + Sync + 'static {
     }
 }
 
+/// A line to show once: when `marker` does not exist yet, `text` is shown and the file is made.
+#[derive(Clone, Debug)]
+pub struct OnceNote {
+    pub text: String,
+    pub marker: PathBuf,
+}
+
 pub struct StripOptions {
     /// Short backend name shown in the header, e.g. "gtk".
     pub label: String,
@@ -247,6 +254,8 @@ pub struct StripOptions {
     /// A file whose absence means this is the first dialog ever: a note saying what the two rails
     /// hold is shown once and the file is made. `None` shows no note.
     pub hint_marker: Option<PathBuf>,
+    /// Said once per version when the backend's version was not among those tried with ofolder.
+    pub version_note: Option<OnceNote>,
 }
 
 fn window_options(
