@@ -97,18 +97,23 @@ is open ends that dialog's request, and the next dialog uses the new portal.
 
 ## Interlock with the guard and `portal --check`
 
-An update replaces the program the portal starts. A release that cannot start stops every file
-dialog, so the safety checks are:
+An update replaces the program the portal starts. A release that cannot start would stop every file
+dialog, so there are three layers, each catching what the one before it cannot:
 
-- `ofolder portal --check` says whether the portal could start, without claiming its name. `bin/install`
-  runs it before it swaps a build, and the guard runs it on the installed build, which is how a
-  broken build is told apart from a missing one.
-- The guard (`ofolder repair --watch on`, the default) keeps dialogs working if the program is
-  deleted. It does not help with a program that starts and then fails, so the release rehearsal in
-  `docs/releasing.md` runs `portal --check` on the packaged binary before publishing.
+1. **Before publishing**, the release rehearsal in `docs/releasing.md` runs `portal --check` on the
+   packaged binary. A release is only published after it passes.
+2. **At install**, `bin/install` runs `portal --check` before it swaps a build. praeco's own install
+   does not; it replaces a tarball install without asking ofolder.
+3. **After any swap**, the guard (`ofolder repair --watch on`, the default) wakes when the program's
+   folder changes and runs `portal --check` on what is now installed. When that fails with status 3
+   twice more, a few seconds apart, the guard sets ofolder's portal file aside and tells you: file
+   dialogs then use the next backend (Flea, GTK) instead of failing, and ofolder returns on its own
+   when a working build is put back (`bin/install --rollback` from a checkout restores the previous
+   one). A build that fails to start at all, or is deleted, is handled the same way.
 
-praeco's own install does not run `portal --check` before it replaces a tarball install. That is
-the gap the release rehearsal closes, and it is why a release is only published after it passes.
+What is still not covered: a build that passes `portal --check` and fails later, while serving a
+dialog (recorded as an expected failure in the end-to-end suite); the guard turned off in the
+settings; and a machine with no systemd user session, where nothing watches.
 
 ## Not done yet
 

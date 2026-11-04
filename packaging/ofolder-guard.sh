@@ -11,6 +11,9 @@
 #  * ofolder is there but another program took it out of the file-chooser chain: `ofolder repair`
 #    puts it back (a copy of the file is kept; `ofolder repair --undo` goes back).
 #
+#  * Nothing it depends on has changed since a run that found everything well: it does nothing, and
+#    does not run the ofolder program. OFOLDER_GUARD_FORCE=1 makes it look anyway.
+#
 # `ofolder repair --watch on` installs the systemd units that run this when the program or the
 # portal configuration changes, and once at login. Nothing else runs it.
 set -u
@@ -41,6 +44,26 @@ restart() {
 }
 
 exe=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service" 2>/dev/null | head -n 1)
+
+# The units wake this whenever anything in the program's folder or the portal configuration folder
+# changes, and many programs write to ~/.local/bin. Everything below depends on a few files only, so
+# when none of them changed since a run that found everything well, there is nothing to decide and
+# the program in the service file is not run again. The note of that run lives in the runtime folder,
+# which is gone at logout, so the first run of every login is a full one; a run that finds anything
+# wrong leaves no note, so it is never remembered as fine.
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal"
+hold="${XDG_STATE_HOME:-$HOME/.local/state}/ofolder/chain-hold"
+stamp=""
+[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -z "${OFOLDER_GUARD_FORCE:-}" ] && stamp="$XDG_RUNTIME_DIR/ofolder-guard.stamp"
+fingerprint() {
+  # a name, inode, size, modification time and mode for each; a file that is not there has no line
+  # shellcheck disable=SC2086
+  # stat fails for each one that is missing, which is not an error here
+  stat -L -c '%n %i %s %Y %a' "$service" ${exe:+"$exe"} "$portal" "$held" "$hold" "$cfg"/* 2>/dev/null || :
+}
+if [ -n "$stamp" ] && [ -f "$stamp" ] && [ "$(fingerprint)" = "$(cat "$stamp" 2>/dev/null)" ]; then
+  exit 0
+fi
 
 # A program that is there but cannot start (a bad copy, a missing library) would stop every file
 # dialog as surely as one that is gone, so it has to answer `version` to count as there.
@@ -88,4 +111,8 @@ result=$("$exe" repair --from-guard $flags 2>&1) || exit 0
 case "$result" in
   *"put ofolder first"*) say "another program had taken ofolder out of the file-chooser chain; it is back first. To undo: ofolder repair --undo (the guard then leaves the chain alone until you run ofolder repair)" ;;
 esac
+# Everything was found well (or was put right just now): note what was seen, after any repair.
+if [ -n "$stamp" ]; then
+  fingerprint > "$stamp.new" 2>/dev/null && mv "$stamp.new" "$stamp" || rm -f "$stamp.new"
+fi
 exit 0

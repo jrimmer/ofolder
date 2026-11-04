@@ -101,6 +101,66 @@ class Guard(unittest.TestCase):
     def ofolder(self, *args):
         return subprocess.run([self.exe, *args], env=self.env, capture_output=True, text=True, timeout=30)
 
+    # Skipping a run that has nothing to decide. The program is a wrapper that records each run and
+    # then is the real build, so what the guard asked of it can be counted.
+    def counting_program(self):
+        self.log = os.path.join(self.home, "asked.log")
+        self.stand_in('echo "$*" >> %s\nexec %s "$@"\n' % (self.log, OFOLDER))
+        self.env["XDG_RUNTIME_DIR"] = os.path.join(self.home, "run")
+        os.makedirs(self.env["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
+
+    def asked(self):
+        try:
+            return open(self.log).read().splitlines()
+        except OSError:
+            return []
+
+    def test_a_run_with_nothing_changed_since_a_good_one_does_not_run_the_program_again(self):
+        self.counting_program()
+        self.assertEqual(self.guard().returncode, 0)
+        first = self.asked()
+        self.assertIn("portal --check", first, first)
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertEqual(self.asked(), first, "an unchanged setup was checked again")
+        # Another program writing into the same folder changes nothing the verdict depends on.
+        open(os.path.join(self.bin, "some-other-tool"), "w").write("#!/bin/sh\n")
+        self.assertEqual(self.guard().returncode, 0)
+        self.assertEqual(self.asked(), first, "an unrelated file in the program's folder caused a check")
+
+    def test_a_changed_program_or_chain_is_looked_at_again_and_repaired(self):
+        self.counting_program()
+        self.guard()
+        n = len(self.asked())
+        open(self.conf, "w").write("[preferred]\n%s=flea;gtk\n" % CHOOSER)  # another program took it out
+        r = self.guard()
+        self.assertIn("is back first", r.stdout, r.stdout + r.stderr)
+        self.assertGreater(len(self.asked()), n, "a changed chain was not looked at")
+        self.assertIn("%s=ofolder;flea;gtk" % CHOOSER, open(self.conf).read())
+        n = len(self.asked())
+        self.counting_program()  # the program itself replaced by a new file
+        self.guard()
+        self.assertGreater(len(self.asked()), n, "a replaced program was not looked at")
+
+    def test_a_run_that_found_a_fault_is_never_remembered_as_fine(self):
+        self.counting_program()
+        self.stand_in(
+            'echo "$*" >> %s\ncase "$*" in\n  version) echo "ofolder 0.1.0" ;;\n  "portal --check") exit 3 ;;\n  *) exit 0 ;;\nesac\n'
+            % self.log
+        )
+        self.assertIn("starts but fails", self.guard().stdout)
+        n = len(self.asked())
+        self.guard()
+        self.guard()
+        self.assertGreater(len(self.asked()), n, "a build that failed its check was skipped on a later run")
+
+    def test_the_force_switch_looks_even_when_nothing_changed(self):
+        self.counting_program()
+        self.guard()
+        n = len(self.asked())
+        self.env["OFOLDER_GUARD_FORCE"] = "1"
+        self.guard()
+        self.assertGreater(len(self.asked()), n)
+
     def test_a_healthy_setup_is_left_alone(self):
         before = open(self.conf).read()
         r = self.guard()

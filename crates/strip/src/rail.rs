@@ -285,8 +285,8 @@ impl MenuKind {
             }
             // The search box, the search button and a status line.
             MenuKind::Find => 144,
-            // The All apps / This app switch.
-            MenuKind::RecentFolders | MenuKind::RecentFiles => 76,
+            // The All apps / This app switch, and the line saying which app is believed to ask.
+            MenuKind::RecentFolders | MenuKind::RecentFiles => 92,
             MenuKind::Favorites | MenuKind::Places => 44,
         };
         let rows = i32::try_from(rows).unwrap_or(i32::MAX / ROW);

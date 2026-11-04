@@ -76,8 +76,28 @@ def main():
         if obj == 7:
             break
     print("ready", flush=True)
+    if len(sys.argv) < 2:
+        while True:
+            time.sleep(3600)
+    # Commands arrive as lines in a named pipe, opened for reading and writing so that it never
+    # reports the end of the file when a writer goes away: "scroll N" turns the wheel N notches
+    # (negative is up). The pointer must already be over the window, which the caller arranges.
+    fd = os.open(sys.argv[1], os.O_RDWR)
+    pending = b""
     while True:
-        time.sleep(3600)
+        pending += os.read(fd, 4096)
+        while b"\n" in pending:
+            line, pending = pending.split(b"\n", 1)
+            words = line.split()
+            if len(words) == 2 and words[0] == b"scroll":
+                notches = int(words[1])
+                for _ in range(abs(notches)):
+                    now = int(time.time() * 1000) & 0xFFFFFFFF
+                    sock.sendall(message(6, 5, struct.pack("<I", 0)))  # axis_source: wheel
+                    step = 15 * 256 * (1 if notches > 0 else -1)
+                    sock.sendall(message(6, 7, struct.pack("<IIii", now, 0, step, 1 if notches > 0 else -1)))
+                    sock.sendall(message(6, 4))  # frame
+                    time.sleep(0.05)
 
 
 main()

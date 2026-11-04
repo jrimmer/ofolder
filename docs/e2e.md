@@ -60,6 +60,20 @@ first. The positions of controls in the settings window and in a favorite's row 
 read from screenshots; if the layout changes they must change too. `E2E_SHOTS=<folder>` keeps a
 picture of a menu during a test.
 
+The same virtual pointer turns the mouse wheel (`Session.scroll`, through a named pipe it reads), which
+the settings window needs: its General pane scrolls, and the Updates block is at the bottom. A wheel
+turned far past the end stops there, so the block is always in the same place.
+
+Updates are tested on GTK only, since nothing in them depends on the backend: the stand-in praeco from
+`tests/support` is set in the session's environment (`OFOLDER_PRAECO`, with the running version
+pretended to be 0.0.1), a state file is written as a check would write it, and real clicks follow.
+It proves: the switch is saved; Install runs praeco detached with the progress file and the portal's own
+pid to stop, and Later, Skip and an install praeco cannot do change or start nothing they should not; the
+omarchy registration asks first, keeping it off changes nothing, Escape keeps the window open, turning
+it on runs `praeco init` and off runs it with `--remove`. `UpdateCheck` starts a portal whose check is
+due at once and proves the answer is recorded privately (0600), that praeco is asked with the running
+version and `--json`, and that a failed check writes nothing.
+
 ## What it touches on the real session
 
 One thing: a virtual output named `ofe2e-1`. Hyprland draws a window only on a monitor that is drawing,

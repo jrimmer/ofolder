@@ -176,7 +176,12 @@ class Session:
             XDG_SESSION_TYPE="wayland",
         )
         # The nested compositor has a pointer only if the real seat does. Give it its own.
-        self.pointer = self.spawn([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vpointer.py")], name="vpointer")
+        self.pointer_pipe = os.path.join(self.dir, "pointer.fifo")
+        os.mkfifo(self.pointer_pipe)
+        self.pointer = self.spawn(
+            [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vpointer.py"), self.pointer_pipe],
+            name="vpointer",
+        )
         if not wait_for(10, lambda: "ready" in self.log("vpointer")):
             raise SystemExit("the virtual pointer was not accepted:\n" + self.log("vpointer"))
         # Park the nested window on the virtual output without following it.
@@ -309,6 +314,25 @@ class Session:
         )
         time.sleep(0.3)
         return r.stdout.strip() == "ok"
+
+    def scroll(self, cls, dx, dy, notches):
+        """Turns the mouse wheel `notches` steps (negative is up) with the pointer at (dx, dy)
+        inside the window of class `cls`, and nowhere else."""
+        window = self.client(cls)
+        if not window:
+            return False
+        x, y = window["at"][0] + dx, window["at"][1] + dy
+        for ox, oy in ((-30, -20), (-8, -5), (0, 0)):
+            self.hypr("dispatch", "hl.dsp.cursor.move({ x = %d, y = %d })" % (x + ox, y + oy))
+            time.sleep(0.08)
+        time.sleep(0.25)
+        fd = os.open(self.pointer_pipe, os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            os.write(fd, b"scroll %d\n" % notches)
+        finally:
+            os.close(fd)
+        time.sleep(0.4 + 0.05 * abs(notches))
+        return True
 
     def focus(self, cls):
         """Gives the keyboard to the window of class `cls`, as a click on it would."""

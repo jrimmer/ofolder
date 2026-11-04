@@ -193,7 +193,13 @@ impl MenuWindow {
             .into_any_element()
     }
 
-    fn scope_switch(&self, scope: Scope, can_app: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn scope_switch(
+        &self,
+        scope: Scope,
+        app_note: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let can_app = app_note.is_some();
         let choice = |id: &'static str, label: &str, this: Scope, enabled: bool| {
             let chosen = scope == this;
             let b = button(id, label, enabled);
@@ -225,15 +231,20 @@ impl MenuWindow {
                     .child(choice("scope-all", "All apps", Scope::AllApps, true))
                     .child(choice("scope-app", "This app", Scope::ThisApp, can_app)),
             )
-            .when(!can_app, |d| {
-                d.child(
-                    div()
-                        .px_1()
-                        .text_size(px(11.))
-                        .text_color(rgb(colors().muted))
-                        .child("This application cannot be identified."),
-                )
-            })
+            .child(
+                div()
+                    .id("scope-note")
+                    .px_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(11.))
+                    .text_color(rgb(colors().muted))
+                    .child(
+                        app_note
+                            .unwrap_or_else(|| "This application cannot be identified.".to_owned()),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -309,12 +320,12 @@ impl MenuWindow {
             }
             MenuKind::RecentFolders | MenuKind::RecentFiles => {
                 let files = self.kind == MenuKind::RecentFiles;
-                let (on, scope, can_app, lines) = {
+                let (on, scope, app_note, lines) = {
                     let s = shared.read(cx);
                     (
                         s.vm.recents_enabled(),
                         s.vm.scope(),
-                        s.vm.can_filter_by_app(),
+                        s.vm.app_note(),
                         s.vm.section_lines(if files {
                             Section::RecentFiles
                         } else {
@@ -334,7 +345,7 @@ impl MenuWindow {
                     );
                 }
                 let empty = lines.is_empty();
-                let mut out = vec![self.scope_switch(scope, can_app, cx)];
+                let mut out = vec![self.scope_switch(scope, app_note, cx)];
                 out.extend(render_lines(lines, &shared, LABEL_CHARS, None));
                 if empty {
                     out.push(Self::quiet("Nothing yet"));

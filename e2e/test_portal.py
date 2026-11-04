@@ -53,6 +53,11 @@ class Flavour:
     filtered_needs_down = True
 
     @classmethod
+    def session_env(cls):
+        """Extra environment for everything run in the private session, the portal included."""
+        return {}
+
+    @classmethod
     def setUpClass(cls):
         if cls is Flavour:
             raise unittest.SkipTest("base class")
@@ -73,6 +78,7 @@ class Flavour:
         cls.host = Host()
         cls.session = Session(cls.host).__enter__()
         cls.s = cls.session
+        cls.s.env.update(cls.session_env())
         try:
             cls.stack = Stack(cls.s, cls.chain, cls.flea_env).__enter__()
         except BaseException:
@@ -474,7 +480,7 @@ def write_png(path):
 
 MENU = "ofolder.strip.menu"
 HEAD_LIST = 44  # a menu's fixed top, then rows of 48; recents carry a switch above their rows
-HEAD_RECENT = 76
+HEAD_RECENT = 92
 ROW = 48
 
 
@@ -519,6 +525,7 @@ class Features:
         """Opens the menu for `command` and clicks its row `row`."""
         self.open_menu(command)
         time.sleep(0.5)
+        self.shot("menu-" + command)
         self.assertTrue(self.s.click(MENU, 150, head + row * ROW + ROW // 2), "the click did not land")
 
     def start(self, folder=None, mode="save"):
@@ -1322,6 +1329,267 @@ class Recovery(unittest.TestCase):
             self.assertIn("Exec=", open(service).read())
             self.assertEqual(self.ofolder("doctor").returncode, 0, self.ofolder("doctor").stdout)
 
+FAKE_PRAECO = os.path.join(REPO, "tests", "support", "fake-praeco")
+
+
+class UpdatesUi:
+    """The Updates block of the settings window, driven with real clicks. praeco is the stand-in
+    from tests/support, in a folder of the session's own, so nothing is fetched or installed. The
+    running version is pretended to be 0.0.1 so that the state file's 9.9.9 is a newer release."""
+
+    fake_dir = None
+
+    @classmethod
+    def session_env(cls):
+        cls.fake_dir = tempfile.mkdtemp(prefix="ofe2e-praeco.")
+        os.symlink(FAKE_PRAECO, os.path.join(cls.fake_dir, "praeco"))
+        return {
+            "OFOLDER_PRAECO": os.path.join(cls.fake_dir, "praeco"),
+            "OFOLDER_PRETEND_VERSION": "0.0.1",
+            # No automatic check: the tests write the state a check would have written.
+            "OFOLDER_UPDATE_SOURCE": "forgejo http://127.0.0.1:9 nobody/nothing",
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(cls.fake_dir or "/nonexistent", ignore_errors=True)
+
+    def state_file(self):
+        return os.path.join(self.home(), ".local/state/ofolder/update.json")
+
+    def write_state(self, **fields):
+        state = {
+            "checked_at": int(time.time()),
+            "current": "0.0.1",
+            "latest": "9.9.9",
+            "update_available": True,
+            "can_install": True,
+            "notes": [
+                {"version": "9.9.9", "published_at": "2026-11-01T10:00:00Z", "url": "http://example.invalid/9.9.9",
+                 "notes": "Rails remember where you left them."}
+            ],
+        }
+        state.update(fields)
+        os.makedirs(os.path.dirname(self.state_file()), exist_ok=True)
+        open(self.state_file(), "w").write(json.dumps(state))
+
+    def read_state_file(self):
+        try:
+            return json.loads(open(self.state_file()).read())
+        except (OSError, ValueError):
+            return {}
+
+    def settings_shot(self, name):
+        folder = os.environ.get("E2E_SHOTS")
+        win = self.s.client(self.SETTINGS)
+        if folder and win:
+            self.s.run(["grim", "-g", "%d,%d %dx%d" % (*win["at"], *win["size"]), os.path.join(folder, name + ".png")])
+
+    def setUp(self):
+        super().setUp()
+        for f in (self.state_file(), os.path.join(self.fake_dir, "calls.log")):
+            try:
+                os.remove(f)
+            except FileNotFoundError:
+                pass
+
+    def praeco_calls(self):
+        """What praeco was run with, one list of arguments per run."""
+        try:
+            text = open(os.path.join(self.fake_dir, "calls.log")).read()
+        except OSError:
+            return []
+        return [chunk.splitlines() for chunk in text.split("%%END%%\n") if chunk]
+
+    def praeco_ran(self, command):
+        return [c for c in self.praeco_calls() if c and c[0] == command]
+
+    # The Updates block is at the bottom of the General pane, which scrolls. A wheel turned far past
+    # the end stops there, so the block is always in the same place: with What's new closed the pill
+    # is at (260, 214) and the switches at (221, 113) and (221, 246); with it open the three choices
+    # are on the line at y 214: Install 229, Later 284, Skip 369. The question over the window has
+    # "Keep it off" at (475, 364) and "Turn it on" at (555, 364).
+    def reach_updates(self, whats_new=False):
+        self.open_settings()
+        self.assertTrue(self.s.scroll(self.SETTINGS, 500, 300, 30))
+        if whats_new:
+            self.click_settings(260, 214)
+            self.assertTrue(self.s.scroll(self.SETTINGS, 500, 300, 30))
+
+    def test_turning_the_check_off_is_saved_at_once(self):
+        self.write_state()  # the block's place depends on whether a release is shown
+        self.reach_updates()
+        self.click_settings(221, 113)
+        self.assertTrue(wait_for(10, lambda: "updates = false" in self.settings_text()), self.settings_text())
+
+    def test_install_runs_praeco_detached_for_the_portal_with_the_progress_file(self):
+        self.write_state()
+        self.reach_updates(whats_new=True)
+        self.click_settings(229, 214)  # Install
+        self.assertTrue(wait_for(10, lambda: self.praeco_ran("install")), "praeco was not run: %r" % self.praeco_calls())
+        args = self.praeco_ran("install")[0]
+        for needed in ("--detach", "--progress-file", "--restart-pid", "--version", "9.9.9", "--restart", "--"):
+            self.assertIn(needed, args, args)
+        # The restart command comes last, after "--", and is ofolder itself.
+        self.assertTrue(args[args.index("--") + 1].endswith("ofolder"), args)
+        pid = int(args[args.index("--restart-pid") + 1])
+        self.assertTrue(os.path.exists("/proc/%d" % pid), "the pid praeco would stop is not a running process")
+        with open("/proc/%d/comm" % pid) as f:
+            self.assertEqual(f.read().strip(), "ofolder", "the pid praeco would stop is not the portal")
+
+    def test_later_hides_the_release_until_the_next_check(self):
+        self.write_state()
+        self.reach_updates(whats_new=True)
+        self.click_settings(284, 214)  # Later
+        state = self.read_state_file()
+        self.assertTrue(wait_for(10, lambda: self.read_state_file().get("later_checked_at") == state["checked_at"]), state)
+        self.assertIsNone(self.read_state_file().get("skipped"))
+        self.assertFalse(self.praeco_ran("install"), "Later started an install")
+
+    def test_skip_remembers_the_version_and_installs_nothing(self):
+        self.write_state()
+        self.reach_updates(whats_new=True)
+        self.click_settings(369, 214)  # Skip this version
+        self.assertTrue(wait_for(10, lambda: self.read_state_file().get("skipped") == "9.9.9"), self.read_state_file())
+        self.assertFalse(self.praeco_ran("install"), "Skip started an install")
+
+    def test_a_release_that_cannot_be_installed_here_offers_no_install_button(self):
+        """Install sits where it does only when praeco can install this kind of install; without it
+        the first of the three choices is Later, and a click there installs nothing."""
+        self.write_state(can_install=False)
+        self.reach_updates(whats_new=True)
+        self.click_settings(229, 214)
+        time.sleep(0.8)
+        self.assertFalse(self.praeco_ran("install"), "an install was started for an install praeco cannot do")
+
+    def test_omarchy_update_registration_asks_first_and_keeping_it_off_changes_nothing(self):
+        self.reach_updates()
+        self.click_settings(221, 246)
+        time.sleep(0.8)
+        self.assertNotIn("update_with_system = true", self.settings_text(), "it turned on without asking")
+        self.assertFalse(self.praeco_ran("init"), "praeco was asked to register before the answer")
+        self.click_settings(475, 364)  # Keep it off
+        time.sleep(1.0)
+        self.assertNotIn("update_with_system = true", self.settings_text())
+        self.assertFalse(self.praeco_ran("init"))
+
+    def test_registration_turns_on_after_confirming_and_off_again_with_one_click(self):
+        self.reach_updates()
+        self.click_settings(221, 246)
+        time.sleep(0.8)
+        self.click_settings(555, 364)  # Turn it on
+        self.assertTrue(wait_for(10, lambda: "update_with_system = true" in self.settings_text()), self.settings_text())
+        self.assertTrue(wait_for(10, lambda: self.praeco_ran("init")), "praeco was not asked to register")
+        args = self.praeco_ran("init")[0]
+        for needed in ("--name", "ofolder", "--exe", "--hook", "auto"):
+            self.assertIn(needed, args, args)
+        self.assertNotIn("--remove", args)
+        self.click_settings(221, 246)  # on: one click turns it off, with no question
+        self.assertTrue(wait_for(10, lambda: "update_with_system = false" in self.settings_text()), self.settings_text())
+        self.assertTrue(
+            wait_for(10, lambda: any("--remove" in c for c in self.praeco_ran("init"))),
+            "praeco was not asked to take the registration away: %r" % self.praeco_calls(),
+        )
+
+    def test_escape_in_the_registration_question_keeps_it_off_and_the_window_open(self):
+        self.reach_updates()
+        self.click_settings(221, 246)
+        time.sleep(0.8)
+        self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
+        time.sleep(1.0)
+        self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the settings window instead of the question")
+        self.assertNotIn("update_with_system = true", self.settings_text())
+        self.assertFalse(self.praeco_ran("init"))
+
+
+class UpdateCheck(unittest.TestCase):
+    """The portal's own check, end to end: it starts, waits, runs praeco and records the answer.
+    The delay is set to nothing and praeco is the stand-in from tests/support; nothing leaves the
+    machine. Run on Flea 0.4, the default chooser."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_build()
+        if not shutil.which("flea"):
+            raise unittest.SkipTest("flea is not installed")
+        cls.host = Host()
+        cls.session = Session(cls.host).__enter__()
+        cls.root = tempfile.mkdtemp(prefix="ofe2e-data.")
+        os.makedirs(os.path.join(cls.root, "one"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.session.stop()
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def portal_checks(self, check_json):
+        """Starts a portal with a check due at once, asks it for a dialog so it starts, and returns
+        (the update state file's text or None, what praeco was run with)."""
+        s = self.session
+        fake = tempfile.mkdtemp(prefix="ofe2e-praeco.")
+        os.symlink(FAKE_PRAECO, os.path.join(fake, "praeco"))
+        if check_json is not None:
+            open(os.path.join(fake, "check.json"), "w").write(json.dumps(check_json))
+        state = os.path.join(s.env["HOME"], ".local/state/ofolder/update.json")
+        if os.path.exists(state):
+            os.remove(state)
+        exec_ = "/usr/bin/env OFOLDER_PRAECO=%s OFOLDER_UPDATE_CHECK_DELAY=0 OFOLDER_PRETEND_VERSION=0.0.1 %s portal" % (
+            os.path.join(fake, "praeco"),
+            OFOLDER,
+        )
+        try:
+            with Stack(s, "ofolder;flea;gtk", ofolder_exec=exec_) as stack:
+                proc, _ = stack.ask("save", os.path.join(self.root, "one"))
+                try:
+                    called = wait_for(40, lambda: os.path.exists(os.path.join(fake, "calls.log")))
+                    self.assertTrue(called, "the portal never ran praeco:\n" + s.log("app")[-600:])
+                    time.sleep(2.5)  # the answer is written just after praeco returns
+                    text = open(state).read() if os.path.exists(state) else None
+                    mode = os.stat(state).st_mode & 0o777 if text else None
+                    return text, open(os.path.join(fake, "calls.log")).read(), mode
+                finally:
+                    proc.terminate()
+                    s.kill_session_processes()
+        finally:
+            shutil.rmtree(fake, ignore_errors=True)
+
+    def test_the_portal_records_what_praeco_found_privately_and_asks_it_the_right_question(self):
+        found = {
+            "ok": True,
+            "latest": "9.9.9",
+            "update_available": True,
+            "releases": [
+                {
+                    "version": "9.9.9",
+                    "published_at": "2026-11-01T10:00:00Z",
+                    "url": "http://example.invalid/9.9.9",
+                    "notes": "Rails remember where you left them.",
+                }
+            ],
+            "install": {"kind": "tarball", "supported": True},
+        }
+        text, calls, mode = self.portal_checks(found)
+        self.assertTrue(text, "no state was written after a successful check")
+        state = json.loads(text)
+        self.assertEqual(state["latest"], "9.9.9")
+        self.assertTrue(state["update_available"])
+        self.assertTrue(state["can_install"])
+        # What praeco sends is kept as it is; cutting the notes at the install heading is praeco's job.
+        self.assertEqual(state["notes"][0]["notes"], "Rails remember where you left them.")
+        self.assertEqual(state["notes"][0]["version"], "9.9.9")
+        self.assertEqual(mode, 0o600, "the state file is not private")
+        # praeco was told the running version and which program to look at.
+        lines = calls.splitlines()
+        self.assertEqual(lines[0], "check", calls)
+        self.assertIn("0.0.1", lines, calls)
+        self.assertIn("--json", lines, calls)
+
+    def test_a_failed_check_writes_nothing_so_no_release_is_ever_invented(self):
+        text, calls, _ = self.portal_checks(None)  # the stand-in fails, as a network failure does
+        self.assertTrue(calls.startswith("check\n"), calls)
+        self.assertIsNone(text, "a failed check left a state file: %r" % text)
+
 
 class Flea04(RealApps, Features, Rails, unittest.TestCase):
     name = "flea04"
@@ -1353,7 +1621,7 @@ class Flea03(RealApps, Features, Rails, unittest.TestCase):
     pick_marker = "picker.qml"
 
 
-class Gtk(RealApps, Features, Rails, unittest.TestCase):
+class Gtk(UpdatesUi, RealApps, Features, Rails, unittest.TestCase):
     folder_keys = ["Return"]
     save_keys = ["Return"]
     replace_keys = ["Return"]

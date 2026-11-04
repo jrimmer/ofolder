@@ -693,6 +693,17 @@ impl ViewModel {
         !self.app_key.is_empty()
     }
 
+    /// Says which application ofolder believes asked for this dialog, so that a wrong guess is seen
+    /// and not silently credited. Most applications send no identity; it is the window that had
+    /// the focus when the request arrived. `None` when it is not known.
+    pub fn app_note(&self) -> Option<String> {
+        self.can_filter_by_app().then(|| {
+            // The key of a window is "class:<name>"; the name is what a person knows it by.
+            let name = self.app_key.strip_prefix("class:").unwrap_or(&self.app_key);
+            format!("Taken to be {name}")
+        })
+    }
+
     pub fn set_scope(&mut self, scope: Scope) {
         if scope == Scope::ThisApp && !self.can_filter_by_app() {
             return;
@@ -1609,6 +1620,23 @@ mod tests {
         assert_eq!(labels(&vm.section_lines(Section::RecentFolders)), ["a"]);
         vm.set_scope(Scope::AllApps);
         assert_eq!(vm.section_lines(Section::RecentFolders).len(), 2);
+    }
+
+    #[test]
+    fn the_app_ofolder_believes_is_asking_is_named_so_a_wrong_guess_is_visible() {
+        let d = Dir::new("recents-app-note");
+        let vm = vm(&d);
+        assert_eq!(vm.app_note().as_deref(), Some("Taken to be org.app.A"));
+        let mut window = options(&d);
+        window.app_key = "class:zen".into();
+        assert_eq!(
+            ViewModel::new(&window).app_note().as_deref(),
+            Some("Taken to be zen"),
+            "the internal prefix is shown to a person"
+        );
+        let mut unknown = options(&d);
+        unknown.app_key = String::new();
+        assert_eq!(ViewModel::new(&unknown).app_note(), None);
     }
 
     #[test]
