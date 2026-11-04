@@ -64,6 +64,8 @@ praeco.
    tar -xzf OUTDIR/ofolder-linux-x86_64.tar.gz -C "$T"
    "$T"/ofolder-X.Y.Z/bin/ofolder version
    "$T"/ofolder-X.Y.Z/lib/ofolder/praeco --version   # must print: praeco 0.4.0
+   # The portal must start (exit 0). It needs a session bus that knows its name, so run it
+   # in a private one: dbus-run-session -- "$T"/ofolder-X.Y.Z/bin/ofolder portal --check
    (cd OUTDIR && sha256sum -c ofolder-linux-x86_64.tar.gz.sha256 SHA256SUMS)
    rm -rf "$T"
    ```

@@ -219,7 +219,7 @@ pub fn doctor() -> anyhow::Result<()> {
     }
     match crate::own_exe().ok().and_then(|exe| crate::update::praeco_path(&exe)) {
         Some(path) => r.ok(&format!("praeco, which does the updates, is at {}", path.display())),
-        None => r.note("praeco is not beside ofolder, so updates are off and nothing is checked (a note, not a problem)"),
+        None => r.note("praeco is not beside ofolder, so nothing is checked or installed (a note, not a problem)"),
     }
     let loaded = ofolder_core::settings::load(&settings_path, &d.home).settings;
     let registered = d.config.join("praeco/apps.d/ofolder.json").is_file();
