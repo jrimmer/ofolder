@@ -13,7 +13,7 @@ pub mod hooks;
 pub mod preseed;
 mod service;
 
-pub use service::{PORTAL_PATH, serve, serve_session};
+pub use service::{PORTAL_PATH, serve, serve_session, session_bus_names};
 
 /// Runs a future to completion on the thread, for the binary that serves the portal.
 pub use zbus::block_on;
