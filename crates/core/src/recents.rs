@@ -338,8 +338,8 @@ pub fn forget_all(path: &Path) -> Result<Forgotten, RecentsError> {
         return Ok(Forgotten::default());
     }
     private_file::with_lock(path, || {
-        let text = fs::read_to_string(path)?;
-        let (recents, unreadable) = match serde_json::from_str::<Recents>(&text) {
+        let bytes = fs::read(path)?;
+        let (recents, unreadable) = match serde_json::from_slice::<Recents>(&bytes) {
             Ok(recents) => (recents, false),
             Err(_) => (Recents::default(), true),
         };
@@ -741,15 +741,17 @@ mod tests {
     fn forgetting_an_unreadable_store_leaves_a_valid_empty_one() {
         let dir = temp("forget-bad");
         let file = dir.join("recents.json");
-        fs::write(&file, "{ not json").expect("write");
-        let gone = forget_all(&file).expect("forget");
-        assert!(gone.unreadable);
-        assert!(gone.folders.is_empty() && gone.files.is_empty());
-        assert_eq!(load(&file).recents, Recents::default());
-        assert!(
-            load(&file).warning.is_none(),
-            "the file is valid JSON again"
-        );
+        for garbage in [&b"{ not json"[..], &[0xff, 0xfe, 0x00][..]] {
+            fs::write(&file, garbage).expect("write");
+            let gone = forget_all(&file).expect("forget");
+            assert!(gone.unreadable, "{garbage:?}");
+            assert!(gone.folders.is_empty() && gone.files.is_empty());
+            assert_eq!(load(&file).recents, Recents::default());
+            assert!(
+                load(&file).warning.is_none(),
+                "the file is valid JSON again"
+            );
+        }
         fs::remove_dir_all(&dir).expect("cleanup");
     }
 
