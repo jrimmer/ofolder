@@ -10,7 +10,9 @@ mod keys;
 mod live;
 mod pause;
 mod recording;
+mod signals;
 mod strip_cmd;
+mod update;
 
 use ofolder_core::adapter::known_capabilities;
 use ofolder_core::portal::{self, FILE_CHOOSER, dbus_name_for};
@@ -36,6 +38,9 @@ commands:
   live-check [flea|gtk|strata]
                run an adapter against the real dialog (opens a window briefly)
   doctor       check how ofolder is set up and say what is wrong and how to fix it
+  update register | unregister
+               let `omarchy update` also update ofolder (praeco does it; off by default), or
+               take that back; the same choice as the settings window's switch
   repair [--undo] [--no-restart] [--watch on|off]
                put it right: the registration files if missing, and ofolder first in the
                file-chooser chain (a copy is kept; --undo goes back). --watch on installs
@@ -57,6 +62,7 @@ fn main() -> anyhow::Result<()> {
         Some("strip") => strip_cmd::run(&env::args().skip(2).collect::<Vec<_>>()),
         Some("do") => do_command(env::args().nth(2).as_deref()),
         Some("doctor") => doctor::doctor(),
+        Some("update") => update_command(&env::args().skip(2).collect::<Vec<_>>()),
         Some("repair") => doctor::repair(&env::args().skip(2).collect::<Vec<_>>()),
         Some("unbind-all") => unbind_all(),
         Some("forget") => forget(),
@@ -339,6 +345,8 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
     if parsed.check {
         return portal_check(parsed);
     }
+    // Before the name is claimed, so a restart that arrives at once is still handled.
+    signals::install_sigterm();
     let home =
         PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);
     let Plan {
@@ -354,19 +362,31 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
             eprintln!("ofolder: the guard could not be put in order: {e}");
         }
     });
-    ofolder_portal::block_on(async {
-        let _connection = ofolder_portal::serve_session(BUS_NAME, backend, hooks).await?;
-        println!(
-            "ofolder portal: {BUS_NAME} forwards to {backend}{}",
-            if parsed.strip {
-                " with a strip per dialog"
-            } else {
-                ""
-            }
-        );
-        std::future::pending::<()>().await;
-        Ok(())
-    })
+    let connection = ofolder_portal::block_on(ofolder_portal::serve_session(BUS_NAME, backend, hooks))?;
+    println!(
+        "ofolder portal: {BUS_NAME} forwards to {backend}{}",
+        if parsed.strip {
+            " with a strip per dialog"
+        } else {
+            ""
+        }
+    );
+    let (settings_path, _) = settings_file()?;
+    update::start_portal_checks(&own_exe()?, &home, settings_path);
+    // A strip for an open dialog is not stopped here: it ends with its dialog, as it does when the
+    // portal dies, because stopping it mid-dialog would leave its key bindings behind.
+    while !signals::terminate_requested() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    println!("ofolder portal: stopped on SIGTERM");
+    drop(connection);
+    Ok(())
+}
+
+/// `ofolder update register|unregister`.
+fn update_command(args: &[String]) -> anyhow::Result<()> {
+    let (settings_path, _) = settings_file()?;
+    update::command(args, &own_exe()?, &settings_path)
 }
 
 /// `portal --check`: prints one line and exits 0 when the portal could start, and exits with

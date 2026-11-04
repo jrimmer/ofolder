@@ -113,6 +113,11 @@ impl Report {
         println!("ok       {what}");
     }
 
+    /// Something that is not a fault: it is said, and the exit status is not affected.
+    fn note(&self, what: &str) {
+        println!("note     {what}");
+    }
+
     fn problem(&mut self, what: &str, fix: &str) {
         self.problems += 1;
         println!("PROBLEM  {what}");
@@ -211,6 +216,25 @@ pub fn doctor() -> anyhow::Result<()> {
                 &format!("install {tool}"),
             );
         }
+    }
+    match crate::own_exe().ok().and_then(|exe| crate::update::praeco_path(&exe)) {
+        Some(path) => r.ok(&format!("praeco, which does the updates, is at {}", path.display())),
+        None => r.note("praeco is not beside ofolder, so updates are off and nothing is checked (a note, not a problem)"),
+    }
+    let loaded = ofolder_core::settings::load(&settings_path, &d.home).settings;
+    let registered = d.config.join("praeco/apps.d/ofolder.json").is_file();
+    let checks = if loaded.updates { "on" } else { "off" };
+    let system = match (loaded.update_with_system, registered) {
+        (true, true) => "registered with omarchy update",
+        (false, false) => "not registered with omarchy update, as chosen",
+        (true, false) => "set to update with omarchy update, but not registered (ofolder update register)",
+        (false, true) => "registered with omarchy update, but the setting is off (ofolder update unregister)",
+    };
+    let line = format!("updates: checks are {checks}; {system}");
+    if loaded.update_with_system == registered {
+        r.ok(&line);
+    } else {
+        r.note(&line);
     }
     if r.problems == 0 {
         println!("\nNothing is wrong.");

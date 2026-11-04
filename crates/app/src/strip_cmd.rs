@@ -388,6 +388,37 @@ impl StripActions for Actions {
         crate::doctor::set_guard(on)
     }
 
+    fn updates_available(&self) -> bool {
+        crate::own_exe()
+            .ok()
+            .and_then(|exe| crate::update::praeco_path(&exe))
+            .is_some()
+    }
+
+    fn set_update_registration(&self, on: bool) -> Result<String, String> {
+        let (exe, praeco) = crate::update::praeco_and_exe()?;
+        if on {
+            let source = crate::update::source_from_env()?;
+            crate::update::register(&praeco, &source, &exe)
+        } else {
+            crate::update::unregister(&praeco)
+        }
+    }
+
+    fn start_update(&self, version: &str, terminal: bool) -> Result<PathBuf, String> {
+        let (exe, praeco) = crate::update::praeco_and_exe()?;
+        let source = crate::update::source_from_env()?;
+        // praeco stops the portal before it installs, so it must be the portal that started this
+        // window, never a process picked by number.
+        let portal = crate::update::parent_portal_pid().ok_or_else(|| {
+            "the update restarts the ofolder portal, and this window was not started by it, so it cannot be installed from here".to_owned()
+        })?;
+        let progress = crate::update::progress_file_for_install()
+            .map_err(|e| format!("no progress folder: {e}"))?;
+        crate::update::start_install(&praeco, &source, version, &exe, portal, &progress, terminal)
+            .map(|()| progress)
+    }
+
     fn copy_text(&self, text: &str) -> Result<(), String> {
         copy_with_wl_copy(text)
     }
@@ -886,6 +917,10 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
             ),
             messages_path: Some(ofolder_core::messages::log_path(
                 std::env::var_os("OFOLDER_MESSAGES").map(PathBuf::from),
+                std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
+                &home,
+            )),
+            update_state_path: Some(ofolder_core::update::state_path(
                 std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
                 &home,
             )),
