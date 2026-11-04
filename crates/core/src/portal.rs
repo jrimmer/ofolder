@@ -109,10 +109,76 @@ pub fn file_chooser_chain(portals_conf: &str) -> Option<Vec<String>> {
     None
 }
 
+/// A portal configuration with `own` first in the file-chooser chain, changing nothing else:
+/// other lines, comments and the order of the other backends stay. `None` when it is already
+/// first, so there is nothing to write. With no chain line one is added with `others` after it,
+/// and with no `[preferred]` section that is added too.
+pub fn put_first(portals_conf: &str, own: &str, others: &[&str]) -> Option<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_preferred = false;
+    let mut done = false;
+    let mut had_preferred = false;
+    for line in portals_conf.lines() {
+        let trimmed = line.trim();
+        if let Some(section) = trimmed.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if in_preferred && !done {
+                out.push(chain_line(own, others));
+                done = true;
+            }
+            in_preferred = section == "preferred";
+            had_preferred |= in_preferred;
+            out.push(line.to_owned());
+        } else if in_preferred
+            && !done
+            && let Some((key, value)) = trimmed.split_once('=')
+            && key.trim() == FILE_CHOOSER
+        {
+            let rest: Vec<&str> = value
+                .split(';')
+                .map(str::trim)
+                .filter(|e| !e.is_empty() && *e != own)
+                .collect();
+            if value.split(';').map(str::trim).next() == Some(own) {
+                return None;
+            }
+            let mut chain = vec![own];
+            chain.extend(rest);
+            out.push(format!("{FILE_CHOOSER}={}", chain.join(";")));
+            done = true;
+        } else {
+            out.push(line.to_owned());
+        }
+    }
+    if !done {
+        if !had_preferred {
+            out.push("[preferred]".to_owned());
+        }
+        out.push(chain_line(own, others));
+    }
+    Some(out.join("\n") + "\n")
+}
+
+fn chain_line(own: &str, others: &[&str]) -> String {
+    let mut chain = vec![own];
+    chain.extend(others);
+    format!("{FILE_CHOOSER}={}", chain.join(";"))
+}
+
 /// The backend ofolder should forward to: the first entry after `own` in the
 /// file-chooser preference list of a portal configuration file that has an
 /// adapter. A `*` entry cannot be resolved here and is skipped.
 pub fn backend_after(portals_conf: &str, own: &str) -> Option<&'static str> {
+    backend_after_installed(portals_conf, own, &|_| true)
+}
+
+/// Like [`backend_after`], but skips a backend that is named and not installed,
+/// so a chain that still names an uninstalled one does not leave the dialog
+/// forwarded to nothing.
+pub fn backend_after_installed(
+    portals_conf: &str,
+    own: &str,
+    installed: &dyn Fn(&str) -> bool,
+) -> Option<&'static str> {
     let mut in_preferred = false;
     for line in portals_conf.lines().map(str::trim) {
         if let Some(section) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
@@ -127,12 +193,15 @@ pub fn backend_after(portals_conf: &str, own: &str) -> Option<&'static str> {
                 .filter(|e| !e.is_empty())
                 .collect();
             let at = entries.iter().position(|e| *e == own)?;
-            return entries[at + 1..].iter().find_map(|e| match *e {
-                "flea" => Some("flea"),
-                "gtk" => Some("gtk"),
-                "strata" => Some("strata"),
-                _ => None,
-            });
+            return entries[at + 1..]
+                .iter()
+                .filter_map(|e| match *e {
+                    "flea" => Some("flea"),
+                    "gtk" => Some("gtk"),
+                    "strata" => Some("strata"),
+                    _ => None,
+                })
+                .find(|id| installed(id));
         }
     }
     None
@@ -161,6 +230,71 @@ pub fn adapter_id(dbus_name: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn putting_ofolder_first_changes_only_the_chooser_line() {
+        let conf = "[preferred]\ndefault=hyprland;gtk\n# a note\norg.freedesktop.impl.portal.FileChooser=flea;gtk\norg.freedesktop.impl.portal.Secret=gnome-keyring\n";
+        let fixed = put_first(conf, "ofolder", &["gtk"]).unwrap();
+        assert_eq!(
+            fixed,
+            "[preferred]\ndefault=hyprland;gtk\n# a note\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\norg.freedesktop.impl.portal.Secret=gnome-keyring\n"
+        );
+    }
+
+    #[test]
+    fn ofolder_in_the_middle_is_moved_to_the_front_without_a_duplicate() {
+        let conf = "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;ofolder;gtk\n";
+        assert_eq!(
+            put_first(conf, "ofolder", &[]).unwrap(),
+            "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n"
+        );
+    }
+
+    #[test]
+    fn nothing_is_written_when_ofolder_already_leads() {
+        let conf = "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n";
+        assert_eq!(put_first(conf, "ofolder", &[]), None);
+    }
+
+    #[test]
+    fn a_missing_chain_line_or_section_is_added() {
+        assert_eq!(
+            put_first("[preferred]\ndefault=gtk\n", "ofolder", &["gtk"]).unwrap(),
+            "[preferred]\ndefault=gtk\norg.freedesktop.impl.portal.FileChooser=ofolder;gtk\n"
+        );
+        assert_eq!(
+            put_first("", "ofolder", &["flea", "gtk"]).unwrap(),
+            "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n"
+        );
+    }
+
+    #[test]
+    fn a_chain_line_in_a_comment_or_another_section_is_not_the_chain() {
+        let conf = "# org.freedesktop.impl.portal.FileChooser=ofolder;gtk\n[other]\norg.freedesktop.impl.portal.FileChooser=gtk\n";
+        let fixed = put_first(conf, "ofolder", &["gtk"]).unwrap();
+        assert!(fixed.contains("[other]\norg.freedesktop.impl.portal.FileChooser=gtk\n"));
+        assert!(
+            fixed.ends_with("[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;gtk\n")
+        );
+    }
+
+    #[test]
+    fn a_backend_that_is_named_but_not_installed_is_skipped_to_the_next_installed_one() {
+        let conf = "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder;strata;flea;gtk\n";
+        assert_eq!(
+            backend_after_installed(conf, "ofolder", &|id| id != "strata"),
+            Some("flea")
+        );
+        assert_eq!(
+            backend_after_installed(conf, "ofolder", &|id| id == "gtk"),
+            Some("gtk")
+        );
+        assert_eq!(backend_after_installed(conf, "ofolder", &|_| false), None);
+        assert_eq!(
+            backend_after_installed(conf, "ofolder", &|_| true),
+            Some("strata")
+        );
+    }
+
     #[test]
     fn the_file_chooser_chain_is_read_in_order() {
         let conf = "[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n";

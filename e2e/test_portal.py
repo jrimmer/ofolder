@@ -8,6 +8,7 @@ window verified to be the dialog, and no real folder is read or written.
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import flea03
-from lib import OFOLDER, Host, Session, run, say, wait_for
+from lib import OFOLDER, REPO, Host, Session, run, say, wait_for
 from stack import Stack
 
 STRIPS = ("ofolder.strip.left", "ofolder.strip.right")
@@ -912,6 +913,229 @@ class RealApps:
         self.assertTrue(
             said is None or os.path.isdir(said), "the rails named a folder that does not exist: %r" % said
         )
+
+
+class FailOpen(unittest.TestCase):
+    """What happens to the person's dialog when ofolder is missing, broken or stopped. The rule is
+    that a dialog must still open and work: ofolder adds to a dialog and must never be what stops one.
+    Run on Flea 0.4, the default chooser."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_build()
+        if not shutil.which("flea"):
+            raise unittest.SkipTest("flea is not installed")
+        cls.host = Host()
+        cls.session = Session(cls.host).__enter__()
+        cls.root = tempfile.mkdtemp(prefix="ofe2e-data.")
+        os.makedirs(os.path.join(cls.root, "one"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.session.stop()
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def dialog_with(self, ofolder_exec, chain="ofolder;flea;gtk", guard=False, **stack):
+        """A Save dialog asked for through a chain that starts with an ofolder run as `ofolder_exec`.
+        Returns what the application heard, after the dialog is confirmed with Return."""
+        s = self.session
+        with Stack(s, chain, ofolder_exec=ofolder_exec, **stack) as stack:
+            if guard:
+                r = s.run(["sh", os.path.join(REPO, "packaging", "ofolder-guard.sh")],
+                          env={"OFOLDER_GUARD_NO_RESTART": "1", "OFOLDER_GUARD_QUIET": "1"})
+                self.assertEqual(r.returncode, 0, r.stderr)
+            proc, out = stack.ask("save", os.path.join(self.root, "one"))
+            try:
+                cls = wait_for(40, lambda: next((c["class"] for c in s.clients() if c["class"] in ("com.thisisgm.flea.picker", "xdg-desktop-portal-gtk")), None))
+                self.assertTrue(cls, "no dialog opened at all:\n" + s.log("app")[-400:] + "\n".join(l for l in s.log("bus").splitlines() if "ofolder" in l.lower() or l.startswith("Error"))[:1500])
+                time.sleep(3)
+                answer = None
+                for _ in range(5):
+                    s.press(cls, "Return")
+                    answer = wait_for(2, lambda: os.path.exists(out) and open(out).read())
+                    if answer:
+                        break
+                return cls, answer
+            finally:
+                proc.terminate()
+                s.kill_session_processes()
+
+    @unittest.expectedFailure
+    def test_a_missing_ofolder_with_no_guard_still_gets_a_dialog(self):
+        """KNOWN LIMIT: the portal asks the program that is not there, and every file dialog on the
+        machine fails until it is put back or the portal file is removed. Nothing of ofolder's can run
+        to prevent it, which is why the guard (below) exists and is a plain script."""
+        cls, answer = self.dialog_with("/nonexistent/ofolder portal")
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
+    def guard(self):
+        r = self.session.run(["sh", os.path.join(REPO, "packaging", "ofolder-guard.sh")],
+                             env={"OFOLDER_GUARD_NO_RESTART": "1", "OFOLDER_GUARD_QUIET": "1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def heard(self, stack):
+        s = self.session
+        proc, out = stack.ask("save", os.path.join(self.root, "one"))
+        try:
+            cls = wait_for(40, lambda: next((c["class"] for c in s.clients() if c["class"] in ("com.thisisgm.flea.picker", "xdg-desktop-portal-gtk")), None))
+            self.assertTrue(cls, "no dialog opened at all:\n" + s.log("app")[-300:])
+            time.sleep(3)
+            answer = None
+            for _ in range(5):
+                s.press(cls, "Return")
+                answer = wait_for(2, lambda: os.path.exists(out) and open(out).read())
+                if answer:
+                    break
+            return answer
+        finally:
+            proc.terminate()
+            s.kill_session_processes()
+
+    def copy_of_ofolder(self):
+        folder = os.path.join(self.session.dir, "installed")
+        os.makedirs(folder, exist_ok=True)
+        copy = os.path.join(folder, "ofolder")
+        shutil.copy(OFOLDER, copy)
+        return copy
+
+    def test_ofolder_deleted_while_the_portal_runs_still_gets_a_dialog_once_the_guard_has_run(self):
+        """How it happens: the program was fine when the portal started, then it is deleted."""
+        copy = self.copy_of_ofolder()
+        with Stack(self.session, "ofolder;flea;gtk", ofolder_exec=copy + " portal") as stack:
+            os.remove(copy)
+            self.guard()
+            answer = self.heard(stack)
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
+    def test_ofolder_missing_when_the_portal_starts_gets_a_dialog_once_the_guard_has_run_and_the_portal_restarts(self):
+        """The login case: the guard restarts the portal after setting the file aside, which here is
+        the private frontend being started again."""
+        with Stack(self.session, "ofolder;flea;gtk", ofolder_exec="/nonexistent/ofolder portal") as stack:
+            self.guard()
+            stack.restart_frontend()
+            answer = self.heard(stack)
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
+    @unittest.expectedFailure
+    def test_an_ofolder_that_exits_at_once_with_no_guard_still_gets_a_dialog(self):
+        """KNOWN LIMIT, like the one above: the program is there but does nothing, so the guard,
+        which looks for a missing program, does not see it either."""
+        cls, answer = self.dialog_with("/usr/bin/false")
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
+    def test_a_chain_that_names_a_backend_that_is_gone_still_gets_a_dialog(self):
+        """The chain says ofolder then Strata then GTK, and Strata has been uninstalled."""
+        cls, answer = self.dialog_with(None, chain="ofolder;strata;gtk", strata_installed=False)
+        self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+
+    def test_stopping_the_rails_leaves_the_dialog_working(self):
+        s = self.session
+        with Stack(s, "ofolder;flea;gtk") as stack:
+            proc, out = stack.ask("save", os.path.join(self.root, "one"))
+            try:
+                self.assertTrue(wait_for(40, lambda: all(s.client(c) for c in STRIPS)), "no rails")
+                time.sleep(3)
+                for pid in (int(d) for d in os.listdir("/proc") if d.isdigit()):
+                    try:
+                        cmd = open("/proc/%d/cmdline" % pid, "rb").read()
+                        env = open("/proc/%d/environ" % pid, "rb").read()
+                    except OSError:
+                        continue
+                    if b"ofolder\0strip" in cmd and ("XDG_RUNTIME_DIR=%s\0" % s.rt).encode() in env:
+                        os.kill(pid, signal.SIGKILL)
+                self.assertTrue(wait_for(10, lambda: not any(s.client(c) for c in STRIPS)), "the rails did not stop")
+                self.assertTrue(s.client("com.thisisgm.flea.picker"), "the dialog went with the rails")
+                answer = None
+                for _ in range(5):
+                    s.press("com.thisisgm.flea.picker", "Return")
+                    answer = wait_for(2, lambda: os.path.exists(out) and open(out).read())
+                    if answer:
+                        break
+                self.assertTrue(answer and answer.startswith("SAVED "), "the application heard %r" % answer)
+            finally:
+                proc.terminate()
+                s.kill_session_processes()
+
+
+class Recovery(unittest.TestCase):
+    """Something outside ofolder takes it out of the file-chooser chain (as Flea once did): `doctor`
+    must say so, `repair` must put it back and keep a copy, the rails must return, and `--undo` must
+    restore the file as it was. Every call here passes --no-restart: the real session's portal service
+    must never be restarted by a test."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_build()
+        if not shutil.which("flea"):
+            raise unittest.SkipTest("flea is not installed")
+        cls.host = Host()
+        cls.session = Session(cls.host).__enter__()
+        cls.root = tempfile.mkdtemp(prefix="ofe2e-data.")
+        os.makedirs(os.path.join(cls.root, "one"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.session.stop()
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def ofolder(self, *args):
+        return self.session.run([OFOLDER, *args], timeout=60)
+
+    def test_a_chain_that_lost_ofolder_is_diagnosed_repaired_and_can_be_undone(self):
+        s = self.session
+        conf = os.path.join(s.env["HOME"], ".config/xdg-desktop-portal/hyprland-portals.conf")
+        with Stack(s, "flea;gtk") as stack:  # the state Flea left behind
+            original = open(conf).read()
+            self.assertNotIn("ofolder", original)
+            # Diagnosed.
+            report = self.ofolder("doctor")
+            self.assertEqual(report.returncode, 1, report.stdout)
+            self.assertIn("PROBLEM", report.stdout)
+            self.assertIn("not in the file chooser chain", report.stdout)
+            # Without ofolder in the chain a dialog has no rails.
+            proc, out = stack.ask("save", os.path.join(self.root, "one"))
+            self.assertTrue(wait_for(40, lambda: s.client("com.thisisgm.flea.picker")))
+            self.assertFalse(wait_for(5, lambda: s.client("ofolder.strip.left")), "rails with ofolder out of the chain")
+            s.press("com.thisisgm.flea.picker", "Escape")
+            proc.wait(20)
+            # Repaired, with a copy kept.
+            fixed = self.ofolder("repair", "--no-restart")
+            self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+            self.assertIn("kept a copy", fixed.stdout)
+            self.assertIn("FileChooser=ofolder;flea;gtk", open(conf).read())
+            backups = os.listdir(os.path.join(s.env["HOME"], ".local/state/ofolder/portal-backups"))
+            self.assertEqual(len(backups), 1, backups)
+            # Healthy, and the rails return once the frontend has re-read its configuration.
+            self.assertEqual(self.ofolder("doctor").returncode, 0, self.ofolder("doctor").stdout)
+            stack.restart_frontend()
+            proc, out = stack.ask("save", os.path.join(self.root, "one"))
+            self.assertTrue(wait_for(40, lambda: all(s.client(c) for c in STRIPS)), "no rails after the repair")
+            s.press("com.thisisgm.flea.picker", "Escape")
+            proc.wait(20)
+            wait_for(10, lambda: not s.client("ofolder.strip.left"))
+            # Repair again changes nothing; undo restores the file as it was.
+            again = self.ofolder("repair", "--no-restart")
+            self.assertIn("already starts with ofolder", again.stdout)
+            self.assertEqual(len(os.listdir(os.path.join(s.env["HOME"], ".local/state/ofolder/portal-backups"))), 1)
+            self.ofolder("repair", "--undo")
+            self.assertEqual(open(conf).read(), original, "undo did not restore the file as it was")
+
+    def test_repair_recreates_a_missing_registration(self):
+        s = self.session
+        service = os.path.join(s.env["HOME"], ".local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ofolder.service")
+        portal_file = os.path.join(s.env["HOME"], ".local/share/xdg-desktop-portal/portals/ofolder.portal")
+        with Stack(s, "ofolder;flea;gtk"):
+            os.remove(service)
+            os.remove(portal_file)
+            report = self.ofolder("doctor")
+            self.assertEqual(report.returncode, 1)
+            self.assertIn("service file is missing", report.stdout)
+            self.assertIn("portal file is missing", report.stdout)
+            self.assertEqual(self.ofolder("repair", "--no-restart").returncode, 0)
+            self.assertTrue(os.path.isfile(service) and os.path.isfile(portal_file))
+            self.assertIn("Exec=", open(service).read())
+            self.assertEqual(self.ofolder("doctor").returncode, 0, self.ofolder("doctor").stdout)
 
 
 class Flea04(RealApps, Features, Rails, unittest.TestCase):

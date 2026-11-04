@@ -4,6 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+mod doctor;
 mod hooks;
 mod keys;
 mod live;
@@ -31,6 +32,12 @@ commands:
   unbind-all   remove every key binding ofolder made, if a crash left any
   live-check [flea|gtk|strata]
                run an adapter against the real dialog (opens a window briefly)
+  doctor       check how ofolder is set up and say what is wrong and how to fix it
+  repair [--undo] [--no-restart] [--watch on|off]
+               put it right: the registration files if missing, and ofolder first in the
+               file-chooser chain (a copy is kept; --undo goes back). --watch on installs
+               a guard that does this by itself, and keeps dialogs working if ofolder is
+               deleted; --watch off removes it
   version      print the version";
 
 fn main() -> anyhow::Result<()> {
@@ -46,6 +53,8 @@ fn main() -> anyhow::Result<()> {
         Some("status") => status(),
         Some("strip") => strip_cmd::run(&env::args().skip(2).collect::<Vec<_>>()),
         Some("do") => do_command(env::args().nth(2).as_deref()),
+        Some("doctor") => doctor::doctor(),
+        Some("repair") => doctor::repair(&env::args().skip(2).collect::<Vec<_>>()),
         Some("unbind-all") => unbind_all(),
         Some("live-check") => live::run(env::args().nth(2).as_deref().unwrap_or("flea")),
         Some("version" | "--version") => {
@@ -149,8 +158,24 @@ fn portal_conf(home: &Path) -> Option<(PathBuf, String)> {
         .find_map(|f| std::fs::read_to_string(&f).ok().map(|text| (f, text)))
 }
 
+/// The backend ofolder forwards to: the first one after it in the chain that is installed, and
+/// failing that any installed one it knows. A chain that names a backend since uninstalled must
+/// not leave the dialog forwarded to nothing: that would stop every file dialog.
 fn detect_backend(home: &Path) -> Option<&'static str> {
-    portal_conf(home).and_then(|(_, text)| portal::backend_after(&text, "ofolder"))
+    let installed: Vec<&'static str> = portal::discover(&portal_dirs())
+        .iter()
+        .filter(|p| p.provides_file_chooser())
+        .filter_map(portal::PortalFile::adapter_id)
+        .collect();
+    portal_conf(home)
+        .and_then(|(_, text)| {
+            portal::backend_after_installed(&text, "ofolder", &|id| installed.contains(&id))
+        })
+        .or_else(|| {
+            ["gtk", "flea", "strata"]
+                .into_iter()
+                .find(|id| installed.contains(id))
+        })
 }
 
 /// What `status` says about the file-chooser chain: dialogs only reach ofolder

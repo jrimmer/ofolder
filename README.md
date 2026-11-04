@@ -18,6 +18,8 @@ adapter that says honestly what it can do.
 ```
 bin/check              # fmt, clippy -D warnings, tests, architecture guard
 bin/e2e                # real dialogs in a private nested Hyprland (docs/e2e.md)
+bin/canary             # what changed in Flea, Strata, the portal or Hyprland since the last look
+ofolder doctor         # check how ofolder is set up; ofolder repair puts it right
 cargo run -p ofolder -- adapters     # which installed file choosers can be decorated
 cargo run -p ofolder -- strip-demo   # open a sample strip window
 ```

@@ -101,3 +101,21 @@ behind it, to `~/.local/state/ofolder/messages.log` (`$XDG_STATE_HOME/ofolder/me
 you alone. The settings window's Messages pane lists the most recent. On screen, an error stays
 at least 10 seconds, longer for a long one, and does not go while the pointer rests on it; a click
 dismisses it. A passing note from another action never replaces an error you have not read.
+
+## Doing it for you
+
+`ofolder doctor` checks all of the above and says what is wrong and how to fix it. `ofolder repair`
+does the steps for you without touching anything that is already right: it writes the two files only
+if they are missing or point at a program that is gone, puts ofolder first in the chain while leaving
+every other line and backend alone, keeps a copy of the file it changed, and restarts the portal frontend
+(unless a dialog is open). `ofolder repair --undo` puts the file back as it was.
+
+`ofolder repair --watch on` also installs a small guard (`ofolder-guard.sh`, plain shell) with two systemd
+user units, which run at login and whenever the program or the portal configuration changes:
+
+- if another program has taken ofolder out of the chain, it is put back first and you get one notification;
+- if the ofolder program is deleted, its portal file is set aside so file dialogs use the next backend
+  instead of failing everywhere, and put back when the program returns.
+
+`ofolder repair --watch off` removes it. The guard is optional and starts only because you ran that command.
+

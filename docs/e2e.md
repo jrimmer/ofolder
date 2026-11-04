@@ -18,7 +18,7 @@ The portal files and the `FileChooser=` chain live in the private home, so your 
 read nor written. Keys reach a dialog only through `hyprctl dispatch send_shortcut` aimed at that
 dialog's own window, never through whatever has the keyboard (`wtype` did not reach the GTK dialog). Folders are scratch folders under `/tmp`.
 
-## What it proves (153 checks, about ten minutes)
+## What it proves (about 160 checks, about ten minutes)
 
 Per backend (each of the 29 below, and the real-app shapes and the idle-CPU check after them, runs on Flea 0.4, Flea 0.3.12, GTK and Strata; Flea 0.4 has one more):
 
@@ -70,6 +70,22 @@ path, including a crash and a signal. After removing it the suite checks your re
 exactly as they were. Never give the output a position by hand: doing so once moved the real monitor.
 
 `bin/e2e --cleanup` removes the output, the nested compositor and the scratch folders a killed run left.
+
+## Reliability and recovery
+
+`FailOpen` and `Recovery` check what happens when things go wrong, in the private session:
+
+- stopping the rails leaves the dialog working; a chain that names a backend since uninstalled falls through to
+  the next installed one (it used to forward to nothing and the dialog failed);
+- `doctor` flags a chain that lost ofolder, `repair` puts it back with a copy kept, the rails return, a second
+  `repair` changes nothing and `--undo` restores the file as it was; `repair` recreates a missing registration;
+- ofolder deleted, with the guard run, the dialog still opens, whether it was deleted while the portal ran or was
+  already gone when the portal started (the guard restarts the portal in that case).
+
+Two known limits are recorded as expected failures, not hidden: with ofolder missing or exiting at once and no
+guard, every file dialog fails, because the portal asks a program that does nothing. The guard covers a missing
+program; a program that is there but exits at once is not covered. `test_guard.py` runs the guard script and
+`repair --watch` in a temporary home, with no display, and is part of `bin/check`.
 
 ## Release build and the canary
 
