@@ -165,6 +165,11 @@ pub trait StripActions: Send + Sync + 'static {
     /// Puts `text` on the clipboard without a window of the strip's own: a
     /// shortcut comes with no input event, and a Wayland window may only set
     /// the clipboard in answer to one.
+    /// Puts the guard in place (`on`) or takes it away after its setting changed in the settings
+    /// window; says what was done. Called from a background thread, since it can start programs.
+    fn set_guard(&self, _on: bool) -> Result<String, String> {
+        Ok(String::new())
+    }
     /// The item selected in the dialog, when the dialog can say; for the
     /// preview panel. Called from a background thread a few times a second.
     fn selection(&self) -> Option<PathBuf> {

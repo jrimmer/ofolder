@@ -175,6 +175,34 @@ pub fn doctor() -> anyhow::Result<()> {
     } else {
         r.ok("ofolder is on");
     }
+    let (settings_path, _) = crate::settings_file()?;
+    let wants_guard = ofolder_core::settings::load(&settings_path, &d.home)
+        .settings
+        .guard;
+    if !wants_guard {
+        r.ok("the guard is turned off in the settings, as chosen");
+    } else if !guard_installed(&d) {
+        r.problem(
+            "the guard is on in the settings but not installed, so nothing would put ofolder back in the chain",
+            "ofolder repair --watch on",
+        );
+    } else if !systemd_allowed() {
+        r.ok("the guard's files are in place (systemd is not asked here)");
+    } else {
+        let enabled = Command::new("systemctl")
+            .args(["--user", "is-enabled", "ofolder-guard.path"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+            .unwrap_or_default();
+        match enabled.as_str() {
+            "enabled" => r.ok("the guard is on"),
+            "" => r.ok("the guard's files are in place (systemd could not be asked)"),
+            other => r.problem(
+                &format!("the guard's files are in place but systemd says it is {other}"),
+                "ofolder repair --watch on",
+            ),
+        }
+    }
     for tool in ["hyprctl", "wtype", "wl-copy"] {
         if on_path(tool) {
             r.ok(&format!("{tool} is installed"));
@@ -346,21 +374,38 @@ pub fn guard_units(exe_dir: &Path, portal_conf_dir: &Path, script: &Path) -> (St
     (path, service)
 }
 
-/// `repair --watch on` writes the guard script and its units and starts them; `off` stops and
-/// removes them and puts back a portal file the guard had set aside. `enable` is false when only
-/// the files are wanted (tests, and anyone who wants to read them first).
-fn watch(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<()> {
+/// Whether the guard is in place as it should be: the script as packaged, and both units.
+fn guard_installed(d: &Dirs) -> bool {
     let script = d.data.join("ofolder/ofolder-guard.sh");
-    let unit_dir = d.config.join("systemd/user");
-    let path_unit = unit_dir.join("ofolder-guard.path");
-    let service_unit = unit_dir.join("ofolder-guard.service");
-    let systemctl = |args: &[&str]| {
-        Command::new("systemctl")
+    let units = d.config.join("systemd/user");
+    fs::read_to_string(&script).is_ok_and(|t| t == GUARD_SCRIPT)
+        && units.join("ofolder-guard.path").is_file()
+        && units.join("ofolder-guard.service").is_file()
+}
+
+/// Whether systemd is to be used at all. A test, which has a session of its own, sets
+/// `OFOLDER_NO_SYSTEMD` so that nothing it does can reach the real user's units.
+fn systemd_allowed() -> bool {
+    std::env::var_os("OFOLDER_NO_SYSTEMD").is_none()
+}
+
+fn systemctl(args: &[&str]) -> bool {
+    systemd_allowed()
+        && Command::new("systemctl")
             .arg("--user")
             .args(args)
             .status()
             .is_ok_and(|s| s.success())
-    };
+}
+
+/// Puts the guard in place (`on`) or takes it away, and says what it did. `enable` is false when
+/// only the files are wanted (tests, and anyone who wants to read them first).
+fn apply_guard(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<Vec<String>> {
+    let mut said = Vec::new();
+    let script = d.data.join("ofolder/ofolder-guard.sh");
+    let unit_dir = d.config.join("systemd/user");
+    let path_unit = unit_dir.join("ofolder-guard.path");
+    let service_unit = unit_dir.join("ofolder-guard.service");
     if on {
         let exe = fs::read_to_string(d.service_file())
             .ok()
@@ -378,22 +423,22 @@ fn watch(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<()> {
         let (path_text, service_text) = guard_units(exe_dir, &conf_dir, &script);
         atomic_write(&path_unit, &path_text)?;
         atomic_write(&service_unit, &service_text)?;
-        println!(
+        said.push(format!(
             "wrote {} and the units in {}",
             script.display(),
             unit_dir.display()
-        );
+        ));
         if enable {
             let ok = systemctl(&["daemon-reload"])
                 && systemctl(&["enable", "--now", "ofolder-guard.path"])
                 && systemctl(&["start", "ofolder-guard.service"]);
-            println!(
-                "{}",
+            said.push(
                 if ok {
-                    "the guard is on: it runs at login and when ofolder or the portal configuration changes. Turn it off with: ofolder repair --watch off"
+                    "the guard is on: it runs at login and when ofolder or the portal configuration changes"
                 } else {
-                    "could not start the units with systemctl; the files are written"
+                    "the units are written but systemd did not start them"
                 }
+                .to_owned(),
             );
         }
     } else {
@@ -404,11 +449,11 @@ fn watch(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<()> {
         if held.is_file() && !d.portal_file().is_file() {
             fs::create_dir_all(d.portal_file().parent().context("no folder")?)?;
             fs::rename(&held, d.portal_file())?;
-            println!("put the portal file the guard had set aside back");
+            said.push("put the portal file the guard had set aside back".to_owned());
         }
         for f in [&path_unit, &service_unit, &script] {
             match fs::remove_file(f) {
-                Ok(()) => println!("removed {}", f.display()),
+                Ok(()) => said.push(format!("removed {}", f.display())),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.into()),
             }
@@ -416,7 +461,48 @@ fn watch(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<()> {
         if enable {
             systemctl(&["daemon-reload"]);
         }
-        println!("the guard is off");
+        said.push("the guard is off".to_owned());
+    }
+    Ok(said)
+}
+
+/// For the settings window: puts the guard in place or takes it away after the setting changed.
+pub fn set_guard(on: bool) -> Result<String, String> {
+    let d = dirs().map_err(|e| e.to_string())?;
+    apply_guard(&d, on, true)
+        .map(|said| said.join("; "))
+        .map_err(|e| e.to_string())
+}
+
+/// Makes the guard match the setting: it is on by default, so a first start installs it, and a
+/// guard the maintainer turned off is not put back. Run when the portal starts.
+pub fn reconcile_guard() -> anyhow::Result<()> {
+    let d = dirs()?;
+    let (settings, _) = crate::settings_file()?;
+    let wanted = ofolder_core::settings::load(&settings, &d.home)
+        .settings
+        .guard;
+    if wanted != guard_installed(&d) {
+        for line in apply_guard(&d, wanted, true)? {
+            eprintln!("ofolder: {line}");
+        }
+    }
+    Ok(())
+}
+
+/// `repair --watch on|off`: the same, and the setting follows, so the command line and the
+/// settings window never disagree.
+fn watch(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<()> {
+    for line in apply_guard(d, on, enable)? {
+        println!("{line}");
+    }
+    let (settings, _) = crate::settings_file()?;
+    ofolder_core::settings_write::save(
+        &settings,
+        &[ofolder_core::settings_write::Edit::Bool("guard", on)],
+    )?;
+    if on {
+        println!("Turn it off with: ofolder repair --watch off, or in the settings window.");
     }
     Ok(())
 }

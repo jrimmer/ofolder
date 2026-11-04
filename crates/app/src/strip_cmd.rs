@@ -373,6 +373,10 @@ impl StripActions for Actions {
         }
     }
 
+    fn set_guard(&self, on: bool) -> Result<String, String> {
+        crate::doctor::set_guard(on)
+    }
+
     fn copy_text(&self, text: &str) -> Result<(), String> {
         copy_with_wl_copy(text)
     }
@@ -842,6 +846,13 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
             note(&format!("shortcut {id}: {why}"));
         }
     }
+    // The guard follows its setting: put in place when it is on and missing, taken away when the
+    // owner turned it off, so a hand edit of the setting takes effect with the next dialog.
+    std::thread::spawn(|| {
+        if let Err(e) = crate::doctor::reconcile_guard() {
+            note(&format!("the guard could not be put in order: {e}"));
+        }
+    });
     note("opening the strip window");
     let result = ofolder_strip::run_strip(
         StripOptions {

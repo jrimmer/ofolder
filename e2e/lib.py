@@ -146,6 +146,8 @@ class Session:
             "HOME": home,
             "PATH": os.environ["PATH"],
             "RUST_BACKTRACE": "1",
+            # Nothing a test does may reach the real user's systemd units (the guard's).
+            "OFOLDER_NO_SYSTEMD": "1",
             "XDG_RUNTIME_DIR": self.rt,
             "WAYLAND_DISPLAY": os.path.join(self.host.rt, self.host.env["WAYLAND_DISPLAY"]),
             "XDG_CONFIG_HOME": home + "/.config",

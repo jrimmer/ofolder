@@ -113,6 +113,10 @@ pub struct SettingsWindow {
     /// Why the last recorded keys were not taken.
     notice: Option<String>,
     conflict: Option<Conflict>,
+    /// The "turn the guard off?" question is showing.
+    confirm_guard_off: bool,
+    /// What the last change of the guard did, to show under its switch.
+    guard_note: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -182,6 +186,8 @@ impl SettingsWindow {
             recording: None,
             notice: None,
             conflict: None,
+            confirm_guard_off: false,
+            guard_note: None,
             _subscriptions: subscriptions,
         }
     }
@@ -192,6 +198,15 @@ impl SettingsWindow {
 
     fn on_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let ks = &event.keystroke;
+        if self.confirm_guard_off {
+            // The question has the window: Escape keeps the guard on, nothing else acts.
+            cx.stop_propagation();
+            if ks.key == "escape" {
+                self.confirm_guard_off = false;
+                cx.notify();
+            }
+            return;
+        }
         if let Some(id) = self.recording {
             // While recording, every key belongs to the recording.
             cx.stop_propagation();
@@ -434,6 +449,126 @@ impl SettingsWindow {
         ]
     }
 
+    /// Saves the guard setting and puts the guard in place or takes it away.
+    fn set_guard(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.confirm_guard_off = false;
+        self.save(vec![Edit::Bool("guard", on)], cx);
+        let actions = self.shared.read(cx).actions();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.set_guard(on) })
+                .await;
+            this.update(cx, |t, cx| {
+                t.guard_note = Some(match result {
+                    Ok(_) if on => "The guard is on.".to_owned(),
+                    Ok(_) => "The guard is off.".to_owned(),
+                    Err(e) => {
+                        format!("The setting was saved, but the guard could not be changed: {e}")
+                    }
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The guard's switch. Turning it on is at once; turning it off asks first.
+    fn guard_toggle(&self, on: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("guard")
+            .flex()
+            .items_center()
+            .gap_3()
+            .min_h(px(30.))
+            .cursor_pointer()
+            .child(Self::switch(on))
+            .child("Keep ofolder working, and keep file dialogs working without it")
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if on {
+                    this.confirm_guard_off = true;
+                    cx.notify();
+                } else {
+                    this.set_guard(true, cx);
+                }
+            }))
+            .into_any_element()
+    }
+
+    /// The question shown over the window before the guard is turned off.
+    fn guard_question(&self, cx: &mut Context<Self>) -> AnyElement {
+        let line = |text: &'static str| {
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_none().child("•"))
+                .child(div().flex_1().min_w(px(0.)).child(text))
+        };
+        div()
+            .id("guard-question")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x0000_00b3))
+            .child(
+                div()
+                    .w(px(440.))
+                    .p(px(18.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .rounded(px(8.))
+                    .bg(rgb(colors().panel))
+                    .border_1()
+                    .border_color(rgb(colors().red))
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::BOLD)
+                            .child("Turn the guard off?"),
+                    )
+                    .child(div().child("Without the guard:"))
+                    .child(line(
+                        "If another program takes ofolder out of the file-chooser chain (a Flea \
+                         update has done it), ofolder stops working without a word until you run \
+                         `ofolder repair`.",
+                    ))
+                    .child(line(
+                        "If the ofolder program is deleted or broken, every Open and Save dialog \
+                         in every application stops opening until it is put back.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .pt_2()
+                            .child(
+                                button("guard-keep", "Keep it on", true).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.confirm_guard_off = false;
+                                        cx.notify();
+                                    },
+                                )),
+                            )
+                            .child(
+                                button("guard-off", "Turn it off", true)
+                                    .text_color(rgb(colors().red))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_guard(false, cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// A switch with its label; a click anywhere on the line flips it.
     fn toggle(
         &self,
@@ -538,6 +673,14 @@ impl SettingsWindow {
             ),
             Self::row("Recent items kept", stepper),
             Self::hint("Recent folders change with the next dialog."),
+            Self::heading("Keeping ofolder working"),
+            self.guard_toggle(s.guard, cx),
+            Self::hint(
+                "On: if another program takes ofolder out of the file-chooser chain, it is put back \
+                 and you get a notification; if the ofolder program is deleted, file dialogs in every \
+                 application keep opening with the next backend instead of failing.",
+            ),
+            Self::hint(self.guard_note.clone().unwrap_or_default()),
             Self::heading("Programs"),
             Self::row(
                 "File manager",
@@ -1081,6 +1224,7 @@ impl Render for SettingsWindow {
                             .children(body),
                     ),
             )
+            .when(self.confirm_guard_off, |d| d.child(self.guard_question(cx)))
             // Omarchy windows have no title bar, so the window closes itself.
             .child(
                 div()

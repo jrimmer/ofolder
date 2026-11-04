@@ -27,6 +27,10 @@ pub struct Settings {
     /// Whether the strip stays open after "open in file manager".
     pub keep_dialog_after_file_manager: bool,
     pub recents_enabled: bool,
+    /// Whether the guard is installed: it puts ofolder back in the file-chooser
+    /// chain when another program removes it, and keeps dialogs working if the
+    /// ofolder program is deleted. On unless the maintainer turns it off.
+    pub guard: bool,
     pub recents_max: usize,
     /// Folders, and everything below them, that are never recorded as recent.
     pub recents_excluded: Vec<PathBuf>,
@@ -53,6 +57,7 @@ impl Default for Settings {
             terminal: None,
             keep_dialog_after_file_manager: true,
             recents_enabled: true,
+            guard: true,
             recents_max: 20,
             recents_excluded: Vec::new(),
             excluded_apps: Vec::new(),
@@ -73,11 +78,12 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-const KNOWN: [&str; 13] = [
+const KNOWN: [&str; 14] = [
     "file_manager",
     "terminal",
     "keep_dialog_after_file_manager",
     "recents_enabled",
+    "guard",
     "recents_max",
     "recents_excluded",
     "excluded_apps",
@@ -175,6 +181,7 @@ pub fn parse(text: &str, home: &Path) -> Loaded {
         &mut out.keep_dialog_after_file_manager,
     );
     r.boolean("recents_enabled", &mut out.recents_enabled);
+    r.boolean("guard", &mut out.guard);
     r.boolean("paused", &mut out.paused);
     r.boolean("swap_sides", &mut out.swap_sides);
 
@@ -331,6 +338,21 @@ mod tests {
 
     fn parse_ok(text: &str) -> Loaded {
         parse(text, Path::new(HOME))
+    }
+
+    #[test]
+    fn the_guard_is_on_unless_the_file_turns_it_off() {
+        let none = parse_ok("");
+        assert!(none.settings.guard);
+        let off = parse_ok("guard = false\n");
+        assert!(!off.settings.guard);
+        assert!(off.warnings.is_empty());
+        let bad = parse_ok("guard = \"no\"\n");
+        assert!(
+            bad.settings.guard,
+            "a bad value is ignored, so the default stands"
+        );
+        assert_eq!(bad.warnings.len(), 1);
     }
 
     #[test]

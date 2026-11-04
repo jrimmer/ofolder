@@ -241,6 +241,12 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
     } else {
         Arc::new(PassThrough)
     };
+    // The guard is on unless the maintainer turned it off: a first start puts it in place. Not waited on.
+    std::thread::spawn(|| {
+        if let Err(e) = doctor::reconcile_guard() {
+            eprintln!("ofolder: the guard could not be put in order: {e}");
+        }
+    });
     ofolder_portal::block_on(async {
         let _connection = ofolder_portal::serve_session(BUS_NAME, backend, hooks).await?;
         println!(

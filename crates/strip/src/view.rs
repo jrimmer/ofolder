@@ -164,6 +164,11 @@ pub struct Shared {
 }
 
 impl Shared {
+    /// What the strip's actions are, for work that must not run on the UI thread.
+    pub fn actions(&self) -> Arc<dyn StripActions> {
+        self.actions.clone()
+    }
+
     pub fn new(
         vm: ViewModel,
         actions: Arc<dyn StripActions>,

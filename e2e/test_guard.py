@@ -39,6 +39,7 @@ class Guard(unittest.TestCase):
             "XDG_CURRENT_DESKTOP": "Hyprland",
             "OFOLDER_GUARD_NO_RESTART": "1",
             "OFOLDER_GUARD_QUIET": "1",
+            "OFOLDER_NO_SYSTEMD": "1",
         }
 
     def guard(self):
@@ -88,6 +89,8 @@ class Guard(unittest.TestCase):
         self.assertIn("PathChanged=%s\n" % os.path.dirname(self.conf), path_unit)
         self.assertIn("ExecStart=%s\n" % script, open(os.path.join(units, "ofolder-guard.service")).read())
         self.assertEqual(open(script).read(), open(GUARD).read(), "the installed guard is not the packaged one")
+        settings = os.path.join(self.home, ".config/ofolder/settings.toml")
+        self.assertIn("guard = true", open(settings).read(), "the command line did not record the setting")
         # The installed script does the same job.
         os.remove(self.exe)
         subprocess.run(["sh", script], env=self.env, capture_output=True, timeout=30)
@@ -96,6 +99,7 @@ class Guard(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.portal), "off did not put the held portal file back")
         self.assertFalse(os.path.exists(script))
         self.assertFalse(os.path.exists(os.path.join(units, "ofolder-guard.path")))
+        self.assertIn("guard = false", open(settings).read(), "turning it off did not record the setting")
 
     def ofolder_missing_ok(self, *args):
         """The program was removed for the test above; run the real one from elsewhere."""

@@ -700,6 +700,64 @@ class Features:
         self.assertTrue(self.s.click(self.SETTINGS, x, y), "the click did not land")
         time.sleep(0.6)
 
+    # The guard: a switch in the General pane at (300, 251); turning it off asks first, with
+    # "Keep it on" at (475, 390) and "Turn it off" at (555, 390).
+    def guard_files(self):
+        data = os.path.join(self.home(), ".local/share/ofolder/ofolder-guard.sh")
+        units = os.path.join(self.home(), ".config/systemd/user")
+        return os.path.isfile(data) and os.path.isfile(os.path.join(units, "ofolder-guard.path"))
+
+    def remove_guard_files(self):
+        for f in (".local/share/ofolder/ofolder-guard.sh", ".config/systemd/user/ofolder-guard.path",
+                  ".config/systemd/user/ofolder-guard.service"):
+            try:
+                os.remove(os.path.join(self.home(), f))
+            except FileNotFoundError:
+                pass
+
+    def test_the_guard_is_put_in_place_on_the_first_start_because_it_is_on_by_default(self):
+        self.remove_guard_files()
+        self.start()  # a dialog opens, so the portal starts, and it makes the guard match the setting
+        self.assertTrue(wait_for(15, self.guard_files), "the guard was not installed by default")
+
+    def test_turning_the_guard_off_asks_first_and_keeping_it_on_changes_nothing(self):
+        self.open_settings()
+        self.assertTrue(wait_for(15, self.guard_files))
+        self.click_settings(300, 251)  # the guard's switch: this asks
+        time.sleep(0.8)
+        self.assertNotIn("guard = false", self.settings_text(), "it turned off without asking")
+        self.click_settings(475, 390)  # Keep it on
+        time.sleep(1.0)
+        self.assertNotIn("guard = false", self.settings_text())
+        self.assertTrue(self.guard_files(), "keeping it on removed the guard")
+
+    def test_escape_in_the_question_keeps_the_guard_on_and_leaves_the_settings_open(self):
+        self.open_settings()
+        self.assertTrue(wait_for(15, self.guard_files))
+        self.click_settings(300, 251)
+        time.sleep(0.8)
+        self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
+        time.sleep(1.0)
+        self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the settings window instead of the question")
+        self.assertNotIn("guard = false", self.settings_text())
+        self.assertTrue(self.guard_files())
+
+    def test_the_guard_is_turned_off_after_confirming_and_back_on_with_one_click(self):
+        self.open_settings()
+        self.assertTrue(wait_for(15, self.guard_files))
+        self.click_settings(300, 251)
+        time.sleep(0.8)
+        self.click_settings(555, 390)  # Turn it off
+        self.assertTrue(wait_for(10, lambda: "guard = false" in self.settings_text()), self.settings_text())
+        self.assertTrue(wait_for(10, lambda: not self.guard_files()), "the guard was not taken away")
+        # doctor says it is off as chosen, not a problem
+        report = self.s.run([OFOLDER, "doctor"]).stdout
+        self.assertIn("the guard is turned off in the settings, as chosen", report)
+        # Turning it back on needs no question.
+        self.click_settings(300, 251)
+        self.assertTrue(wait_for(10, lambda: "guard = true" in self.settings_text()), self.settings_text())
+        self.assertTrue(wait_for(10, self.guard_files), "the guard was not put back")
+
     def test_a_general_setting_is_saved_when_it_is_switched(self):
         self.open_settings()
         self.assertNotIn("recents_enabled = false", self.settings_text())
