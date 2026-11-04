@@ -1,0 +1,81 @@
+#!/bin/sh
+# Builds the ofolder release tarball and its checksums, and publishes nothing:
+#
+#   scripts/make-release-tarball OUTDIR
+#
+# It writes OUTDIR/ofolder-linux-x86_64.tar.gz, that file's .sha256 and
+# OUTDIR/SHA256SUMS (over every regular file in OUTDIR). The archive holds
+#
+#   ofolder-<version>/bin/ofolder
+#   ofolder-<version>/lib/ofolder/praeco
+#
+# which is the layout praeco expects for a tarball install: praeco finds the
+# archive entry for bin/ofolder, strips the ofolder-<version>/ prefix and puts
+# the tree under ~/.local, so ofolder finds praeco at ../lib/ofolder/praeco.
+#
+# Environment (for tests and for building without a Rust toolchain):
+#   OFOLDER_BINARY       use this file as the ofolder binary instead of building
+#                        it with `cargo build --release --locked -p ofolder`
+#   OFOLDER_PRAECO_FILE  use this file as praeco instead of fetching the pinned
+#                        release with scripts/get-praeco
+#   CARGO_TARGET_DIR     where cargo puts its output (default: target)
+set -eu
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: scripts/make-release-tarball OUTDIR" >&2
+    exit 2
+fi
+mkdir -p "$1"
+OUT=$(cd "$1" && pwd)
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ARCHIVE=ofolder-linux-x86_64.tar.gz
+
+# The version comes from the workspace, the one place it is set for the crates.
+cd "$ROOT"
+version=$(awk '/^\[/ { in_pkg = ($0 == "[workspace.package]") } in_pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' Cargo.toml)
+if [ -z "$version" ]; then
+    echo "make-release-tarball: no version under [workspace.package] in Cargo.toml" >&2
+    exit 1
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+if [ -n "${OFOLDER_BINARY:-}" ]; then
+    binary=$OFOLDER_BINARY
+else
+    # The tarball is named for x86_64 and praeco is fetched for x86_64, so a build
+    # on another machine would ship the wrong architecture under that name.
+    if [ "$(uname -m)" != x86_64 ]; then
+        echo "make-release-tarball: builds are for x86_64, this machine is $(uname -m); set OFOLDER_BINARY to a built binary" >&2
+        exit 1
+    fi
+    cargo build --release --locked -p ofolder
+    binary=${CARGO_TARGET_DIR:-target}/release/ofolder
+fi
+
+if [ -n "${OFOLDER_PRAECO_FILE:-}" ]; then
+    praeco=$OFOLDER_PRAECO_FILE
+else
+    PRAECO_ARCH=x86_64 "$ROOT/scripts/get-praeco" "$work/praeco-fetch"
+    praeco=$work/praeco-fetch/praeco
+fi
+
+stage=$work/stage
+top=ofolder-$version
+mkdir -p "$stage/$top/bin" "$stage/$top/lib/ofolder"
+install -m755 "$binary" "$stage/$top/bin/ofolder"
+install -m755 "$praeco" "$stage/$top/lib/ofolder/praeco"
+
+# Owner and mtime are fixed so that the same inputs give the same archive.
+tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+    -C "$stage" -czf "$OUT/$ARCHIVE" "$top"
+echo "make-release-tarball: wrote $OUT/$ARCHIVE ($top)"
+
+(cd "$OUT" && sha256sum "$ARCHIVE" > "$ARCHIVE.sha256")
+
+(cd "$OUT" && find . -mindepth 1 -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' \
+    | LC_ALL=C sort \
+    | while IFS= read -r f; do sha256sum -- "$f"; done) > "$work/SHA256SUMS"
+mv "$work/SHA256SUMS" "$OUT/SHA256SUMS"
+echo "make-release-tarball: wrote $OUT/$ARCHIVE.sha256 and $OUT/SHA256SUMS"

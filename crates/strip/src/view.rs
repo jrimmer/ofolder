@@ -146,6 +146,8 @@ pub struct Shared {
     pub shortcut_problems: Vec<(String, String)>,
     /// The message log, when one is kept.
     pub messages_path: Option<PathBuf>,
+    /// The update state file, when updates are set up.
+    pub update_state_path: Option<PathBuf>,
     /// What the preview panel shows, once loaded; `None` while loading.
     pub preview_content: Option<Content>,
     preview_settings: PreviewSettings,
@@ -201,6 +203,7 @@ impl Shared {
             tip_serial: 0,
             shortcut_problems: Vec::new(),
             messages_path: None,
+            update_state_path: None,
             preview_content: None,
             preview_settings,
             preview_settle: Settle::default(),

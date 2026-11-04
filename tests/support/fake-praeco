@@ -1,0 +1,69 @@
+#!/bin/sh
+# A stand-in for praeco, for the tests. It touches no network, runs no install and asks for no
+# password. The tests copy it into their own temporary folder and point OFOLDER_PRAECO at the copy,
+# so the code under test runs the same path it runs with the real praeco.
+#
+# The folder it keeps its files in is the folder it was started from. Every invocation appends its
+# arguments to calls.log, one argument per line, each invocation ended by a line holding only
+# "%%END%%", so an argument with spaces or quotes is still one line.
+#
+#   check.json       printed by `check` (absent: a network failure object, exit 1)
+#   check.status     the exit status of `check` (absent: 0)
+#   check.sleep      seconds `check` waits first, to test the timeout
+#   install-dialog.jsonl, install-terminal.jsonl
+#                    the lines written to --progress-file by `install`, one per line; a line
+#                    "@sleep N" waits N seconds first
+#   install.status   the exit status of `install` (absent: 0)
+#   install.stderr   what `install` prints to stderr (for a failure)
+#   init.stderr      a message `init` prints to stderr before it fails (presence makes it exit 1)
+d=$(dirname -- "$0")
+{ printf '%s\n' "$@"; echo '%%END%%'; } >> "$d/calls.log"
+case "$1" in
+check)
+    [ -f "$d/check.sleep" ] && sleep "$(cat "$d/check.sleep")"
+    if [ -f "$d/check.json" ]; then
+        cat "$d/check.json"
+    else
+        echo '{"ok":false,"error":{"code":"network","message":"offline"}}'
+    fi
+    [ -f "$d/check.status" ] && exit "$(cat "$d/check.status")"
+    [ -f "$d/check.json" ] && exit 0
+    exit 1
+    ;;
+install)
+    mode=dialog
+    progress=
+    prev=
+    for a in "$@"; do
+        [ "$prev" = --mode ] && mode=$a
+        [ "$prev" = --progress-file ] && progress=$a
+        prev=$a
+    done
+    [ -n "$progress" ] || exit 2
+    : > "$progress"
+    script="$d/install-$mode.jsonl"
+    if [ -f "$script" ]; then
+        while IFS= read -r line; do
+            case "$line" in
+            "@sleep "*) sleep "${line#@sleep }" ;;
+            *) printf '%s\n' "$line" >> "$progress" ;;
+            esac
+        done < "$script"
+    fi
+    [ -f "$d/install.stderr" ] && cat "$d/install.stderr" >&2
+    [ -f "$d/install.status" ] && exit "$(cat "$d/install.status")"
+    echo '{"event":"detached","progress_file":"'"$progress"'"}'
+    exit 0
+    ;;
+init)
+    if [ -f "$d/init.stderr" ]; then
+        cat "$d/init.stderr" >&2
+        exit 1
+    fi
+    exit 0
+    ;;
+*)
+    echo "fake praeco: no such command $1" >&2
+    exit 2
+    ;;
+esac

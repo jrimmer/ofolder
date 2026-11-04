@@ -1043,6 +1043,7 @@ mod tests {
             user: "ann".into(),
             palette: Default::default(),
             messages_path: None,
+            update_state_path: None,
         }
     }
 
