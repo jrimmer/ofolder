@@ -171,31 +171,39 @@ release it remembers the repository and the signing workflow, and from then on:
 - **The signing action is pinned to a commit**, because its code decides what is
   signed. Raise the pin on purpose, after reading what changed.
 
-## Before the first public release
+## Rehearsal record (2026-11-05)
 
-These were written without being able to run GitHub Actions or to see the public
-repository, so the first release candidate tag (for example `v1.0.0-rc.1`, deleted
-afterwards together with its draft) must confirm the list below. The workflow requires
-the tag without its `v` to equal the version in `Cargo.toml` and to have a `## <version>`
-section in `CHANGELOG.md`, so a rehearsal needs a commit of its own that sets the version
-to `1.0.0-rc.1` and adds that section; tag that commit, and release the real `1.0.0` from a
-later commit that sets the version back.
+Before 1.0.0 the whole path was run once with a candidate, `v1.0.0-rc.1`, which was deleted afterwards
+(release, tag and branch). Its commit set the version to `1.0.0-rc.1` and added a changelog section
+for it, because the workflow requires the tag without its `v` to equal the version in `Cargo.toml` and
+to have a `## <version>` section in `CHANGELOG.md`. What it confirmed:
 
-- The system package names in both workflows install on `ubuntu-24.04` and are
-  enough for `cargo build --release --locked -p ofolder` (the names are assumptions).
-- `check.yml` passes: `bin/check` runs there without a display, including the guard
-  test (it needs `dbus-daemon`) and the new uninstall and installer tests.
-- A tag whose version has no changelog section fails in `check-version`; a good one
-  gets through.
-- The draft has exactly the five expected assets, the notes stop at `## Install`
-  as praeco shows them, and `packslip.sigstore.json` is attached before it goes public.
-- On a throwaway machine or a private home, the published one-liner installs, and
-  `--uninstall` removes it again.
-- The repository is public and the release is signed under the workflow's identity;
-  praeco's first sight of it records that identity.
-- ofolder's built-in update source is the GitHub repository (`DEFAULT_REPO` in
-  `crates/core/src/update.rs`), so an installed ofolder finds the release, and praeco's first sight of a
-  signed release records the workflow's identity.
+- The system packages in both workflows install on `ubuntu-24.04` and are enough to build and test
+  everything; `check.yml` runs `bin/check` there, including the guard and installer tests.
+- A tag with a good version and changelog section builds, creates a draft with exactly the five assets
+  (`install.sh`, the tarball, its `.sha256`, `SHA256SUMS` and `packslip.sigstore.json`), signs, attaches
+  the signature and publishes; a hyphenated version is published as a pre-release, so `releases/latest`
+  never points at a candidate.
+- The release notes stop at `## Install`, which was appended because the section had none.
+- The published `install.sh`, run in a private home against the release's own URL
+  (`OFOLDER_RELEASE_URL=https://github.com/jrimmer/ofolder/releases/download/vX.Y.Z`), installed the
+  CI-built binary, and `--uninstall` removed it and left an unrelated file alone.
+- praeco installed the release in that home and reported it `signed` by
+  `github.com/jrimmer/ofolder` under `.github/workflows/release.yml` at the tag.
+
+It also found two faults that a machine without shellcheck, and a filesystem that does not reuse inode
+numbers, had hidden; both are fixed.
+
+## Cutting a release
+
+1. Set the version in `Cargo.toml` and `Cargo.lock`, and write the `## X.Y.Z (date)` section of
+   `CHANGELOG.md` (steps 1 and 2 above). Run `bin/check`, and `bin/e2e --release` for anything that
+   changes what a dialog shows or does.
+2. Push the commit to `main` and wait for the `Check` workflow to pass.
+3. `git tag -a vX.Y.Z -m "ofolder X.Y.Z" && git push origin vX.Y.Z`, then watch the `Release` workflow
+   (step 6 above). A release that is already published and signed is never changed: fix forward with a
+   new version.
+4. On a throwaway home, run the published one-liner and `--uninstall` as in the rehearsal.
 
 ## Environment variables
 
