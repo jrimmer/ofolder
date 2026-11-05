@@ -54,7 +54,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Changing the setting affects the next dialog without restarting the tool.
   - A dialog at the screen edge still gets a fully visible strip.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01. Owner note: the strip on the left holds the click-to-select icons and navigation; the more interactive components go on the right. Decided: one panel on each side of the dialog (see docs/decisions.md).
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01. Maintainer note: the strip on the left holds the click-to-select icons and navigation; the more interactive components go on the right. Decided: one panel on each side of the dialog (see docs/decisions.md).
 - **Depends on**: OS, STORE
 
 ### R-03 Per-app exclusion
@@ -77,7 +77,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - With the setting on, after a fresh login the strip appears on the first dialog with without starting it by hand.
   - With it off, nothing is started automatically.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: OS, STORE
 
 ### R-05 Keyboard-only operation of the strip
@@ -114,7 +114,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Navigate the dialog through five folders; the strip's path matches each within one second.
   - When the folder is unknown, no old path is shown as if it were current.
 - **Priority**: Dropped
-- **Decision**: dropped in the user's review of 2026-11-01. Owner note: the dialog itself already shows the folder, so the on-screen display is dropped. The strip still reads the folder internally, because R-11, R-31, R-40 and R-70 depend on it.
+- **Decision**: dropped in the maintainer's review of 2026-11-01. Maintainer note: the dialog itself already shows the folder, so the on-screen display is dropped. The strip still reads the folder internally, because R-11, R-31, R-40 and R-70 depend on it.
 - **Depends on**: READ
 
 ### R-11 Copy the current folder's path
@@ -137,7 +137,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - The file manager opens showing exactly the dialog's current folder.
   - With "stay" selected the dialog is still present and usable afterwards.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: READ, OS, STORE
 
 ### R-13 Open the current folder in a terminal
@@ -147,7 +147,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - The terminal's working directory equals the dialog's current folder.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: READ, OS, STORE
 
 ## 3. Jumping to folders
@@ -175,7 +175,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Pasting `~/Documents` or the equivalent absolute path moves the dialog there.
   - A nonexistent path gives an error and no navigation.
 - **Priority**: Dropped
-- **Decision**: dropped in the user's review of 2026-11-01. Owner note: pasting a path into the dialog's own location field already does this.
+- **Decision**: dropped in the maintainer's review of 2026-11-01. Maintainer note: pasting a path into the dialog's own location field already does this.
 - **Depends on**: DRIVE, FS
 
 ### R-22 Standard locations shortcuts
@@ -187,7 +187,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Each shortcut takes the dialog to the matching directory.
   - Plugging in a drive adds it within a few seconds.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: DRIVE, OS
 
 ### R-23 Go to the parent folder and back/forward through visited folders
@@ -198,7 +198,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - After visiting A, B, C, the "previous" action goes to B then A, and "next" goes back to B then C.
   - Parent from `/a/b` goes to `/a`.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: DRIVE, READ, STORE
 
 ### R-24 Browse into subfolders from the strip
@@ -211,7 +211,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - A destination four levels deep is reachable and selectable from the strip alone.
   - Expanding a directory on an unresponsive network mount does not block other strip controls.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: FS, DRIVE
 
 ### R-25 Jump to the folder of an open file-manager window
@@ -222,7 +222,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - With two file-manager windows open on different folders, both appear and each sends the dialog to its folder.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: OS, DRIVE
 
 ## 4. Favorite folders
@@ -273,7 +273,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Pressing it in a non-dialog window passes through to that window.
   - Assigning the same combination twice is refused with a message.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: STORE, DRIVE, OS
 
 ### R-34 Named sets of favorites
@@ -325,7 +325,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - With recording disabled, using a dialog adds nothing.
   - Folders under an excluded path never appear.
 - **Priority**: Next
-- **Decision**: moved from Baseline to Next in the user's review of 2026-11-01.
+- **Decision**: moved from Baseline to Next in the maintainer's review of 2026-11-01.
 - **Depends on**: STORE
 
 ### R-43 Recent folders per app
@@ -335,7 +335,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - A folder used only from app A does not appear in A-only view for app B but does appear in the all-apps view.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: READ, STORE
 
 ### R-44 Recent files
@@ -345,7 +345,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - A recorded file appears in the list; choosing it leaves the dialog in its folder.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: READ, STORE, DRIVE
 
 ## 6. Per-application starting folders
@@ -363,7 +363,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - With "first dialog only", the second dialog in the same app session is untouched.
   - Other apps are unaffected.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: STORE, DRIVE, READ, OS
 
 ### R-51 Starting folder by file type for Save
@@ -373,7 +373,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - With a rule for `.png`, a Save dialog whose suggested name ends in `.png` starts in the rule's folder.
 - **Priority**: Next
-- **Decision**: moved from Later to Next in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Next in the maintainer's review of 2026-11-01.
 - **Depends on**: STORE, DRIVE, READ
 
 ### R-52 Start Save dialogs in the document's own folder
@@ -385,7 +385,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - When enabled and the document folder is known, a Save dialog starts there.
   - When unknown, behavior is unchanged and no error appears.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: READ, DRIVE, OS
 
 ## 7. Search and filtering
@@ -412,7 +412,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - Searching a tree of 50,000 directories returns first results in under one second and can be cancelled instantly.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: FS, DRIVE
 
 ### R-63 Context actions on a result
@@ -422,7 +422,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - Each action performs the described operation on exactly that folder.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: OS, STORE, DRIVE
 
 ## 8. Creating and organizing folders
@@ -450,7 +450,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
   - Each action changes the filesystem as described and the dialog's listing is refreshed or the user is told to refresh.
   - Moving to the trash is recoverable using the desktop's trash.
 - **Priority**: Next
-- **Decision**: promoted from Later to Baseline in the user's review of 2026-11-01, then set to Next the same day to agree with the answer that defers destructive file actions.
+- **Decision**: promoted from Later to Baseline in the maintainer's review of 2026-11-01, then set to Next the same day to agree with the answer that defers destructive file actions.
 - **Depends on**: READ, FS
 
 ## 9. Actions after saving
@@ -476,7 +476,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - Resize a dialog, close it, reopen: same geometry. A chosen minimum is respected.
 - **Priority**: Baseline
-- **Decision**: moved from Later to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Later to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: DRIVE, OS, STORE
 
 ## 11. Settings, data and privacy
@@ -511,7 +511,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - While paused, dialogs show no strip and the recent list does not grow.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: OS, STORE
 
 ### R-103 Appearance follows the desktop
@@ -521,7 +521,7 @@ Tags describe what the requirement needs from the tool. They exist so builders c
 - **Acceptance**:
   - Switching the desktop theme changes the strip on the next dialog or sooner.
 - **Priority**: Baseline
-- **Decision**: moved from Next to Baseline in the user's review of 2026-11-01.
+- **Decision**: moved from Next to Baseline in the maintainer's review of 2026-11-01.
 - **Depends on**: OS, STORE
 
 ### R-104 Fail visibly, never silently
@@ -569,7 +569,7 @@ Where the first build stands against each Baseline requirement. **Met** means ev
 |---|---|---|
 | R-01 strip appears with the dialog | Partly met | Live on all three dialogs. Not covered: two dialogs open at once; the under-one-second start was not timed on the final build |
 | R-02 two panels, one each side | Met | `geometry` placement tests (split, packed, overlap); live docking on all three. The `swap_sides` setting is read but not applied, which the maintainer deferred |
-| R-04 start with the session | Partly met | `packaging/` holds the portal and D-Bus activation files; not installed, because registering the proxy is the user's decision |
+| R-04 start with the session | Partly met | `packaging/` holds the portal and D-Bus activation files; not installed, because registering the proxy is the maintainer's decision |
 | R-05 keyboard-only operation | Partly met | Built 2026-11-03 as shortcuts: every rail command, and the settings window, can have a key combination, bound in Hyprland while a dialog is open (`shortcuts`, `keybind`, `keys` tests). Live on Flea: combinations recorded in the Shortcuts pane were bound and removed with the dialog, and the command a binding runs (`ofolder do`) opened menus, copied the path, moved the dialog to its parent and back. Find and New folder take the keyboard when opened this way. Not covered: an actual key press reaching a binding (synthetic keys from `wtype` do not trigger Hyprland bindings, and no other key injector is available); choosing a row in a list menu still needs the mouse; there is no single shortcut that moves focus into a rail |
 | R-06 large lists | Partly met | Row cap with "Show more", off-thread folder reads, view-model tests. Not covered: a hung mount, a real very large folder |
 | R-11 copy path | Met | Live click on the real panel: the clipboard held the dialog's folder, on Flea, GTK and Strata; model tests cover the unknown-folder refusal |

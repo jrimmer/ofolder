@@ -2,7 +2,7 @@
 
 ofolder docks a strip of chrome (favorites, new folder, go-to-folder) beside a save/open dialog and drives it.
 There is no supported API for that, so each dialog needs an **adapter** that says honestly what it can do.
-Everything below was measured on host (Hyprland 0.56.2, Flea 0.3.12 unless a section says 0.4, xdg-desktop-portal-gtk 1.15.3, Strata 1.1.1) on 2026-11-01.
+Everything below was measured on a test machine (Hyprland 0.56.2, Flea 0.3.12 unless a section says 0.4, xdg-desktop-portal-gtk 1.15.3, Strata 1.1.1) on 2026-11-01.
 Evidence: `spike/runs/` (logs, screenshots). Code: `spike/`.
 
 ## Scope: portal dialogs only (decided 2026-11-01)
@@ -65,7 +65,7 @@ Notes and hazards:
 - **Flea's Recent view** reports a `path` that is not a folder; its rows give `None`.
 - **Single-file Open dialogs** in Flea keep the marks empty (`v` and Space did not mark); the cursor row is the selection, as Flea's own "a lone selection follows a plain move" says.
 - **GTK.** The first row is selected when the dialog opens. Only the visible rows are in the tree, which is enough for the selected one in practice. The read is slow through the Rust view; poll it at most twice a second, and only while the preview panel is open. A faster read would use the Table interface (`get_selected_rows`, `get_accessible_at`). As before, never call `Selection.select_child` or `Component.grab_focus` on this dialog.
-- **Strata's chooser was not run.** Enabling its portal backend (`strata --install-portal`) rewrites the portal configuration and restarts the portal frontend, which would have clobbered the user's live `FileChooser=ofolder;flea;gtk` line and killed a dialog the maintainer had open. The reading was proven on Strata's main window on the same folder (its documentation says the chooser uses the same views); it must be confirmed on the chooser before the preview relies on it there. *Update, 2026-11-04:* the end-to-end suite now runs Strata's real chooser, through a private copy of the portal setup that touches nothing of the user's, and the preview test passes on it for a PNG (`docs/e2e.md`).
+- **Strata's chooser was not run.** Enabling its portal backend (`strata --install-portal`) rewrites the portal configuration and restarts the portal frontend, which would have clobbered the maintainer's live `FileChooser=ofolder;flea;gtk` line and killed a dialog the maintainer had open. The reading was proven on Strata's main window on the same folder (its documentation says the chooser uses the same views); it must be confirmed on the chooser before the preview relies on it there. *Update, 2026-11-04:* the end-to-end suite now runs Strata's real chooser, through a private copy of the portal setup that touches nothing of the maintainer's, and the preview test passes on it for a PNG (`docs/e2e.md`).
 - **What the preview does without a selection:** shows the folder the dialog is in (its summary), never a guess.
 
 Evidence: `spike/runs/selection/` (notes and probe output). Probe: `cargo run -p ofolder-adapters --example selection_probe -- flea <picker pid>` or `-- gtk "<dialog title>"`, read-only.
@@ -107,7 +107,7 @@ Measured 2026-11-03 against the installed 0.4.0 and an isolated copy of 0.3.12 (
 ## Folders of open file-manager windows (R-25 spike, 2026-11-03)
 
 The question: can ofolder learn, exactly, which folder each open file-manager window shows, so the Places menu
-can offer them? Measured in the private nested session (`e2e/`), not on the user's desktop.
+can offer them? Measured in the private nested session (`e2e/`), not on the maintainer's desktop.
 
 | Program | Exact folder per window? | How |
 |---|---|---|

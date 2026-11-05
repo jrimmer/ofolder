@@ -85,7 +85,7 @@ rather than a copy in the tests, because a freshly written script can fail with 
 under parallel tests.
 
 The app tests (`crates/app/src/update.rs`) drive the same code through this fake in temporary
-folders, and never read the user's configuration or run the real praeco.
+folders, and never read the maintainer's configuration or run the real praeco.
 
 ## Quitting for an update
 

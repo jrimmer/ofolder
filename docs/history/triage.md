@@ -1,5 +1,7 @@
 # Baseline triage
 
+> **Historical.** Written early in the project, before the Rust implementation, and kept for how the design was reached. It is not kept up to date: for what is built and how it was proven, see [`../requirements.md`](../requirements.md) and [`../decisions.md`](../decisions.md).
+
 Each Baseline requirement in `requirements.md`, against what `docs/adapters.md` measured. Status is about feasibility on this machine today, not effort.
 
 | Status | Requirements |
@@ -7,7 +9,7 @@ Each Baseline requirement in `requirements.md`, against what `docs/adapters.md` 
 | **Verified in the spike** (all three dialogs) | R-10 show the current folder; R-20 send the dialog to a folder, keeping the filename; R-70 create a folder in the dialog's real folder and enter it |
 | **Plain application work** (no dialog access beyond the above) | R-06 long lists; R-11 copy path; R-30, R-31, R-32 favorites; R-41 pick from recents; R-42 forget recents; R-60 fuzzy find; R-100 settings; R-101 local data; R-104 fail visibly |
 | **Needs the portal backend (not built)** | R-40 remember folders used: it needs to know a dialog was *confirmed* and with which result, which only the proxy sees |
-| **At risk** | R-01 strip lifecycle: the strip must not take focus from the dialog (untested), and two simultaneous dialogs in one resident daemon cannot be told apart, so docking is refused; R-05 keyboard hand-off: moving focus between dialog and strip needs a compositor key binding, and changing Hyprland configuration needs the user's say-so |
+| **At risk** | R-01 strip lifecycle: the strip must not take focus from the dialog (untested), and two simultaneous dialogs in one resident daemon cannot be told apart, so docking is refused; R-05 keyboard hand-off: moving focus between dialog and strip needs a compositor key binding, and changing Hyprland configuration needs the maintainer's say-so |
 
 ## Design points the requirements surfaced
 

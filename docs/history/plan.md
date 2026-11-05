@@ -1,6 +1,8 @@
 # Build plan
 
-Scope: the 33 Baseline requirements in `requirements.md` as ordered in `decisions.md`, minus the three that need the user's say. Written before the work, updated as units land. A unit is done only when its evidence column names a commit and the gate passed for it.
+> **Historical.** Written early in the project, before the Rust implementation, and kept for how the design was reached. It is not kept up to date: for what is built and how it was proven, see [`../requirements.md`](../requirements.md) and [`../decisions.md`](../decisions.md).
+
+Scope: the 33 Baseline requirements in `requirements.md` as ordered in `decisions.md`, minus the three that need the maintainer's say. Written before the work, updated as units land. A unit is done only when its evidence column names a commit and the gate passed for it.
 
 ## Gates (not lowered for any unit)
 

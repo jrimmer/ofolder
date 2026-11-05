@@ -9,12 +9,12 @@ that produced those findings; `spike/runs/` is its evidence.
 
 ## Rules
 
-1. **No attribution.** Commits, comments, docs, and issues carry no authorship or tool attribution lines. Add no `Co-Authored-By` trailers.
+1. **No attribution.** Commits, comments, docs and issues carry no authorship or tool attribution lines, and no `Co-Authored-By` trailers.
 2. **Never type into a window you have not verified is the target.** `wtype` goes to whatever has focus. Check the dialog is the active window before each step, and refuse when it is not.
 3. **Never guess a folder.** An adapter reads the dialog's folder or returns `None`. "New folder" and every other write refuse on `None`.
 4. **Leave the system alone.** Do not change `~/.config/xdg-desktop-portal`, Hyprland configuration, or Flea, GTK or Strata settings, and do not use `sudo`. A test that must enable Strata's portal backs the config up first, restores it, and proves the restore with a hash. Do not kill processes you did not start: stop a process only by the PID you recorded when you started it, and never with `pkill`, `killall` or `pgrep` by name, pattern or `-u` (on 2026-11-04 `pkill -x python3 -u $UID` stopped a test run and the user's bar plugin watcher, and could have stopped any Python job on the machine). Run `bin/e2e` only under `flock /tmp/ofe2e.lock`, so two runs never overlap.
 5. **Tests never touch real folders.** Fixtures live in temporary folders. A check that opens a dialog uses a scratch folder, never `~`.
-6. **Git.** Work on your own branch (`foundation`). Commit and push to the Forgejo `origin` without asking: this is the user's standing instruction (2026-11-03), so do not ask whether to commit or push. Still never push to `main`, never force-push, and read `git remote -v` first. Commit messages are short and imperative.
+6. **Git.** Commit to your own branch and push it without asking. Never force-push, never push straight to the default branch, and read `git remote -v` first. Commit messages are short and imperative.
 7. **Dependencies.** Pin gpui 0.2.2 from crates.io and keep `libc` at 0.2.186. Build with `--locked`. Do not depend on Zed's GPL or AGPL crates, and do not copy code from them.
 8. **Gate.** `bin/check` must pass before you report done. A change to what a dialog shows or does also needs `bin/e2e` to pass (it needs a display; `docs/e2e.md`).
 9. **Never weaken a check to make it pass.** Do not delete or loosen a test or edit expected output to match. If a check is wrong, say so and why.
