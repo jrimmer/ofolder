@@ -261,10 +261,14 @@ check "a program that cannot start does not block --uninstall" test ! -e "$H/hom
 
 # --- the script itself -------------------------------------------------------------------
 check "install.sh is valid bash" "$tools/bash" -n "$ROOT/install.sh"
-# shellcheck is run when a working one is installed; it is not a dependency of the test.
+# The shellcheck steps run when a working shellcheck is installed; it is not a dependency of the test.
 if command -v shellcheck >/dev/null 2>&1 && shellcheck --version >/dev/null 2>&1; then
     check "shellcheck is clean on install.sh" shellcheck "$ROOT/install.sh"
     check "shellcheck is clean on this test" shellcheck "$0"
+    # The checks above only say pass or fail; on a failure, say what shellcheck found.
+    if ! shellcheck "$ROOT/install.sh" "$0" >/dev/null 2>&1; then
+        shellcheck -f gcc "$ROOT/install.sh" "$0" >&2 || true
+    fi
 else
     echo "SKIP: shellcheck is not installed"
 fi

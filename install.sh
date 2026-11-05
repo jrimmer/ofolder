@@ -91,8 +91,8 @@ if $uninstall; then
                 # The program cannot start at all, so there is nothing to ask. The guard, if it
                 # is on, sets the portal file aside by itself when the program is gone.
                 echo "install.sh: $bindir/ofolder will not run, so its setup could not be undone by it." >&2
-                echo "Remove ~/.local/share/xdg-desktop-portal/portals/ofolder.portal and ofolder's line in" >&2
-                echo "~/.config/xdg-desktop-portal/*portals.conf by hand if dialogs misbehave." >&2
+                echo 'Remove ~/.local/share/xdg-desktop-portal/portals/ofolder.portal, and the ofolder entry in the' >&2
+                echo 'portals.conf file under ~/.config/xdg-desktop-portal, by hand if dialogs misbehave.' >&2
                 ;;
             *)
                 # Taking the program away now would leave the setup pointing at nothing.
