@@ -1,0 +1,33 @@
+name: Bug report
+description: Something does not work, or works differently from what the README says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. The report below hides your home folder, user name and host name,
+        and names no folder, file or application, so it is safe to paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: Which dialog (Save or Open), in which application, and what the rails did or did not do.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Output of `ofolder doctor --report`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: If you can, the shortest way to make it happen again.
+  - type: input
+    id: versions
+    attributes:
+      label: Version of Flea, Strata or the GTK portal you are using
+      description: The report lists them when it can find them; add anything it missed.
