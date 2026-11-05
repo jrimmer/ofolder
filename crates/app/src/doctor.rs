@@ -528,8 +528,9 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
                 "a dialog is open, so the portal was not restarted; close it and run: systemctl --user restart xdg-desktop-portal.service"
             );
         } else {
-            let ok = systemctl_output(&["restart", "xdg-desktop-portal.service"])
-                .is_some_and(|o| o.status.success());
+            // Through `systemctl`, which a test's OFOLDER_NO_SYSTEMD keeps from reaching the real
+            // user manager.
+            let ok = systemctl(&["restart", "xdg-desktop-portal.service"]);
             println!(
                 "{}",
                 if ok {
