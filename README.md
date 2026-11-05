@@ -8,6 +8,24 @@ Wayland cannot embed another process's window, and none of these dialogs has a
 plugin API, so ofolder reads and drives each dialog from outside through an
 adapter that says honestly what it can do.
 
+## Install
+
+Linux x86_64 on Hyprland (Omarchy). One line, no root, everything under `~/.local`:
+
+```
+curl -fsSL https://github.com/jrimmer/ofolder/releases/latest/download/install.sh | bash
+```
+
+It checks the download against its published SHA-256, installs `ofolder` and its update tool
+praeco, and then sets ofolder up with `ofolder repair`, which changes how every file dialog on
+the machine is requested (read what it says first; `bash -s -- --no-setup` skips it). It warns
+if `hyprctl`, `wtype` or `wl-copy` are missing and does not install them (on Arch:
+`sudo pacman -S hyprland wtype wl-clipboard`). Ways back, from lightest to heaviest:
+`ofolder pause`, `ofolder repair --undo`, and `ofolder uninstall`, which undoes the setup and
+keeps your settings, favorites and recents (`--purge` removes them too). The installer's
+`bash -s -- --uninstall` runs `ofolder uninstall` and then removes the program files. To build
+from source instead, see `bin/install`.
+
 - `docs/adapters.md`: what was measured about each dialog, and the hazards.
 - `crates/core`: the adapter contract and the pure, tested logic (no UI, no D-Bus).
 - `crates/strip`: the gpui strip.
