@@ -22,7 +22,8 @@ ofolder on. Read the script first if you like; `--no-setup` installs without swi
 `--uninstall` removes it. [What switching on changes](#what-it-changes-and-how-to-undo-it) is below.
 
 **You need** Omarchy (Hyprland on Wayland), a running `xdg-desktop-portal`, and one of Flea, the GTK portal
-(`xdg-desktop-portal-gtk`) or Strata, plus `wtype` and `wl-clipboard`. `ffmpeg` is optional, for video
+(`xdg-desktop-portal-gtk`) or Strata, plus `wtype` and `wl-clipboard` (on Arch: `sudo pacman -S wtype wl-clipboard`; the installer warns if they or `hyprctl` are
+missing and does not install them). `ffmpeg` is optional, for video
 stills in the preview. Linux x86_64 only. Built and tested on Arch with Hyprland 0.57; other setups are untested.
 
 ## What you get
@@ -67,7 +68,9 @@ knowing exactly what happens. It registers itself as a file-chooser backend that
 
 If ofolder is missing or broken, your dialogs fall back to the next backend rather than failing.
 To go back: `ofolder pause` makes every dialog pass through untouched (`ofolder resume` undoes that),
-`ofolder repair --undo` restores the portal configuration, and `ofolder uninstall` removes the registration.
+`ofolder repair --undo` restores the portal configuration, and `ofolder uninstall` undoes the whole setup and keeps your
+settings, favorites and recents (add `--purge` to remove those too). `install.sh --uninstall` runs `ofolder uninstall` and
+then removes the program files.
 
 ## If something looks wrong
 

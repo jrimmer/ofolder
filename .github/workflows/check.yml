@@ -1,0 +1,46 @@
+name: Check
+
+# The gate that needs no display: formatting, clippy, the unit tests, the
+# release tarball and installer tests, and the guard and uninstall tests in a
+# private home. The e2e suite (bin/e2e) drives real dialogs, needs a display,
+# and stays a local gate before tagging (docs/releasing.md).
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      # The packages are the same assumption as in release.yml; dbus-daemon is for
+      # the guard test's private session bus.
+      - name: Install the system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake libclang-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev \
+            libfontconfig1-dev libfreetype-dev libwayland-dev \
+            dbus python3
+
+      - name: Install a current Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+          rustc --version
+
+      - name: Run the gate
+        run: bin/check

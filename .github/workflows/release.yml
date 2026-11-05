@@ -1,0 +1,325 @@
+name: Release
+
+# This workflow runs only on the public GitHub repository. It builds the x86_64
+# release tarball on a Linux runner, which is the only platform ofolder ships.
+#
+# The release is signed with packslip (https://github.com/jdx/packslip), keyless,
+# with this workflow's own identity. The order is fixed: build, create the
+# release as a DRAFT, sign, attach the signature, publish. praeco, the in-app
+# updater, refuses an unsigned release of an app it has seen signed, so a public
+# release without its signature would block every update until it appeared; if
+# signing fails, the release stays an invisible draft. The signature lists
+# exactly the tarball built here, and praeco refuses any file it does not list,
+# so nothing may be added to a published release by hand.
+#
+# Never add a schedule or a branch trigger: a release starts from a pushed
+# vX.Y.Z tag or from a manual run that names an existing tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release, for example v0.2.0
+        required: true
+        type: string
+
+# One release at a time per tag. A re-run waits for the first run instead of
+# cancelling it, so a half-finished upload cannot be left behind.
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  # The tag names the version. Refuse to build a tag that disagrees with
+  # Cargo.toml, so the tarball and the release notes cannot claim two different
+  # versions, and fail in the first minute when the changelog has no section.
+  check-version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      commit: ${{ steps.check.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      - name: Compare the tag with Cargo.toml and the changelog
+        id: check
+        run: |
+          tag="$TAG"
+          # The same rule scripts/make-release-tarball uses to name the archive's folder.
+          version=$(awk '/^\[/ { in_pkg = ($0 == "[workspace.package]") } in_pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' Cargo.toml)
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          # The full commit the tag names, recorded in the signature.
+          echo "commit=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+          if [ -z "$version" ]; then
+            echo "::error::Cargo.toml has no version under [workspace.package]"
+            exit 1
+          fi
+          if [ "${tag#v}" != "$version" ]; then
+            echo "::error::tag '$tag' does not match Cargo.toml version '$version': the tag without its leading v must equal the version"
+            exit 1
+          fi
+          if [ ! -f CHANGELOG.md ] || ! grep -Eq "^##[[:space:]]+$(printf '%s' "$version" | sed 's/\./\\./g')([^0-9.]|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section, so the release notes would be empty. Add it (docs/releasing.md) and re-tag."
+            exit 1
+          fi
+          echo "Releasing ofolder $version from tag $tag"
+
+  # Builds the binary, fetches the pinned praeco, makes the tarball and its
+  # checksums, and runs the no-network tests on the way. The e2e suite needs a
+  # display and is a local gate before tagging (docs/releasing.md).
+  build:
+    needs: check-version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.check-version.outputs.tag }}
+          fetch-depth: 1
+
+      # gpui links libxkbcommon, libxkbcommon-x11 and libxcb (what ldd shows on the
+      # built binary), and its font and Wayland crates use pkg-config, fontconfig,
+      # freetype, wayland and clang (for bindgen). These package names are an
+      # assumption for Ubuntu 24.04 until a first run confirms them.
+      - name: Install the system packages the build needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake libclang-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev \
+            libfontconfig1-dev libfreetype-dev libwayland-dev
+
+      - name: Install a current Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Test the tarball script and the installer (no network needed)
+        run: |
+          sh scripts/test-release-tarball
+          sh scripts/test-install
+
+      # install.sh goes into the output folder first, so SHA256SUMS covers it.
+      - name: Build the tarball and its checksums
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -eu
+          mkdir -p release
+          cp install.sh release/install.sh
+          scripts/make-release-tarball release
+          (cd release && sha256sum -c ofolder-linux-x86_64.tar.gz.sha256 SHA256SUMS)
+
+      # The same check docs/releasing.md asks for, on what was just built.
+      - name: Check the tarball
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -eu
+          T=$(mktemp -d)
+          tar -xzf release/ofolder-linux-x86_64.tar.gz -C "$T"
+          test "$("$T/ofolder-$VERSION/bin/ofolder" version)" = "ofolder $VERSION"
+          "$T/ofolder-$VERSION/lib/ofolder/praeco" --version
+          rm -rf "$T"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ofolder-linux-x86_64
+          path: release/*
+          if-no-files-found: error
+
+  # Turn the build into a release. Every expected asset is checked before gh
+  # ever talks to the API.
+  release:
+    needs:
+      - check-version
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.check-version.outputs.tag }}
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ofolder-linux-x86_64
+          path: release
+
+      - name: Check the release assets
+        run: |
+          set -eu
+          # The names are exactly the release contract (docs/releasing.md); a missing or
+          # drifted name fails here, before uploading.
+          missing=""
+          for name in ofolder-linux-x86_64.tar.gz ofolder-linux-x86_64.tar.gz.sha256 SHA256SUMS install.sh; do
+            if [ ! -f "release/$name" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::release assets are missing:$missing"
+            exit 1
+          fi
+          (cd release && sha256sum -c --quiet SHA256SUMS)
+          echo "Release assets:"
+          ls -1 release
+
+      # The notes are the changelog section for this version, without its heading
+      # (the release title names the version). The "## Install" heading stays
+      # where the changelog puts it: the in-app updater (praeco) shows a release's
+      # notes only up to that line. A section with no such heading gets the
+      # standard install steps under one.
+      - name: Write the release notes
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -eu
+          notes=release-notes.md
+          awk -v ver="$VERSION" '
+            /^##[[:space:]]/ {
+              if (printing && $0 !~ /^##[[:space:]]+Install[[:space:]]*$/) exit
+              # The section whose heading names this version, with the version as a
+              # whole word rather than the prefix of a longer one (so 0.2.1 does not
+              # match a 0.2.10 heading).
+              if (!printing && $0 ~ ("^##[[:space:]]+" ver "([^0-9.]|$)")) { printing = 1; next }
+            }
+            printing { print }
+          ' CHANGELOG.md >"$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error::CHANGELOG.md has no text under '## $VERSION', so the release notes would be empty."
+            exit 1
+          fi
+          if ! grep -qx '## Install' "$notes"; then
+            printf '\n## Install\n\n' >>"$notes"
+            cat >>"$notes" <<'EOF'
+          Install on Linux (x86_64, Hyprland) with one line:
+
+              curl -fsSL https://github.com/jrimmer/ofolder/releases/latest/download/install.sh | bash
+
+          It installs under `~/.local`, needs no root, checks every download against its
+          SHA-256 and then sets ofolder up as your file-chooser backend (skip that with
+          `bash -s -- --no-setup`). Undo it with `bash -s -- --uninstall`.
+
+          Prefer to do it by hand? Download `ofolder-linux-x86_64.tar.gz` and extract it into `~/.local`:
+
+              tar -xzf ofolder-linux-x86_64.tar.gz -C ~/.local --strip-components=1
+
+          Every file has a `.sha256` beside it or is listed in `SHA256SUMS`.
+          EOF
+          fi
+          # Refuse to publish a body the updater would show whole.
+          if ! grep -qx '## Install' "$notes"; then
+            echo "::error::release notes have no '## Install' heading line"
+            exit 1
+          fi
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -eu
+          tag="$TAG"
+          # The release is created as a draft and stays one until the signature is
+          # attached (the publish job below).
+          state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo none)
+          case "$state" in
+            none)
+              gh release create "$tag" \
+                --verify-tag \
+                --draft \
+                --title "ofolder $VERSION" \
+                --notes-file release-notes.md \
+                release/*
+              ;;
+            true)
+              # A re-run before publishing: replace the assets and refresh the notes.
+              # The signing jobs run again and replace the bundle.
+              gh release upload "$tag" release/* --clobber
+              gh release edit "$tag" --title "ofolder $VERSION" --notes-file release-notes.md
+              ;;
+            *)
+              echo "::error::release $tag is already published and signed. Replacing its assets would leave the signature describing files that no longer exist, so cut a new tag instead."
+              exit 1
+              ;;
+          esac
+
+  # Sign the release. packslip describes the tarball in one statement and signs
+  # it with this workflow's identity, so there is no key to keep. This job only
+  # reads the build artifact; the job after it holds the write permission,
+  # uploads the bundle and publishes. The action is pinned to a commit because
+  # its code decides what gets signed. Every file an update may install must be
+  # listed here: praeco refuses any file the signature does not name.
+  packslip:
+    needs:
+      - check-version
+      - release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ofolder-linux-x86_64
+          path: dist
+
+      - uses: jdx/packslip@44e50e5f64551234b4a382d991bd7f7f7d021d06 # v1.11.3
+        id: packslip
+        with:
+          artifacts: >-
+            dist/ofolder-linux-x86_64.tar.gz
+          tag: ${{ needs.check-version.outputs.tag }}
+          version: ${{ needs.check-version.outputs.version }}
+          commit: ${{ needs.check-version.outputs.commit }}
+          upload: false
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: packslip-bundle
+          path: ${{ steps.packslip.outputs.bundle }}
+          if-no-files-found: error
+
+  publish:
+    needs: packslip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: packslip-bundle
+          path: packslip
+
+      - name: Attach the signature and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -f packslip/packslip.sigstore.json
+          gh release upload "$TAG" packslip/packslip.sigstore.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

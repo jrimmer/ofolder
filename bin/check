@@ -17,9 +17,13 @@ cargo test --workspace --locked
 step "release tarball layout and the praeco fetch (no network)"
 sh scripts/test-release-tarball
 
-step "the guard script and repair --watch (no display needed)"
+step "install.sh: install, update, checksums, uninstall (no network, private home)"
+sh scripts/test-install
+
+step "the guard script, repair --watch and uninstall (no display needed)"
 cargo build --locked --quiet
 python3 -W ignore -m unittest discover -s e2e -p 'test_guard.py'
+python3 -W ignore -m unittest discover -s e2e -p 'test_uninstall.py'
 
 step "guard: core stays free of gpui, D-Bus and accessibility crates"
 if cargo tree --locked -p ofolder-core -e normal,build --prefix none | grep -E '^(gpui|zbus|atspi)' >/dev/null; then

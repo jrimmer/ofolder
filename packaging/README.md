@@ -26,7 +26,11 @@ started at login.
 
 ## Going back
 
-Restore the backup, remove the two installed files, and restart the portal frontend. Or, without
+Run `ofolder uninstall`, which does all of this for you: it turns the guard off, puts the chain back
+as it was before the last repair, removes the two installed files, removes the state ofolder made
+and restarts the portal frontend, and keeps your settings, favorites and recents (`--purge` removes
+those too). `install.sh --uninstall` runs it and then removes the program. By hand: restore the
+backup, remove the two installed files, and restart the portal frontend. Or, without
 touching anything else, run `ofolder pause`: every dialog then passes straight through, untouched.
 `ofolder resume` turns it back on.
 

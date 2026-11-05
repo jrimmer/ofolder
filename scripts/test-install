@@ -1,0 +1,276 @@
+#!/bin/sh
+# Tests install.sh without the network and without touching the real system: the release is a
+# folder of stand-in files served through a file:// URL, HOME is a private folder, and PATH holds
+# only the tools the installer needs, so what the machine has installed changes nothing. The
+# "ofolder" in the tarballs is a small shell script that records how it was run.
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+fails=0
+
+pass() { echo "PASS: $1"; }
+fail() { echo "FAIL: $1"; fails=$((fails + 1)); }
+check() {
+    desc=$1
+    shift
+    if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
+}
+# check_not DESC CMD...: passes when the command fails.
+check_not() {
+    desc=$1
+    shift
+    if "$@" >/dev/null 2>&1; then fail "$desc"; else pass "$desc"; fi
+}
+has() { grep -q -- "$2" "$1"; }
+lacks() { ! grep -q -- "$2" "$1"; }
+
+# The tools the installer uses, linked into one folder that becomes PATH.
+tools=$work/tools
+mkdir "$tools"
+for t in bash curl tar gzip sha256sum awk install mktemp mv ln rm rmdir mkdir cat uname id head sed grep dirname tr cut sort; do
+    p=$(command -v "$t" 2>/dev/null) || { echo "test-install: $t is needed to run this test" >&2; exit 1; }
+    ln -s "$p" "$tools/$t"
+done
+
+# The stand-in program: answers `version`, records every run, and fails `uninstall` when told to.
+stand_in() { # VERSION FILE
+    cat > "$2" <<STANDIN
+#!/bin/sh
+echo "\$*" >> "\$HOME/calls.log"
+case "\$1" in
+    version) echo "ofolder $1" ;;
+    repair) echo "REPAIR RAN" ;;
+    doctor) echo "DOCTOR RAN" ;;
+    uninstall) [ -f "\$HOME/uninstall-fails" ] && exit 1; echo "UNINSTALL RAN" ;;
+esac
+exit 0
+STANDIN
+    chmod +x "$2"
+}
+
+# A release folder for VERSION laid out like make-release-tarball's, with its .sha256.
+release() { # VERSION DIR
+    mkdir -p "$2/stage/ofolder-$1/bin" "$2/stage/ofolder-$1/lib/ofolder"
+    stand_in "$1" "$2/stage/ofolder-$1/bin/ofolder"
+    printf 'praeco %s\n' "$1" > "$2/stage/ofolder-$1/lib/ofolder/praeco"
+    chmod +x "$2/stage/ofolder-$1/lib/ofolder/praeco"
+    tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+        -C "$2/stage" -czf "$2/ofolder-linux-x86_64.tar.gz" "ofolder-$1"
+    (cd "$2" && sha256sum ofolder-linux-x86_64.tar.gz > ofolder-linux-x86_64.tar.gz.sha256)
+    rm -rf "$2/stage"
+}
+
+# A private home with the three runtime tools present, unless a test removes them.
+new_home() { # NAME
+    H=$work/$1
+    mkdir -p "$H/home" "$H/tmp" "$H/path"
+    for t in hyprctl wtype wl-copy; do printf '#!/bin/sh\n' > "$H/path/$t"; chmod +x "$H/path/$t"; done
+    for t in "$tools"/*; do ln -s "$(readlink "$t")" "$H/path/$(basename "$t")"; done
+}
+
+# run_install ARGS...: runs install.sh in the private home; the output is in $H/out, the status in $H/status.
+run_install() {
+    status=0
+    env -i HOME="$H/home" PATH="$H/path" TMPDIR="$H/tmp" OFOLDER_NO_SYSTEMD=1 \
+        OFOLDER_RELEASE_URL="file://$REL" "$tools/bash" "$ROOT/install.sh" "$@" > "$H/out" 2>&1 || status=$?
+    echo "$status" > "$H/status"
+}
+status_is() { [ "$(cat "$H/status")" = "$1" ]; }
+
+REL=$work/rel1
+release 1.0.0 "$REL"
+
+# --- help and bad options ---------------------------------------------------
+new_home help
+run_install --help
+check "--help exits 0" status_is 0
+check "--help lists the flags" sh -c "grep -q -- '--no-setup' '$H/out' && grep -q -- '--uninstall' '$H/out'"
+check "--help installs nothing" test ! -e "$H/home/.local"
+run_install --frobnicate
+check "an unknown option exits 2" status_is 2
+check "an unknown option installs nothing" test ! -e "$H/home/.local"
+run_install --purge
+check "--purge without --uninstall exits 2" status_is 2
+
+# --- a fresh install ----------------------------------------------------------
+new_home fresh
+run_install
+check "a fresh install exits 0" status_is 0
+check "the program is installed, executable" test -x "$H/home/.local/bin/ofolder"
+check "praeco is installed beside it, executable" test -x "$H/home/.local/lib/ofolder/praeco"
+check "the program is the one from the tarball" sh -c "[ \"\$('$H/home/.local/bin/ofolder' version)\" = 'ofolder 1.0.0' ]"
+check "nothing but the two files and the call log is under the home" \
+    sh -c "[ \"\$(cd '$H/home' && find . -type f | LC_ALL=C sort | tr '\n' ' ')\" = './.local/bin/ofolder ./.local/lib/ofolder/praeco ./calls.log ' ]"
+check "there is no previous program after a first install" test ! -e "$H/home/.local/bin/ofolder.previous"
+check "no temporary file is left behind" sh -c "[ -z \"\$(ls -A '$H/tmp')\" ]"
+check "no half-written file is left in the bin folder" sh -c "[ \"\$(ls -A '$H/home/.local/bin')\" = ofolder ]"
+check "the setup runs repair and then doctor" sh -c "[ \"\$(grep -v '^version\$' '$H/home/calls.log' | tr '\n' ' ')\" = 'repair doctor ' ]"
+check "it says the setup changes every file dialog before it runs it" \
+    sh -c "awk '/every file dialog/ { a = NR } /REPAIR RAN/ { r = NR } END { exit !(a && r && a < r) }' '$H/out'"
+check "it says how to undo it" sh -c "grep -q 'ofolder pause' '$H/out' && grep -q 'ofolder repair --undo' '$H/out' && grep -q -- '--uninstall' '$H/out'"
+check "with the runtime tools present there is no warning" sh -c "! grep -qi 'warning' '$H/out'"
+
+# --- a second run -------------------------------------------------------------
+run_install
+check "the same version again exits 0 and says so" sh -c "grep -q 'already installed' '$H/out'"
+check "the same version again changes nothing" test ! -e "$H/home/.local/bin/ofolder.previous"
+REL2=$work/rel2
+release 2.0.0 "$REL2"
+REL=$REL2 run_install
+check "a newer version replaces the program" sh -c "[ \"\$('$H/home/.local/bin/ofolder' version)\" = 'ofolder 2.0.0' ]"
+check "the replaced program is kept as ofolder.previous" sh -c "[ \"\$('$H/home/.local/bin/ofolder.previous' version)\" = 'ofolder 1.0.0' ]"
+check "an update does not run the setup again" sh -c "[ \"\$(grep -c '^repair\$' '$H/home/calls.log')\" = 1 ]"
+REL3=$work/rel3
+release 3.0.0 "$REL3"
+REL=$REL3 run_install
+check "a third version keeps the one before it as ofolder.previous" sh -c "[ \"\$('$H/home/.local/bin/ofolder.previous' version)\" = 'ofolder 2.0.0' ]"
+
+# --- --no-setup ---------------------------------------------------------------
+new_home nosetup
+run_install --no-setup
+check "--no-setup exits 0" status_is 0
+check "--no-setup installs the program" test -x "$H/home/.local/bin/ofolder"
+check "--no-setup runs neither repair nor doctor" sh -c "! grep -q 'repair\\|doctor' '$H/home/calls.log' 2>/dev/null"
+check "--no-setup says how to set up later" sh -c "grep -q 'ofolder repair' '$H/out'"
+
+# --- a checksum that does not match ---------------------------------------------
+new_home badsum
+REL_BAD=$work/rel-bad
+release 1.0.0 "$REL_BAD"
+printf '%s  ofolder-linux-x86_64.tar.gz\n' 0000000000000000000000000000000000000000000000000000000000000000 > "$REL_BAD/ofolder-linux-x86_64.tar.gz.sha256"
+REL=$REL_BAD run_install
+check_not "a checksum mismatch exits non-zero" status_is 0
+check "a checksum mismatch is named" sh -c "grep -q 'checksum mismatch' '$H/out'"
+check "a checksum mismatch installs nothing" test ! -e "$H/home/.local"
+check "a checksum mismatch leaves no temporary file" sh -c "[ -z \"\$(ls -A '$H/tmp')\" ]"
+printf 'not a checksum\n' > "$REL_BAD/ofolder-linux-x86_64.tar.gz.sha256"
+REL=$REL_BAD run_install
+check_not "a checksum file that holds no SHA-256 exits non-zero" status_is 0
+check "a checksum file that holds no SHA-256 installs nothing" test ! -e "$H/home/.local"
+rm "$REL_BAD/ofolder-linux-x86_64.tar.gz.sha256"
+REL=$REL_BAD run_install
+check_not "a missing checksum file exits non-zero" status_is 0
+check "a missing checksum file installs nothing" test ! -e "$H/home/.local"
+
+# A mismatch on an update leaves the installed program as it was.
+new_home badsum-update
+run_install --no-setup
+REL_BAD2=$work/rel-bad2
+release 2.0.0 "$REL_BAD2"
+printf '%s  ofolder-linux-x86_64.tar.gz\n' 1111111111111111111111111111111111111111111111111111111111111111 > "$REL_BAD2/ofolder-linux-x86_64.tar.gz.sha256"
+REL=$REL_BAD2 run_install
+check_not "a mismatch on an update exits non-zero" status_is 0
+check "a mismatch on an update leaves the installed program as it was" \
+    sh -c "[ \"\$('$H/home/.local/bin/ofolder' version)\" = 'ofolder 1.0.0' ] && [ ! -e '$H/home/.local/bin/ofolder.previous' ]"
+
+# --- an archive that reaches outside its own folder ----------------------------
+new_home badtar
+REL_TAR=$work/rel-tar
+mkdir -p "$REL_TAR/stage/ofolder-1.0.0/bin" "$REL_TAR/stage/elsewhere"
+stand_in 1.0.0 "$REL_TAR/stage/ofolder-1.0.0/bin/ofolder"
+echo x > "$REL_TAR/stage/elsewhere/file"
+tar -C "$REL_TAR/stage" -czf "$REL_TAR/ofolder-linux-x86_64.tar.gz" ofolder-1.0.0 elsewhere
+(cd "$REL_TAR" && sha256sum ofolder-linux-x86_64.tar.gz > ofolder-linux-x86_64.tar.gz.sha256)
+REL=$REL_TAR run_install
+check_not "an archive with a file outside ofolder-<version>/ is refused" status_is 0
+check "a refused archive installs nothing" test ! -e "$H/home/.local"
+
+# An archive that lacks praeco is refused too.
+new_home nopraeco
+REL_NP=$work/rel-np
+mkdir -p "$REL_NP/stage/ofolder-1.0.0/bin"
+stand_in 1.0.0 "$REL_NP/stage/ofolder-1.0.0/bin/ofolder"
+tar -C "$REL_NP/stage" -czf "$REL_NP/ofolder-linux-x86_64.tar.gz" ofolder-1.0.0
+(cd "$REL_NP" && sha256sum ofolder-linux-x86_64.tar.gz > ofolder-linux-x86_64.tar.gz.sha256)
+REL=$REL_NP run_install
+check_not "an archive without praeco is refused" status_is 0
+check "an archive without praeco installs nothing" test ! -e "$H/home/.local"
+
+# --- a machine that is not Linux x86_64 -------------------------------------------
+new_home arm
+printf '#!/bin/sh\necho aarch64\n' > "$H/path/uname.new"
+chmod +x "$H/path/uname.new"
+rm "$H/path/uname"
+mv "$H/path/uname.new" "$H/path/uname"
+run_install
+check_not "another architecture exits non-zero" status_is 0
+check "another architecture is told plainly that only x86_64 is released" sh -c "grep -q 'x86_64 only' '$H/out' && grep -q 'aarch64' '$H/out'"
+check "another architecture installs nothing" test ! -e "$H/home/.local"
+
+# --- missing runtime tools ---------------------------------------------------------
+new_home notools
+rm "$H/path/hyprctl" "$H/path/wl-copy"
+run_install --no-setup
+check "missing tools do not stop the install" sh -c "[ \"\$(cat '$H/status')\" = 0 ] && [ -x '$H/home/.local/bin/ofolder' ]"
+check "missing tools are named" sh -c "grep -i 'warning' '$H/out' | grep -q 'hyprctl' && grep -i 'warning' '$H/out' | grep -q 'wl-copy' && ! grep -i 'warning' '$H/out' | grep -q 'wtype'"
+check "the warning has the install line for Arch" sh -c "grep -q 'pacman -S hyprland wtype wl-clipboard' '$H/out'"
+
+# --- the tarball the release script really makes -------------------------------------------
+new_home real
+version=$(awk '/^\[/ { in_pkg = ($0 == "[workspace.package]") } in_pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' "$ROOT/Cargo.toml")
+stand_in "$version" "$work/real-ofolder"
+printf 'praeco\n' > "$work/real-praeco"
+REL_REAL=$work/rel-real
+OFOLDER_BINARY=$work/real-ofolder OFOLDER_PRAECO_FILE=$work/real-praeco \
+    "$ROOT/scripts/make-release-tarball" "$REL_REAL" >/dev/null
+REL=$REL_REAL run_install --no-setup
+check "the tarball made by make-release-tarball installs" \
+    sh -c "[ \"\$('$H/home/.local/bin/ofolder' version)\" = 'ofolder $version' ] && [ -x '$H/home/.local/lib/ofolder/praeco' ]"
+
+# --- uninstall ------------------------------------------------------------------------
+new_home uninstall
+run_install --no-setup
+mkdir -p "$H/home/.local/lib/other" "$H/home/.local/share/keep"
+echo mine > "$H/home/.local/bin/another-tool"
+echo mine > "$H/home/.local/lib/other/file"
+echo mine > "$H/home/.local/share/keep/file"
+REL=$REL2 run_install --no-setup
+check "setup for the uninstall test: a previous program is there" test -e "$H/home/.local/bin/ofolder.previous"
+run_install --uninstall
+check "--uninstall exits 0" status_is 0
+check "--uninstall asks ofolder to undo its setup first" sh -c "grep -qx 'uninstall' '$H/home/calls.log'"
+check "--uninstall removes the program" test ! -e "$H/home/.local/bin/ofolder"
+check "--uninstall removes the previous program" test ! -e "$H/home/.local/bin/ofolder.previous"
+check "--uninstall removes ~/.local/lib/ofolder" test ! -e "$H/home/.local/lib/ofolder"
+check "--uninstall leaves unrelated files alone" \
+    sh -c "[ \"\$(cat '$H/home/.local/bin/another-tool' '$H/home/.local/lib/other/file' '$H/home/.local/share/keep/file' | tr '\n' ' ')\" = 'mine mine mine ' ]"
+run_install --uninstall
+check "--uninstall again, with nothing there, exits 0" status_is 0
+
+new_home purge
+run_install --no-setup
+run_install --uninstall --purge
+check "--uninstall --purge passes --purge to ofolder" sh -c "grep -qx 'uninstall --purge' '$H/home/calls.log'"
+check "--uninstall --purge removes the program" test ! -e "$H/home/.local/bin/ofolder"
+
+new_home uninstall-fails
+run_install --no-setup
+touch "$H/home/uninstall-fails"
+run_install --uninstall
+check_not "when ofolder uninstall fails, --uninstall exits non-zero" status_is 0
+check "when ofolder uninstall fails, the program is left so it can be run again" test -x "$H/home/.local/bin/ofolder"
+
+new_home uninstall-gone
+run_install --no-setup
+printf 'not a program\n' > "$H/home/.local/bin/ofolder"
+chmod +x "$H/home/.local/bin/ofolder"
+run_install --uninstall
+check "a program that cannot start does not block --uninstall" test ! -e "$H/home/.local/bin/ofolder"
+
+# --- the script itself -------------------------------------------------------------------
+check "install.sh is valid bash" "$tools/bash" -n "$ROOT/install.sh"
+# shellcheck is run when a working one is installed; it is not a dependency of the test.
+if command -v shellcheck >/dev/null 2>&1 && shellcheck --version >/dev/null 2>&1; then
+    check "shellcheck is clean on install.sh" shellcheck "$ROOT/install.sh"
+    check "shellcheck is clean on this test" shellcheck "$0"
+else
+    echo "SKIP: shellcheck is not installed"
+fi
+
+if [ "$fails" -ne 0 ]; then
+    echo "$fails check(s) failed"
+    exit 1
+fi
+echo "all install.sh checks passed"
