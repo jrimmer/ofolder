@@ -174,8 +174,12 @@ release it remembers the repository and the signing workflow, and from then on:
 ## Before the first public release
 
 These were written without being able to run GitHub Actions or to see the public
-repository, so the first release candidate tag (for example `v0.1.0-rc1`, deleted
-afterwards together with its draft) must confirm:
+repository, so the first release candidate tag (for example `v0.1.0-rc.1`, deleted
+afterwards together with its draft) must confirm the list below. The workflow requires
+the tag without its `v` to equal the version in `Cargo.toml` and to have a `## <version>`
+section in `CHANGELOG.md`, so a rehearsal needs a commit of its own that sets the version
+to `0.1.0-rc.1` and adds that section; tag that commit, and release the real `0.1.0` from a
+later commit that sets the version back.
 
 - The system package names in both workflows install on `ubuntu-24.04` and are
   enough for `cargo build --release --locked -p ofolder` (the names are assumptions).
