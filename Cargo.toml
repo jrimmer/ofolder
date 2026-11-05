@@ -7,6 +7,8 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT"
+repository = "https://github.com/jrimmer/ofolder"
+homepage = "https://github.com/jrimmer/ofolder"
 
 # The same three lints casabon opts in to: a dropped `Result` and a file
 # extension compared by hand are the mistakes that are cheap to forbid.

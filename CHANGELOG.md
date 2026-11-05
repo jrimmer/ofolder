@@ -1,0 +1,43 @@
+# Changelog
+
+## 0.1.0 (2026-11-05)
+
+The first release.
+
+- **Two rails beside the dialog.** On Omarchy, ofolder docks a slim rail of icons on each side of the
+  save and open dialogs of Flea (0.4 and 0.3), the GTK portal and Strata, without changing any of them.
+  The left rail goes back, forward and up, and opens favorites, places and recent folders and files.
+  The right rail makes a folder, finds one, adds the current folder to your favorites, copies its path,
+  opens it in your file manager or a terminal, and opens settings.
+- **Preview.** A picture or video selected in an open dialog is shown under it.
+- **Favorites, recents and find.** Favorites can be renamed, reordered and removed. Recent folders and
+  files can be limited to the application that asked. Find ranks the folders ofolder knows as you type.
+- **Private by default.** Everything stays on your machine in files only you can read. Folders that hold
+  keys, passwords and browser profiles are never recorded as recent, recents expire after 90 days, and
+  `ofolder forget` empties them.
+- **A settings window** for the rails, preview, shortcuts, the applications and folders to leave alone,
+  starting folders and updates, with a note of what the rails said.
+- **It keeps dialogs working.** If ofolder is missing or broken, file dialogs fall back to the next
+  backend instead of failing. A small guard puts ofolder back if another program takes it out of the
+  portal configuration. `ofolder doctor` says what is wrong, `ofolder repair` puts it right, `ofolder pause`
+  turns it off for every dialog, and `ofolder doctor --report` makes a redacted report for a bug report.
+- **Updates** are looked for once a week through [praeco](https://github.com/jrimmer/praeco), and
+  installed only when you choose; switch the check off in settings.
+
+Needs Hyprland. ofolder was tried with Flea 0.4.0, Flea 0.3.12, xdg-desktop-portal-gtk 1.15 and Strata
+1.1.1; another version is said once, not blocked.
+
+## Install
+
+```sh
+curl -fsSL https://github.com/jrimmer/ofolder/releases/latest/download/install.sh | bash
+```
+
+The script checks each download against its SHA-256, installs under `~/.local` with no root, and then
+switches ofolder on (pass `--no-setup` to skip that). To remove it: `install.sh --uninstall`.
+
+Or download `ofolder-linux-x86_64.tar.gz`, check it against `SHA256SUMS`, and extract it into `~/.local`:
+
+    tar -xzf ofolder-linux-x86_64.tar.gz -C ~/.local --strip-components=1
+
+Or build from source with `bin/install`.
