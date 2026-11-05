@@ -243,11 +243,17 @@ jobs:
           # The release is created as a draft and stays one until the signature is
           # attached (the publish job below).
           state=$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo none)
+          # A version with a hyphen (1.0.0-rc.1) is a candidate: a pre-release, so that
+          # releases/latest, and the one-line installer's default URL, never point at it.
+          pre=""
+          case "$VERSION" in *-*) pre="--prerelease" ;; esac
           case "$state" in
             none)
+              # shellcheck disable=SC2086
               gh release create "$tag" \
                 --verify-tag \
                 --draft \
+                $pre \
                 --title "ofolder $VERSION" \
                 --notes-file release-notes.md \
                 release/*
