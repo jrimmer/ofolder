@@ -54,7 +54,7 @@ impl Dirs {
         self.data.join("dbus-1/services").join(SERVICE_NAME)
     }
 
-    /// Present after `repair --undo`: the maintainer took ofolder out of the chain on purpose, so the
+    /// Present after `repair --undo`: the user took ofolder out of the chain on purpose, so the
     /// guard must not put it back. `repair` run by hand removes it.
     fn chain_hold(&self) -> PathBuf {
         self.state.join("ofolder/chain-hold")
@@ -469,7 +469,7 @@ pub fn repair(args: &[String]) -> anyhow::Result<()> {
         .into_iter()
         .filter(|id| installed.contains(id))
         .collect();
-    // A repair run by hand is the maintainer asking for ofolder back, which ends an undo's hold; the
+    // A repair run by hand is the user asking for ofolder back, which ends an undo's hold; the
     // guard runs it with --from-guard and must leave a held chain as it was left.
     let from_guard = args.iter().any(|a| a == "--from-guard");
     let held = d.chain_hold().is_file();
@@ -678,7 +678,7 @@ pub fn set_guard(on: bool) -> Result<String, String> {
 }
 
 /// Makes the guard match the setting: it is on by default, so a first start installs it, and a
-/// guard the maintainer turned off is not put back. Run when the portal starts.
+/// guard the user turned off is not put back. Run when the portal starts.
 pub fn reconcile_guard() -> anyhow::Result<()> {
     let d = dirs()?;
     let (settings, _) = crate::settings_file()?;
@@ -748,14 +748,13 @@ mod tests {
 
     #[test]
     fn a_report_hides_the_home_folder_the_user_and_the_host() {
-        let text =
-            "the portal starts /home/user/.local/bin/ofolder\nwritten by user on host\n";
-        let shown = redact(text, "/home/user", "user", "host");
+        let text = "the portal starts /home/alex/.local/bin/ofolder\nwritten by alex on mybox\n";
+        let shown = redact(text, "/home/alex", "alex", "mybox");
         assert_eq!(
             shown,
             "the portal starts ~/.local/bin/ofolder\nwritten by <user> on <host>\n"
         );
-        assert!(!shown.contains("user"));
+        assert!(!shown.contains("alex"));
     }
 
     #[test]

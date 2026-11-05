@@ -60,7 +60,7 @@ pub struct Settings {
     pub recents_enabled: bool,
     /// Whether the guard is installed: it puts ofolder back in the file-chooser
     /// chain when another program removes it, and keeps dialogs working if the
-    /// ofolder program is deleted. On unless the maintainer turns it off.
+    /// ofolder program is deleted. On unless the user turns it off.
     pub guard: bool,
     pub recents_max: usize,
     /// How many days a recent folder or file is kept after its last use;
@@ -88,10 +88,10 @@ pub struct Settings {
     pub shortcuts: Shortcuts,
     /// The preview panel under the dialog.
     pub preview: PreviewSettings,
-    /// Whether ofolder checks for a newer release. On unless the maintainer turns it off.
+    /// Whether ofolder checks for a newer release. On unless the user turns it off.
     pub updates: bool,
     /// Whether `omarchy update` also updates ofolder, which is a change to the
-    /// system's update step, so it is off until the maintainer turns it on.
+    /// system's update step, so it is off until the user turns it on.
     pub update_with_system: bool,
 }
 

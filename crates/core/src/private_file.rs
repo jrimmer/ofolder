@@ -33,7 +33,7 @@ fn parent_of(path: &Path) -> &Path {
 }
 
 /// Creates `dir` and any missing parents, each private. A folder that already
-/// exists is left exactly as it is, mode included: the maintainer chose it.
+/// exists is left exactly as it is, mode included: the user chose it.
 pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     if dir.is_dir() {
         return Ok(());

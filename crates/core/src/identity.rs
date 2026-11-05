@@ -89,7 +89,7 @@ pub struct Plan {
 }
 
 /// While paused nothing is shown or moved. A start folder is used only when
-/// the application supplied none (the user's answer to question 8, which is
+/// the application supplied none (the maintainer's answer to question 8, which is
 /// also what keeps a document's own folder), the identity is known, and the
 /// settings hold a rule under exactly that key.
 pub fn plan(

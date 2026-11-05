@@ -184,7 +184,7 @@ pub trait StripActions: Send + Sync + 'static {
         false
     }
     /// Registers ofolder with the system's own update (`on`) or takes the registration away, after
-    /// the maintainer chose so in the settings window; says what was done. Called from a background thread.
+    /// the user chose so in the settings window; says what was done. Called from a background thread.
     fn set_update_registration(&self, _on: bool) -> Result<String, String> {
         Ok(String::new())
     }

@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn a_long_message_gets_a_window_tall_enough_to_read_it() {
         assert_eq!(toast_lines("Path copied"), 1);
-        let long = "Could not move the dialog: the folder /home/user/Projects/a did not read back within 5 s";
+        let long = "Could not move the dialog: the folder /home/alex/Projects/a did not read back within 5 s";
         assert!(toast_lines(long) >= 3);
         assert!(MenuKind::Toast.height(toast_lines(long)) > MenuKind::Toast.height(1));
         assert_eq!(MenuKind::Toast.height(1), 64);

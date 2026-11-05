@@ -390,7 +390,7 @@ mod tests {
     const NOW: i64 = 1_800_000_000;
 
     /// One release newer than the running version, with notes, as praeco's check prints it.
-    const OFFER: &str = r#"{"ok":true,"source":"forgejo:https://forge.example/jrimmer/ofolder","current":"0.1.0","latest":"0.2.0","update_available":true,"releases":[{"version":"0.2.0","tag":"v0.2.0","name":"ofolder 0.2.0","published_at":"2026-10-24T09:12:00Z","url":"https://forge.example/jrimmer/ofolder/releases/tag/v0.2.0","prerelease":false,"notes":"Fixed\n- A thing."}],"install":{"kind":"tarball","supported":true,"reason":"r","detail":null,"target":"/home/u/.local/bin/ofolder","asset":null}}"#;
+    const OFFER: &str = r#"{"ok":true,"source":"github:jrimmer/ofolder","current":"0.1.0","latest":"0.2.0","update_available":true,"releases":[{"version":"0.2.0","tag":"v0.2.0","name":"ofolder 0.2.0","published_at":"2026-10-24T09:12:00Z","url":"https://github.com/jrimmer/ofolder/releases/tag/v0.2.0","prerelease":false,"notes":"Fixed\n- A thing."}],"install":{"kind":"tarball","supported":true,"reason":"r","detail":null,"target":"/home/u/.local/bin/ofolder","asset":null}}"#;
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -608,8 +608,7 @@ mod tests {
             calls[0],
             [
                 "install",
-                "--forgejo",
-                "https://forge.example",
+                "--github",
                 "jrimmer/ofolder",
                 "--version",
                 "0.2.0",
@@ -697,8 +696,7 @@ mod tests {
                     "init",
                     "--name",
                     "ofolder",
-                    "--forgejo",
-                    "https://forge.example",
+                    "--github",
                     "jrimmer/ofolder",
                     "--exe",
                     "/home/u/.local/bin/ofolder",
@@ -720,7 +718,7 @@ mod tests {
     }
 
     #[test]
-    fn the_checks_never_register_so_only_the_owner_s_choice_does() {
+    fn the_checks_never_register_so_only_the_users_choice_does() {
         let f = Fixture::new("no-register");
         f.answer("check.json", OFFER);
         let u = f.updates(Duration::from_secs(10));

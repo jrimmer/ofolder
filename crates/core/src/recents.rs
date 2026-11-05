@@ -305,7 +305,7 @@ pub fn save(path: &Path, recents: &Recents) -> Result<(), RecentsError> {
     Ok(())
 }
 
-/// What [`forget_all`] removed, by path, for the maintainer to see.
+/// What [`forget_all`] removed, by path, for the user to see.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Forgotten {
     pub folders: Vec<String>,
@@ -316,7 +316,7 @@ pub struct Forgotten {
 }
 
 impl Forgotten {
-    /// One line for the maintainer: how many entries went.
+    /// One line for the user: how many entries went.
     pub fn summary(&self) -> String {
         let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
         if self.folders.is_empty() && self.files.is_empty() {

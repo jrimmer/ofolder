@@ -87,23 +87,19 @@ mod tests {
 
     #[test]
     fn the_gtk_path_bar_at_home_reads_as_the_home_folder() {
-        let buttons = bar(&[
-            ("user", true),
-            ("home", false),
-            ("File System Root", false),
-        ]);
-        assert_eq!(gtk_folder(&buttons), Some(PathBuf::from("/home/user")));
+        let buttons = bar(&[("alex", true), ("home", false), ("File System Root", false)]);
+        assert_eq!(gtk_folder(&buttons), Some(PathBuf::from("/home/alex")));
     }
 
     #[test]
     fn gtk_buttons_for_visited_subfolders_before_the_checked_one_are_ignored() {
         let buttons = bar(&[
             ("Work", false),
-            ("user", true),
+            ("alex", true),
             ("home", false),
             ("File System Root", false),
         ]);
-        assert_eq!(gtk_folder(&buttons), Some(PathBuf::from("/home/user")));
+        assert_eq!(gtk_folder(&buttons), Some(PathBuf::from("/home/alex")));
     }
 
     #[test]
@@ -114,7 +110,7 @@ mod tests {
 
     #[test]
     fn gtk_with_no_checked_button_is_unknown() {
-        let buttons = bar(&[("user", false), ("File System Root", false)]);
+        let buttons = bar(&[("alex", false), ("File System Root", false)]);
         assert_eq!(gtk_folder(&buttons), None);
     }
 
@@ -127,7 +123,7 @@ mod tests {
     #[test]
     fn gtk_whose_path_does_not_reach_the_root_is_unknown() {
         // A volume mounted somewhere else shows a different first button.
-        let buttons = bar(&[("Documents", true), ("host", false)]);
+        let buttons = bar(&[("Documents", true), ("mybox", false)]);
         assert_eq!(gtk_folder(&buttons), None);
     }
 

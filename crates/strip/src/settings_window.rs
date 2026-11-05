@@ -720,7 +720,7 @@ impl SettingsWindow {
         !job.finished
     }
 
-    /// Turns the system registration on or off, after the maintainer chose so, and says what happened.
+    /// Turns the system registration on or off, after the user chose so, and says what happened.
     fn set_registration(&mut self, on: bool, cx: &mut Context<Self>) {
         self.confirm_update_system = false;
         self.save(vec![Edit::Bool("update_with_system", on)], cx);

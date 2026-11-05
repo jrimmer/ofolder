@@ -253,7 +253,7 @@ mod tests {
         fs::remove_dir_all(&d).expect("cleanup");
     }
 
-    /// The user's figure: a tree of 50,000 folders returns first results in
+    /// The maintainer's figure: a tree of 50,000 folders returns first results in
     /// under a second. The tree is big, so it is built in the home folder's
     /// cache, not the RAM-backed temp folder. Run with `--ignored`.
     #[test]

@@ -228,7 +228,7 @@ mod tests {
         let stack = revealer.add(Role::Other, "Browse Header Stack");
         let bar = stack.add(Role::Filler, "PathBar Layer");
         let row = bar.add(Role::Other, "");
-        for name in ["Documents", "user", "home", "File System Root"] {
+        for name in ["Documents", "alex", "home", "File System Root"] {
             let b = row.add(Role::ToggleButton, name);
             if name == checked {
                 b.checked_on();
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn the_dialog_is_found_by_its_title_among_several() {
-        let app = dialog("one", "user");
+        let app = dialog("one", "alex");
         let other = app.add(Role::FileChooser, "two");
         other.add(Role::Button, "Cancel");
         let tree = FakeTree(vec![(APP.to_owned(), app)]);
@@ -256,18 +256,15 @@ mod tests {
 
     #[test]
     fn another_application_with_a_dialog_of_the_same_title_is_not_picked() {
-        let tree = FakeTree(vec![(
-            "some-other-app".to_owned(),
-            dialog("one", "user"),
-        )]);
+        let tree = FakeTree(vec![("some-other-app".to_owned(), dialog("one", "alex"))]);
         assert!(chooser(&tree, "one").is_none());
     }
 
     #[test]
     fn the_folder_is_the_checked_path_bar_button_and_its_ancestors() {
-        let app = dialog("t", "user");
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
-        assert_eq!(folder(&ch), Some(PathBuf::from("/home/user")));
+        assert_eq!(folder(&ch), Some(PathBuf::from("/home/alex")));
     }
 
     #[test]
@@ -286,31 +283,31 @@ mod tests {
 
     #[test]
     fn a_move_writes_the_folder_with_a_trailing_slash_and_activates_twice() {
-        let app = dialog("t", "user");
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
-        let saved = move_to(&ch, Path::new("/home/user/Work"), Duration::ZERO).expect("moved");
+        let saved = move_to(&ch, Path::new("/home/alex/Work"), Duration::ZERO).expect("moved");
         let entry = name_entry(&ch).expect("entry");
         assert_eq!(
             saved, "spike.txt",
             "the application's file name is handed back"
         );
-        assert_eq!(entry.text().as_deref(), Some("/home/user/Work/"));
+        assert_eq!(entry.text().as_deref(), Some("/home/alex/Work/"));
         assert_eq!(entry.presses(), 2);
     }
 
     #[test]
     fn a_move_that_has_landed_after_the_first_press_is_not_pressed_again() {
-        // The path bar already shows /home/user, as it does once the first press has worked.
-        let app = dialog("t", "user");
+        // The path bar already shows /home/alex, as it does once the first press has worked.
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
-        move_to(&ch, Path::new("/home/user"), Duration::ZERO).expect("moved");
+        move_to(&ch, Path::new("/home/alex"), Duration::ZERO).expect("moved");
         let entry = name_entry(&ch).expect("entry");
         assert_eq!(entry.presses(), 1);
     }
 
     #[test]
     fn the_applications_file_name_can_be_put_back_after_the_move() {
-        let app = dialog("t", "user");
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
         let saved = move_to(&ch, Path::new("/tmp"), Duration::ZERO).expect("moved");
         assert!(restore_name(&ch, &saved));
@@ -324,7 +321,7 @@ mod tests {
     fn a_folder_that_is_not_utf8_is_refused_before_anything_is_written() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
-        let app = dialog("t", "user");
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
         let odd = PathBuf::from(OsStr::from_bytes(b"/h/\xff"));
         assert!(matches!(
@@ -339,7 +336,7 @@ mod tests {
 
     #[test]
     fn cancel_presses_the_cancel_button_and_not_one_inside_the_file_list() {
-        let app = dialog("t", "user");
+        let app = dialog("t", "alex");
         let ch = app.children().remove(0);
         assert!(cancel(&ch));
         assert_eq!(

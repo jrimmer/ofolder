@@ -27,7 +27,7 @@ commands:
   portal [--backend <flea|gtk|strata>] [--no-strip] [--check]
                serve a file-chooser proxy that forwards to a backend; --check only
                verifies that it could start, and claims nothing (exit 0 when it could,
-               3 when not)
+               3 when not, 4 when the check itself could not be made)
   pause | resume | status
                switch every dialog back to untouched, switch ofolder on again, or show the state
   strip --backend <id> --title <t>
@@ -384,7 +384,7 @@ fn portal(args: &[String]) -> anyhow::Result<()> {
     } = plan(parsed.backend, parsed.strip, &home, || {
         keys::runtime_dir().ok()
     })?;
-    // The guard is on unless the maintainer turned it off: a first start puts it in place. Not waited on.
+    // The guard is on unless the user turned it off: a first start puts it in place. Not waited on.
     std::thread::spawn(|| {
         if let Err(e) = doctor::reconcile_guard() {
             eprintln!("ofolder: the guard could not be put in order: {e}");
@@ -487,7 +487,7 @@ fn check_portal(
 }
 
 /// Empties the recent folders and files. What went is printed first, so the
-/// owner sees it; favorites are a separate list and are not touched.
+/// user sees it; favorites are a separate list and are not touched.
 fn forget() -> anyhow::Result<()> {
     let home =
         PathBuf::from(env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?);

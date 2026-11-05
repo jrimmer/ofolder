@@ -19,9 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::private_file;
 
-/// The forge the releases are read from. This is the one place to change when
-/// the releases get a public home; `OFOLDER_UPDATE_SOURCE` overrides it.
-pub const DEFAULT_FORGEJO_BASE: &str = "https://forge.example";
+/// The repository the releases are read from, on GitHub. This is the one place to change if the
+/// releases move; `OFOLDER_UPDATE_SOURCE` overrides it.
 pub const DEFAULT_REPO: &str = "jrimmer/ofolder";
 
 /// The name praeco registers ofolder under, and the name of its registry file.
@@ -48,8 +47,7 @@ pub enum Source {
 impl Source {
     /// The source built into ofolder.
     pub fn default_source() -> Source {
-        Source::Forgejo {
-            base: DEFAULT_FORGEJO_BASE.to_owned(),
+        Source::GitHub {
             repo: DEFAULT_REPO.to_owned(),
         }
     }
@@ -323,9 +321,9 @@ pub struct State {
     pub can_install: bool,
     /// The releases newer than `current`, newest first.
     pub notes: Vec<Release>,
-    /// The version the maintainer chose to skip: nothing newer than it is shown.
+    /// The version the user chose to skip: nothing newer than it is shown.
     pub skipped: Option<String>,
-    /// The `checked_at` the maintainer chose "Later" on. The pill stays hidden until
+    /// The `checked_at` the user chose "Later" on. The pill stays hidden until
     /// a newer check, which has a different `checked_at`, replaces it.
     pub later_checked_at: Option<i64>,
 }
@@ -635,7 +633,7 @@ mod tests {
         Release {
             version: version.to_owned(),
             published_at: "2026-10-24T09:12:00Z".to_owned(),
-            url: format!("https://forge.example/jrimmer/ofolder/releases/tag/v{version}"),
+            url: format!("https://github.com/jrimmer/ofolder/releases/tag/v{version}"),
             notes: "Fixed\n- A thing.".to_owned(),
         }
     }
@@ -653,11 +651,10 @@ mod tests {
     }
 
     #[test]
-    fn the_built_in_source_is_forgejo_on_the_owners_forge() {
+    fn the_built_in_source_is_the_github_repository() {
         assert_eq!(
             Source::from_env_value(None),
-            Ok(Source::Forgejo {
-                base: "https://forge.example".to_owned(),
+            Ok(Source::GitHub {
                 repo: "jrimmer/ofolder".to_owned(),
             })
         );
@@ -696,15 +693,16 @@ mod tests {
 
     #[test]
     fn the_source_becomes_praeco_flags_with_each_part_as_its_own_argument() {
-        let forge = Source::default_source().praeco_args();
-        assert_eq!(
-            forge,
-            ["--forgejo", "https://forge.example", "jrimmer/ofolder"]
-        );
-        let hub = Source::GitHub {
+        let hub = Source::default_source().praeco_args();
+        assert_eq!(hub, ["--github", "jrimmer/ofolder"]);
+        let forge = Source::Forgejo {
+            base: "https://forge.example".to_owned(),
             repo: "a/b".to_owned(),
         };
-        assert_eq!(hub.praeco_args(), ["--github", "a/b"]);
+        assert_eq!(
+            forge.praeco_args(),
+            ["--forgejo", "https://forge.example", "a/b"]
+        );
     }
 
     #[test]
@@ -1012,8 +1010,7 @@ mod tests {
             args,
             [
                 "check",
-                "--forgejo",
-                "https://forge.example",
+                "--github",
                 "jrimmer/ofolder",
                 "--current",
                 "0.1.0",
@@ -1096,8 +1093,7 @@ mod tests {
                 "init",
                 "--name",
                 "ofolder",
-                "--forgejo",
-                "https://forge.example",
+                "--github",
                 "jrimmer/ofolder",
                 "--exe",
                 "/home/u/.local/bin/ofolder",

@@ -969,7 +969,7 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
         }
     }
     // The guard follows its setting: put in place when it is on and missing, taken away when the
-    // owner turned it off, so a hand edit of the setting takes effect with the next dialog.
+    // user turned it off, so a hand edit of the setting takes effect with the next dialog.
     std::thread::spawn(|| {
         if let Err(e) = crate::doctor::reconcile_guard() {
             note(&format!("the guard could not be put in order: {e}"));
