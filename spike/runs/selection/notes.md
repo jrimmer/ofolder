@@ -2,7 +2,7 @@
 
 Scratch folder with sub-folder, aether.png, alpha.txt, archlinux-logo.png, beta.txt and others.
 
-## Flea (Open dialog through the portal, then the user's open Save dialog read-only)
+## Flea (Open dialog through the portal, then the maintainer's open Save dialog read-only)
 
     qs ipc --pid <picker> show            -> target fleapicker: path, cursorName, cursor, marks, markedUris, snapshot, ...
     path / cursorName / marks, 10 calls each: 17.9 / 18.4 / 17.7 ms per call; snapshot 18.2 ms
@@ -11,7 +11,7 @@ Scratch folder with sub-folder, aether.png, alpha.txt, archlinux-logo.png, beta.
       selection .../pick/sub-folder (31 ms)
       Down -> .../pick/aether.png (21 ms)
       Down -> .../pick/alpha.txt (20 ms)
-      maintainer's Save dialog at home: /home/user/project-folder (20 to 26 ms)
+      a Save dialog at home: /home/user/project (20 to 26 ms)
     read_folder in the scratch folder: None. The --backend helpers held no directory fd there.
     AT-SPI: application 'qs' registered with 0 children; org.a11y.Status IsEnabled=false.
 
@@ -28,4 +28,4 @@ Scratch folder with sub-folder, aether.png, alpha.txt, archlinux-logo.png, beta.
 
     list 'pick' kids=3: list item 'sub-folder' [selected,focused] (initial)
     Down -> aether.png (52 ms read), Down -> alpha.txt (37 ms read)
-    The chooser was not run: its portal toggle rewrites the portal config the user's ofolder install uses.
+    The chooser was not run: its portal toggle rewrites the portal config the maintainer's ofolder install uses.
