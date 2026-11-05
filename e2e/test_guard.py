@@ -105,7 +105,7 @@ class Guard(unittest.TestCase):
     # then is the real build, so what the guard asked of it can be counted.
     def counting_program(self):
         self.log = os.path.join(self.home, "asked.log")
-        self.stand_in('echo "$*" >> %s\nexec %s "$@"\n' % (self.log, OFOLDER))
+        self.stand_in('echo "$*" >> %s\n# pad 0000\nexec %s "$@"\n' % (self.log, OFOLDER))
         self.env["XDG_RUNTIME_DIR"] = os.path.join(self.home, "run")
         os.makedirs(self.env["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
 
@@ -140,6 +140,24 @@ class Guard(unittest.TestCase):
         self.counting_program()  # the program itself replaced by a new file
         self.guard()
         self.assertGreater(len(self.asked()), n, "a replaced program was not looked at")
+
+    def test_a_program_rewritten_in_place_in_the_same_second_is_looked_at_again(self):
+        """Same inode, same size and the same whole second: only a finer clock or the change time can
+        tell. A filesystem that reuses inode numbers makes a replaced program look just like this."""
+        import time
+
+        self.counting_program()
+        second = int(time.time())
+        os.utime(self.exe, (second, second))
+        self.guard()
+        n = len(self.asked())
+        with open(self.exe, "r+") as f:
+            text = f.read()
+            f.seek(0)
+            f.write(text.replace("pad 0000", "pad 0001"))
+        os.utime(self.exe, (second, second + 0.5))
+        self.guard()
+        self.assertGreater(len(self.asked()), n, "a program rewritten in place was taken for the one already checked")
 
     def test_a_run_that_found_a_fault_is_never_remembered_as_fine(self):
         self.counting_program()

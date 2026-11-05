@@ -56,10 +56,12 @@ hold="${XDG_STATE_HOME:-$HOME/.local/state}/ofolder/chain-hold"
 stamp=""
 [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -z "${OFOLDER_GUARD_FORCE:-}" ] && stamp="$XDG_RUNTIME_DIR/ofolder-guard.stamp"
 fingerprint() {
-  # a name, inode, size, modification time and mode for each; a file that is not there has no line
+  # a name, inode, size, modification and change time to the nanosecond, and mode for each; a file
+  # that is not there has no line. The change time moves on any replacement, even one that reuses
+  # the inode number and the size within the same second.
   # shellcheck disable=SC2086
   # stat fails for each one that is missing, which is not an error here
-  stat -L -c '%n %i %s %Y %a' "$service" ${exe:+"$exe"} "$portal" "$held" "$hold" "$cfg"/* 2>/dev/null || :
+  stat -L -c '%n %i %s %.9Y %.9Z %a' "$service" ${exe:+"$exe"} "$portal" "$held" "$hold" "$cfg"/* 2>/dev/null || :
 }
 if [ -n "$stamp" ] && [ -f "$stamp" ] && [ "$(fingerprint)" = "$(cat "$stamp" 2>/dev/null)" ]; then
   exit 0
