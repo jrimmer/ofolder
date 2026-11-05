@@ -23,14 +23,14 @@ const SERVICE_TEMPLATE: &str =
 const GUARD_SCRIPT: &str = include_str!("../../../packaging/ofolder-guard.sh");
 const SERVICE_NAME: &str = "org.freedesktop.impl.portal.desktop.ofolder.service";
 
-struct Dirs {
-    home: PathBuf,
-    data: PathBuf,
-    config: PathBuf,
-    state: PathBuf,
+pub(crate) struct Dirs {
+    pub(crate) home: PathBuf,
+    pub(crate) data: PathBuf,
+    pub(crate) config: PathBuf,
+    pub(crate) state: PathBuf,
 }
 
-fn dirs() -> anyhow::Result<Dirs> {
+pub(crate) fn dirs() -> anyhow::Result<Dirs> {
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
     let pick = |var: &str, under: &str| {
         std::env::var_os(var)
@@ -46,21 +46,21 @@ fn dirs() -> anyhow::Result<Dirs> {
 }
 
 impl Dirs {
-    fn portal_file(&self) -> PathBuf {
+    pub(crate) fn portal_file(&self) -> PathBuf {
         self.data.join("xdg-desktop-portal/portals/ofolder.portal")
     }
 
-    fn service_file(&self) -> PathBuf {
+    pub(crate) fn service_file(&self) -> PathBuf {
         self.data.join("dbus-1/services").join(SERVICE_NAME)
     }
 
     /// Present after `repair --undo`: the maintainer took ofolder out of the chain on purpose, so the
     /// guard must not put it back. `repair` run by hand removes it.
-    fn chain_hold(&self) -> PathBuf {
+    pub(crate) fn chain_hold(&self) -> PathBuf {
         self.state.join("ofolder/chain-hold")
     }
 
-    fn backups(&self) -> PathBuf {
+    pub(crate) fn backups(&self) -> PathBuf {
         self.state.join("ofolder/portal-backups")
     }
 }
@@ -99,7 +99,7 @@ fn on_path(program: &str) -> bool {
         .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(program).is_file()))
 }
 
-fn a_strip_is_open() -> bool {
+pub(crate) fn a_strip_is_open() -> bool {
     fs::read_dir("/proc")
         .into_iter()
         .flatten()
@@ -385,7 +385,7 @@ pub fn doctor(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
-fn atomic_write(path: &Path, text: &str) -> anyhow::Result<()> {
+pub(crate) fn atomic_write(path: &Path, text: &str) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -580,7 +580,7 @@ fn guard_installed(d: &Dirs) -> bool {
 
 /// Whether systemd is to be used at all. A test, which has a session of its own, sets
 /// `OFOLDER_NO_SYSTEMD` so that nothing it does can reach the real user's units.
-fn systemd_allowed() -> bool {
+pub(crate) fn systemd_allowed() -> bool {
     std::env::var_os("OFOLDER_NO_SYSTEMD").is_none()
 }
 
@@ -589,7 +589,7 @@ fn systemd_allowed() -> bool {
 const SYSTEMCTL_LIMIT: Duration = Duration::from_secs(10);
 
 /// Runs `systemctl --user` with `args`, and returns its output when it finished in time.
-fn systemctl_output(args: &[&str]) -> Option<Output> {
+pub(crate) fn systemctl_output(args: &[&str]) -> Option<Output> {
     run_with_deadline(
         Command::new("systemctl").arg("--user").args(args),
         SYSTEMCTL_LIMIT,
@@ -603,7 +603,7 @@ fn systemctl(args: &[&str]) -> bool {
 
 /// Puts the guard in place (`on`) or takes it away, and says what it did. `enable` is false when
 /// only the files are wanted (tests, and anyone who wants to read them first).
-fn apply_guard(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<Vec<String>> {
+pub(crate) fn apply_guard(d: &Dirs, on: bool, enable: bool) -> anyhow::Result<Vec<String>> {
     let mut said = Vec::new();
     let script = d.data.join("ofolder/ofolder-guard.sh");
     let unit_dir = d.config.join("systemd/user");

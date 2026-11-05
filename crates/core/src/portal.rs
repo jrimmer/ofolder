@@ -158,6 +158,47 @@ pub fn put_first(portals_conf: &str, own: &str, others: &[&str]) -> Option<Strin
     Some(out.join("\n") + "\n")
 }
 
+/// A portal configuration with `own` taken out of the file-chooser chain, changing nothing else:
+/// the other backends keep their order, and a chain that would be left empty loses its line
+/// (the desktop's default then applies). `None` when `own` is not in the chain.
+pub fn without_entry(portals_conf: &str, own: &str) -> Option<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_preferred = false;
+    let mut found = false;
+    for line in portals_conf.lines() {
+        let trimmed = line.trim();
+        if let Some(section) = trimmed.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_preferred = section == "preferred";
+        } else if in_preferred
+            && !found
+            && let Some((key, value)) = trimmed.split_once('=')
+            && key.trim() == FILE_CHOOSER
+            && value.split(';').any(|e| e.trim() == own)
+        {
+            found = true;
+            let rest: Vec<&str> = value
+                .split(';')
+                .map(str::trim)
+                .filter(|e| !e.is_empty() && *e != own)
+                .collect();
+            if !rest.is_empty() {
+                out.push(format!("{FILE_CHOOSER}={}", rest.join(";")));
+            }
+            continue;
+        }
+        out.push(line.to_owned());
+    }
+    found.then(|| out.join("\n") + "\n")
+}
+
+/// Whether a portal configuration says nothing: only blank lines and section headers.
+pub fn says_nothing(portals_conf: &str) -> bool {
+    portals_conf
+        .lines()
+        .map(str::trim)
+        .all(|l| l.is_empty() || (l.starts_with('[') && l.ends_with(']')))
+}
+
 fn chain_line(own: &str, others: &[&str]) -> String {
     let mut chain = vec![own];
     chain.extend(others);
@@ -230,6 +271,44 @@ pub fn adapter_id(dbus_name: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn taking_ofolder_out_keeps_the_other_backends_in_order() {
+        let conf = "[preferred]\ndefault=hyprland\norg.freedesktop.impl.portal.FileChooser=ofolder;flea;gtk\n# x\n";
+        assert_eq!(
+            without_entry(conf, "ofolder").unwrap(),
+            "[preferred]\ndefault=hyprland\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n# x\n"
+        );
+        let mid = "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;ofolder;gtk\n";
+        assert_eq!(
+            without_entry(mid, "ofolder").unwrap(),
+            "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n"
+        );
+    }
+
+    #[test]
+    fn a_chain_of_only_ofolder_loses_its_line_and_a_chain_without_it_is_left_alone() {
+        let only = "[preferred]\norg.freedesktop.impl.portal.FileChooser=ofolder\n";
+        let left = without_entry(only, "ofolder").unwrap();
+        assert_eq!(left, "[preferred]\n");
+        assert!(says_nothing(&left));
+        assert_eq!(
+            without_entry(
+                "[preferred]\norg.freedesktop.impl.portal.FileChooser=gtk\n",
+                "ofolder"
+            ),
+            None
+        );
+        // A line in another section is not the chain.
+        assert_eq!(
+            without_entry(
+                "[other]\norg.freedesktop.impl.portal.FileChooser=ofolder\n",
+                "ofolder"
+            ),
+            None
+        );
+        assert!(!says_nothing("[preferred]\ndefault=gtk\n"));
+    }
+
     #[test]
     fn putting_ofolder_first_changes_only_the_chooser_line() {
         let conf = "[preferred]\ndefault=hyprland;gtk\n# a note\norg.freedesktop.impl.portal.FileChooser=flea;gtk\norg.freedesktop.impl.portal.Secret=gnome-keyring\n";

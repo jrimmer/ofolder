@@ -13,6 +13,7 @@ mod pause;
 mod recording;
 mod signals;
 mod strip_cmd;
+mod uninstall;
 mod update;
 
 use ofolder_core::adapter::known_capabilities;
@@ -48,6 +49,11 @@ commands:
                file-chooser chain (a copy is kept; --undo goes back). --watch on installs
                a guard that does this by itself, and keeps dialogs working if ofolder is
                deleted; --watch off removes it
+  uninstall [--keep-settings | --purge] [--no-restart]
+               undo the set-up: the guard off, the file-chooser chain as it was before the
+               last repair, the portal files removed, the portal restarted. Settings,
+               favorites and recents stay unless --purge. The program files are left to
+               install.sh --uninstall
   version      print the version";
 
 fn main() -> anyhow::Result<()> {
@@ -66,6 +72,7 @@ fn main() -> anyhow::Result<()> {
         Some("doctor") => doctor::doctor(&env::args().skip(2).collect::<Vec<_>>()),
         Some("update") => update_command(&env::args().skip(2).collect::<Vec<_>>()),
         Some("repair") => doctor::repair(&env::args().skip(2).collect::<Vec<_>>()),
+        Some("uninstall") => uninstall::run(&env::args().skip(2).collect::<Vec<_>>()),
         Some("unbind-all") => unbind_all(),
         Some("forget") => forget(),
         Some("live-check") => live::run(env::args().nth(2).as_deref().unwrap_or("flea")),
