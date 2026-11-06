@@ -59,13 +59,12 @@ These are for development and tests. Users need none of them.
 
 | Variable | Effect |
 | --- | --- |
-| `OFOLDER_UPDATE_SOURCE` | Where releases come from: `forgejo BASE OWNER/REPO` or `github OWNER/REPO`. Unset, the source is the one built into `crates/core/src/update.rs` (`DEFAULT_FORGEJO_BASE`, `DEFAULT_REPO`). A value that does not parse turns checks off, with a message. |
+| `OFOLDER_UPDATE_SOURCE` | Where releases come from: `forgejo BASE OWNER/REPO` or `github OWNER/REPO`. Unset, the source is the GitHub repository built into `crates/core/src/update.rs` (`DEFAULT_REPO`). A value that does not parse turns checks off, with a message. |
 | `OFOLDER_PRAECO` | The praeco to run. When set, nothing else is searched, and a path that is not an executable file turns the update UI off. |
 | `OFOLDER_PRETEND_VERSION` | The version the check reports as running, for example `0.0.1`. Only the update code reads it. |
 | `OFOLDER_UPDATE_CHECK_DELAY` | Seconds before the first check (default 60). Setting it also forces that first check, even when one was made this week. |
 
-The repository is private at the moment, so a check without a token fails. The pill then never
-shows. Nothing else is reported to the user.
+Releases are signed. praeco checks each download against the signature made by the release workflow, and refuses a release without a valid one (see `docs/releasing.md`).
 
 ## Testing without a release
 
