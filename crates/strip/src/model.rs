@@ -637,10 +637,10 @@ impl ViewModel {
         })
     }
 
-    pub fn finish_launch(&mut self, what: &str, result: Result<(), String>) {
-        match result {
-            Ok(()) => self.info("open", format!("Opened in {what}")),
-            Err(why) => self.error("open", why),
+    /// A launched program is its own confirmation, so only a failure is said.
+    pub fn finish_launch(&mut self, result: Result<(), String>) {
+        if let Err(why) = result {
+            self.error("open", why);
         }
     }
 
@@ -1890,13 +1890,15 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_launch_shows_its_error_and_a_good_one_confirms() {
-        let d = Dir::new("launch-result");
-        let mut vm = vm(&d);
-        vm.finish_launch("terminal", Err("no terminal found".into()));
-        assert_eq!(text(&vm), "no terminal found");
-        vm.finish_launch("terminal", Ok(()));
-        assert_eq!(vm.message().unwrap().kind, MessageKind::Info);
+    fn a_failed_launch_shows_its_error_and_a_good_one_says_nothing() {
+        let failed_dir = Dir::new("launch-result");
+        let mut failed = vm(&failed_dir);
+        failed.finish_launch(Err("no terminal found".into()));
+        assert_eq!(text(&failed), "no terminal found");
+        let ok_dir = Dir::new("launch-ok");
+        let mut ok = vm(&ok_dir);
+        ok.finish_launch(Ok(()));
+        assert!(ok.message().is_none(), "a launched program needs no popup");
     }
 
     #[test]

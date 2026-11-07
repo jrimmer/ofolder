@@ -1091,7 +1091,7 @@ impl Shared {
                     .spawn(async move { actions.open_in_file_manager(&path) })
                     .await;
                 this.update(cx, |t, cx| {
-                    t.vm.finish_launch("file manager", result);
+                    t.vm.finish_launch(result);
                     t.changed(cx);
                 })
                 .ok();
@@ -1102,7 +1102,7 @@ impl Shared {
                     .spawn(async move { actions.open_in_terminal(&path) })
                     .await;
                 this.update(cx, |t, cx| {
-                    t.vm.finish_launch("terminal", result);
+                    t.vm.finish_launch(result);
                     t.changed(cx);
                 })
                 .ok();
