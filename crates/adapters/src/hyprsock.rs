@@ -215,6 +215,14 @@ impl Compositor for HyprSocket {
         self.fallback.focus(address)
     }
 
+    fn focus_leaving_pointer(&self, address: &str) -> Result<Option<(i32, i32)>, SystemError> {
+        self.fallback.focus_leaving_pointer(address)
+    }
+
+    fn move_pointer(&self, x: i32, y: i32) -> Result<(), SystemError> {
+        self.fallback.move_pointer(x, y)
+    }
+
     fn float_window(
         &self,
         address: &str,

@@ -121,8 +121,10 @@ impl Compositor for Hyprctl {
             )
         })?;
         // Focusing a window warps the pointer to its centre, which pulls it
-        // off the rail icon the user just clicked. Put it back afterwards;
-        // moving it by dispatcher does not hand focus to the window under it.
+        // off the rail icon the user just clicked. Put it back afterwards. With
+        // follow-mouse on, that hands the keyboard to the window under the
+        // pointer again within moments (measured on a live desktop), so a caller
+        // that needs the keyboard to stay uses `focus_leaving_pointer` instead.
         let pointer = self.cursor().ok();
         let focused = Self::dispatch(
             "focus",
@@ -136,6 +138,28 @@ impl Compositor for Hyprctl {
             .ok();
         }
         focused
+    }
+
+    fn focus_leaving_pointer(&self, address: &str) -> Result<Option<(i32, i32)>, SystemError> {
+        Self::checked(address).map_err(|_| {
+            failure(
+                "focus",
+                format!("refusing a malformed window address {address:?}"),
+            )
+        })?;
+        let pointer = self.cursor().ok();
+        Self::dispatch(
+            "focus",
+            &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"),
+        )?;
+        Ok(pointer)
+    }
+
+    fn move_pointer(&self, x: i32, y: i32) -> Result<(), SystemError> {
+        Self::dispatch(
+            "cursor",
+            &format!("hl.dsp.cursor.move({{ x = {x}, y = {y} }})"),
+        )
     }
 
     fn float_window(

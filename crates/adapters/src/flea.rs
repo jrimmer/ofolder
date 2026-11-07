@@ -444,6 +444,8 @@ mod tests {
         active: Mutex<Option<String>>,
         /// Whether asking for focus actually moves it.
         focus_works: bool,
+        /// Set when another window has taken focus for good: asking no longer moves it.
+        refuse_focus: std::sync::atomic::AtomicBool,
         focused: Mutex<Vec<String>>,
     }
 
@@ -453,6 +455,7 @@ mod tests {
                 clients,
                 active: Mutex::new(active.map(str::to_owned)),
                 focus_works,
+                refuse_focus: std::sync::atomic::AtomicBool::new(false),
                 focused: Mutex::new(Vec::new()),
             })
         }
@@ -470,7 +473,7 @@ mod tests {
         }
         fn focus(&self, address: &str) -> Result<(), SystemError> {
             self.focused.lock().expect("lock").push(address.to_owned());
-            if self.focus_works {
+            if self.focus_works && !self.refuse_focus.load(std::sync::atomic::Ordering::Relaxed) {
                 *self.active.lock().expect("lock") = Some(address.to_owned());
             }
             Ok(())
@@ -504,6 +507,8 @@ mod tests {
         compositor: Arc<FakeCompositor>,
         /// After this many keys, another window takes focus.
         steal_focus_after: Option<usize>,
+        /// Whether that window then keeps it against every request, or lets the next one through.
+        steal_for_good: bool,
         bar: Arc<Bar>,
     }
 
@@ -524,6 +529,11 @@ mod tests {
             sent.push(keys.clone());
             if self.steal_focus_after == Some(sent.len()) {
                 *self.compositor.active.lock().expect("lock") = Some("0xdead".to_owned());
+                if self.steal_for_good {
+                    self.compositor
+                        .refuse_focus
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
             Ok(())
         }
@@ -545,6 +555,16 @@ mod tests {
         steal_focus_after: Option<usize>,
         bar: Bar,
     ) -> Rig {
+        rig_full(active, focus_works, steal_focus_after, true, bar)
+    }
+
+    fn rig_full(
+        active: Option<&str>,
+        focus_works: bool,
+        steal_focus_after: Option<usize>,
+        steal_for_good: bool,
+        bar: Bar,
+    ) -> Rig {
         let bar = Arc::new(bar);
         let compositor = FakeCompositor::new(
             vec![
@@ -558,6 +578,7 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after,
+            steal_for_good,
             bar: bar.clone(),
         });
         let adapter = FleaAdapter::new(compositor.clone(), typist.clone())
@@ -590,12 +611,13 @@ mod tests {
     }
 
     #[test]
-    fn goto_focuses_the_picker_then_sends_ctrl_l_the_path_and_return_in_order() {
+    fn goto_focuses_the_picker_before_each_group_and_sends_ctrl_l_the_path_and_return_in_order() {
         let mut r = rig(Some("0xother"), true, None);
         r.adapter.goto(Path::new("/home/j/Work")).expect("goto");
         assert_eq!(
             r.compositor.focused.lock().expect("lock").as_slice(),
-            ["0xaaa"]
+            ["0xaaa", "0xaaa", "0xaaa"],
+            "the picker, and only the picker, is asked for before Ctrl+L, the path and Return"
         );
         assert_eq!(
             sent(&r),
@@ -664,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn goto_stops_the_moment_focus_leaves_the_picker() {
+    fn goto_stops_the_moment_focus_leaves_the_picker_and_cannot_be_taken_back() {
         let mut r = rig(Some("0xaaa"), true, Some(1));
         let err = r
             .adapter
@@ -675,6 +697,31 @@ mod tests {
             sent(&r),
             [Keys::CtrlL],
             "the path must not follow into another window"
+        );
+    }
+
+    #[test]
+    fn goto_takes_the_keyboard_back_when_another_window_took_it_between_groups() {
+        let mut r = rig_full(Some("0xaaa"), true, Some(1), false, Bar::default());
+        r.adapter
+            .goto(Path::new("/home/j/Work"))
+            .expect("the next group takes the keyboard back");
+        assert_eq!(
+            sent(&r),
+            [
+                Keys::CtrlL,
+                Keys::Text("/home/j/Work".to_owned()),
+                Keys::Return
+            ]
+        );
+        assert!(
+            r.compositor
+                .focused
+                .lock()
+                .expect("lock")
+                .iter()
+                .all(|a| a == "0xaaa"),
+            "focus is only ever asked for the picker"
         );
     }
 
@@ -697,6 +744,7 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after: None,
+            steal_for_good: true,
             bar: Arc::default(),
         });
         let mut adapter = FleaAdapter::new(compositor, typist)
@@ -976,6 +1024,7 @@ mod tests {
             sent: Mutex::new(Vec::new()),
             compositor: compositor.clone(),
             steal_focus_after: None,
+            steal_for_good: true,
             bar: Arc::default(),
         });
         let adapter = FleaAdapter::new(compositor, typist);

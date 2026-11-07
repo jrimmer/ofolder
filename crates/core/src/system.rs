@@ -25,6 +25,21 @@ pub trait Compositor: Send + Sync {
     fn active_window(&self) -> Result<Option<String>, SystemError>;
     fn focus(&self, address: &str) -> Result<(), SystemError>;
 
+    /// Like [`focus`](Self::focus), but leaves the pointer where focusing put it (the middle of
+    /// that window) and says where it was, so the caller can put it back with
+    /// [`move_pointer`](Self::move_pointer) once what needed the keyboard is done. With
+    /// focus-follows-mouse a pointer put back at once on another window of ours takes the
+    /// keyboard straight back, which is why the two steps are apart. The default cannot say where
+    /// the pointer was, and so has nothing to put back.
+    fn focus_leaving_pointer(&self, address: &str) -> Result<Option<(i32, i32)>, SystemError> {
+        self.focus(address).map(|()| None)
+    }
+
+    /// Puts the pointer at `x`, `y`, in layout pixels.
+    fn move_pointer(&self, _x: i32, _y: i32) -> Result<(), SystemError> {
+        Err(unsupported("move the pointer"))
+    }
+
     /// Starts telling `wake` whenever windows change (one opens, closes, moves between
     /// workspaces, takes focus, floats). The flag returned is true while that is working. A
     /// compositor that cannot say returns a flag that stays false, and the caller keeps polling.
