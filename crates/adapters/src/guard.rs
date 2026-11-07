@@ -42,8 +42,10 @@ impl KeyGuard {
     }
 
     /// Succeeds only when `address` has keyboard focus. With `focus` it first
-    /// asks the compositor to give it focus and waits for that to land. `step` names
-    /// where in a sequence the check is, for the line a refusal leaves in the journal.
+    /// asks the compositor to give it focus and waits for that to land, asking
+    /// again twice if it does not (a pointer resting on another of our windows can
+    /// take the keyboard back). `step` names where in a sequence the check is, for
+    /// the line a refusal leaves in the journal.
     pub fn ensure_active(
         &self,
         step: &str,
@@ -54,6 +56,8 @@ impl KeyGuard {
             self.compositor.focus(address).map_err(backend)?;
         }
         let tries = if focus { 8 } else { 1 };
+        let pointer_before = self.compositor.cursor().ok();
+        let mut asked_again = 0;
         let mut seen: Vec<Option<String>> = Vec::new();
         for attempt in 0..tries {
             let active = self.compositor.active_window().map_err(backend)?;
@@ -63,9 +67,21 @@ impl KeyGuard {
             seen.push(active);
             if attempt + 1 < tries {
                 sleep(self.pace / 2);
+                if focus && (attempt == 2 || attempt == 5) {
+                    self.compositor.focus(address).map_err(backend)?;
+                    asked_again += 1;
+                }
             }
         }
-        self.report_focus_miss(step, address, focus, &seen);
+        let pointer_after = self.compositor.cursor().ok();
+        self.report_focus_miss(
+            step,
+            address,
+            focus,
+            &seen,
+            asked_again,
+            pointer_before.zip(pointer_after),
+        );
         Err(AdapterError::Refused(
             "the dialog is not the active window, so nothing was typed".to_owned(),
         ))
@@ -73,7 +89,15 @@ impl KeyGuard {
 
     /// One journal line saying which window held the keyboard instead of the dialog, by
     /// class only (never a title), so a refusal can be explained afterwards.
-    fn report_focus_miss(&self, step: &str, address: &str, focus: bool, seen: &[Option<String>]) {
+    fn report_focus_miss(
+        &self,
+        step: &str,
+        address: &str,
+        focus: bool,
+        seen: &[Option<String>],
+        asked_again: u32,
+        pointer: Option<((i32, i32), (i32, i32))>,
+    ) {
         let clients = self.compositor.clients().unwrap_or_default();
         let class_of = |addr: &str| {
             clients
@@ -91,8 +115,13 @@ impl KeyGuard {
                 holders.push(who);
             }
         }
+        let pointer = match pointer {
+            Some((a, b)) if a == b => "pointer still".to_owned(),
+            Some(_) => "pointer moved".to_owned(),
+            None => "pointer unknown".to_owned(),
+        };
         eprintln!(
-            "ofolder: focus check failed at {step}: wanted {} ({address}), keyboard held by [{}] over {} look(s), asked for focus: {focus}",
+            "ofolder: focus check failed at {step}: wanted {} ({address}), keyboard held by [{}] over {} look(s), asked for focus: {focus} (and again {asked_again}x), {pointer}",
             class_of(address),
             holders.join(" > "),
             seen.len()
@@ -194,5 +223,93 @@ impl KeyGuard {
     pub fn escape(&self, address: &str) -> Result<(), AdapterError> {
         self.ensure_active("escape", address, true)?;
         self.typist.send(&Keys::Escape).map_err(backend)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ofolder_core::hypr::{Client, Monitor};
+    use std::sync::Mutex;
+
+    /// A compositor that ignores the first `ignore` requests for focus, as one does when a
+    /// pointer resting on another window takes the keyboard straight back.
+    struct Reluctant {
+        ignore: usize,
+        asked: Mutex<usize>,
+        active: Mutex<Option<String>>,
+    }
+
+    impl Reluctant {
+        fn new(ignore: usize) -> Arc<Self> {
+            Arc::new(Self {
+                ignore,
+                asked: Mutex::new(0),
+                active: Mutex::new(Some("0xrail".to_owned())),
+            })
+        }
+        fn asked(&self) -> usize {
+            *self.asked.lock().expect("lock")
+        }
+    }
+
+    impl Compositor for Reluctant {
+        fn clients(&self) -> Result<Vec<Client>, SystemError> {
+            Ok(Vec::new())
+        }
+        fn monitors(&self) -> Result<Vec<Monitor>, SystemError> {
+            Ok(Vec::new())
+        }
+        fn active_window(&self) -> Result<Option<String>, SystemError> {
+            Ok(self.active.lock().expect("lock").clone())
+        }
+        fn focus(&self, address: &str) -> Result<(), SystemError> {
+            let mut asked = self.asked.lock().expect("lock");
+            *asked += 1;
+            if *asked > self.ignore {
+                *self.active.lock().expect("lock") = Some(address.to_owned());
+            }
+            Ok(())
+        }
+    }
+
+    struct NoTypist;
+
+    impl Typist for NoTypist {
+        fn send(&self, _: &Keys) -> Result<(), SystemError> {
+            Ok(())
+        }
+    }
+
+    fn guard(compositor: Arc<Reluctant>) -> KeyGuard {
+        KeyGuard::new(compositor, Arc::new(NoTypist), Duration::ZERO)
+    }
+
+    #[test]
+    fn a_request_for_focus_that_did_not_hold_is_asked_again_before_giving_up() {
+        let compositor = Reluctant::new(1);
+        guard(compositor.clone())
+            .ensure_active("test", "0xdialog", true)
+            .expect("the second request lands");
+        assert_eq!(compositor.asked(), 2);
+    }
+
+    #[test]
+    fn focus_that_never_lands_is_refused_after_two_more_requests_and_nothing_else() {
+        let compositor = Reluctant::new(usize::MAX);
+        let err = guard(compositor.clone())
+            .ensure_active("test", "0xdialog", true)
+            .expect_err("must refuse");
+        assert!(matches!(err, AdapterError::Refused(_)), "{err:?}");
+        assert_eq!(compositor.asked(), 3, "the first request and two more");
+    }
+
+    #[test]
+    fn a_check_that_does_not_ask_for_focus_never_asks() {
+        let compositor = Reluctant::new(0);
+        guard(compositor.clone())
+            .ensure_active("test", "0xdialog", false)
+            .expect_err("the rail holds focus");
+        assert_eq!(compositor.asked(), 0);
     }
 }

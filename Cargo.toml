@@ -36,3 +36,8 @@ thiserror = "2"
 toml = "1.1"
 toml_edit = "0.25"
 zbus = "5.19"
+
+# gpui's renderer panics when a window's last queued Wayland event arrives after the window is
+# gone; see vendor/blade-graphics/OFOLDER-PATCH.md.
+[patch.crates-io]
+blade-graphics = { path = "vendor/blade-graphics" }
