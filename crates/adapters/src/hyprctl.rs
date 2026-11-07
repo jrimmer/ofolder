@@ -121,11 +121,8 @@ impl Compositor for Hyprctl {
             )
         })?;
         // Focusing a window warps the pointer to its centre, which pulls it
-        // off the rail icon the user just clicked. Put it back afterwards. With
-        // `follow_mouse` on, that move would hand the keyboard to the rail under
-        // the pointer, so the rails carry the `no_follow_mouse` rule (see
-        // `float_rule_lua`); measured on a live desktop, without it the rail
-        // took the keyboard back within half a second.
+        // off the rail icon the user just clicked. Put it back afterwards;
+        // moving it by dispatcher does not hand focus to the window under it.
         let pointer = self.cursor().ok();
         let focused = Self::dispatch(
             "focus",

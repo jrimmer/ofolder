@@ -112,10 +112,7 @@ pub fn float_rule_lua(
         if take_focus {
             ""
         } else {
-            // Nor may a pointer moving over it take the keyboard: after the keys are aimed at the
-            // dialog the pointer goes back onto the rail icon, and with `follow_mouse` on that
-            // would hand the keyboard straight back to the rail.
-            ", no_initial_focus = true, no_follow_mouse = true"
+            ", no_initial_focus = true"
         }
     ))
 }
@@ -238,10 +235,6 @@ mod tests {
         let normal = float_rule_lua("n", "c", (1, 1), (0, 0), true).expect("plain");
         assert!(quiet.contains("no_initial_focus = true"), "{quiet}");
         assert!(!normal.contains("no_initial_focus"), "{normal}");
-        // A window that does not take the keyboard is not given it by a pointer passing over it
-        // either; one that does take it (a menu) is left to follow the pointer.
-        assert!(quiet.contains("no_follow_mouse = true"), "{quiet}");
-        assert!(!normal.contains("no_follow_mouse"), "{normal}");
     }
 
     #[test]
