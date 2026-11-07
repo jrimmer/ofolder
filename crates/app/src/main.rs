@@ -56,7 +56,22 @@ commands:
                install.sh --uninstall
   version      print the version";
 
+/// A panic prints its message and then, always, where it happened. Without this the journal
+/// holds a message with no call chain unless `RUST_BACKTRACE` happened to be set, and the
+/// rails (a separate process, started by the portal) die without a trace.
+fn log_panics() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        eprintln!(
+            "ofolder: where the panic above happened:\n{}",
+            std::backtrace::Backtrace::force_capture()
+        );
+    }));
+}
+
 fn main() -> anyhow::Result<()> {
+    log_panics();
     match env::args().nth(1).as_deref() {
         Some("adapters") => {
             adapters();

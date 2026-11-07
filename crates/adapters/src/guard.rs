@@ -42,24 +42,61 @@ impl KeyGuard {
     }
 
     /// Succeeds only when `address` has keyboard focus. With `focus` it first
-    /// asks the compositor to give it focus and waits for that to land.
-    pub fn ensure_active(&self, address: &str, focus: bool) -> Result<(), AdapterError> {
+    /// asks the compositor to give it focus and waits for that to land. `step` names
+    /// where in a sequence the check is, for the line a refusal leaves in the journal.
+    pub fn ensure_active(
+        &self,
+        step: &str,
+        address: &str,
+        focus: bool,
+    ) -> Result<(), AdapterError> {
         if focus {
             self.compositor.focus(address).map_err(backend)?;
         }
         let tries = if focus { 8 } else { 1 };
+        let mut seen: Vec<Option<String>> = Vec::new();
         for attempt in 0..tries {
             let active = self.compositor.active_window().map_err(backend)?;
             if active.as_deref() == Some(address) {
                 return Ok(());
             }
+            seen.push(active);
             if attempt + 1 < tries {
                 sleep(self.pace / 2);
             }
         }
+        self.report_focus_miss(step, address, focus, &seen);
         Err(AdapterError::Refused(
             "the dialog is not the active window, so nothing was typed".to_owned(),
         ))
+    }
+
+    /// One journal line saying which window held the keyboard instead of the dialog, by
+    /// class only (never a title), so a refusal can be explained afterwards.
+    fn report_focus_miss(&self, step: &str, address: &str, focus: bool, seen: &[Option<String>]) {
+        let clients = self.compositor.clients().unwrap_or_default();
+        let class_of = |addr: &str| {
+            clients
+                .iter()
+                .find(|c| c.address == addr)
+                .map_or("unknown", |c| c.class.as_str())
+                .to_owned()
+        };
+        let mut holders: Vec<String> = Vec::new();
+        for active in seen {
+            let who = active
+                .as_deref()
+                .map_or_else(|| "none".to_owned(), class_of);
+            if holders.last() != Some(&who) {
+                holders.push(who);
+            }
+        }
+        eprintln!(
+            "ofolder: focus check failed at {step}: wanted {} ({address}), keyboard held by [{}] over {} look(s), asked for focus: {focus}",
+            class_of(address),
+            holders.join(" > "),
+            seen.len()
+        );
     }
 
     /// Ctrl+L, the path, Return, into the window `window()` names, checking
@@ -75,9 +112,13 @@ impl KeyGuard {
             .to_str()
             .ok_or_else(|| AdapterError::Refused("the path is not valid UTF-8".to_owned()))?
             .to_owned();
-        self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, true)?;
+        self.ensure_active("focus", &window().ok_or(AdapterError::NotRunning)?, true)?;
         for keys in [Keys::CtrlL, Keys::Text(text), Keys::Return] {
-            self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, false)?;
+            self.ensure_active(
+                "before keys",
+                &window().ok_or(AdapterError::NotRunning)?,
+                false,
+            )?;
             self.typist.send(&keys).map_err(backend)?;
             sleep(self.pace);
         }
@@ -102,9 +143,13 @@ impl KeyGuard {
             .to_str()
             .ok_or_else(|| AdapterError::Refused("the path is not valid UTF-8".to_owned()))?
             .to_owned();
-        self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, true)?;
+        self.ensure_active("focus", &window().ok_or(AdapterError::NotRunning)?, true)?;
         let send = |keys: &Keys| -> Result<(), AdapterError> {
-            self.ensure_active(&window().ok_or(AdapterError::NotRunning)?, false)?;
+            self.ensure_active(
+                "before keys",
+                &window().ok_or(AdapterError::NotRunning)?,
+                false,
+            )?;
             self.typist.send(keys).map_err(backend)
         };
         let mut seen = None;
@@ -147,7 +192,7 @@ impl KeyGuard {
 
     /// Escape, if and only if the dialog is the active window.
     pub fn escape(&self, address: &str) -> Result<(), AdapterError> {
-        self.ensure_active(address, true)?;
+        self.ensure_active("escape", address, true)?;
         self.typist.send(&Keys::Escape).map_err(backend)
     }
 }
