@@ -10,10 +10,27 @@ cd "$(dirname "$0")/.."
 dest="$HOME/.local/bin/ofolder"
 previous="$HOME/.local/bin/ofolder.previous"
 
+# Stops the running portal by the process id the session bus recorded for its name, never by
+# searching process names, which could end somebody else's program. A dialog already open keeps its
+# own rails until it closes; the next dialog starts the portal again from the new build.
+stop_portal() {
+  local name=org.freedesktop.impl.portal.desktop.ofolder pid
+  pid=$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.GetConnectionUnixProcessID "$name" 2>/dev/null |
+    sed -n 's/^(uint32 \([0-9][0-9]*\),)$/\1/p') || true
+  if [ -z "$pid" ]; then
+    echo "the portal is not running, so there was nothing to stop"
+  elif [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = ofolder ]; then
+    kill "$pid" && echo "stopped the running portal (process $pid)"
+  else
+    echo "process $pid holds the portal's name but is not ofolder, so it was left alone" >&2
+  fi
+}
+
 if [ "${1:-}" = "--rollback" ]; then
   [ -x "$previous" ] || { echo "there is no previous build at $previous" >&2; exit 1; }
   cp "$previous" "$dest.new" && mv "$dest.new" "$dest"
-  pkill -x ofolder || true
+  stop_portal
   echo "put the previous build back: $("$dest" version)"
   exit 0
 fi
@@ -49,6 +66,6 @@ echo "$("$HOME/.local/lib/ofolder/praeco" --version) (verified against its pinne
 cp "$new" "$dest.new"
 mv "$dest.new" "$dest"
 cmp "$new" "$dest"
-pkill -x ofolder || true   # the portal starts again from the new build on the next dialog
+stop_portal   # the portal starts again from the new build on the next dialog
 echo "installed $dest (the previous build is kept as $previous)"
 echo "now open one real Save or Open dialog; if dialogs stop appearing: bin/install --rollback"
