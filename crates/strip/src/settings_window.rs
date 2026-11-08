@@ -55,7 +55,28 @@ pub const RECENTS_AGE_CHOICES: [(u32, &str); 4] = [
 /// How long the copy button says "Copied".
 const COPIED_FOR: Duration = Duration::from_millis(2500);
 
-/// What a bug report gets: the versions, then the messages as they were logged, oldest first.
+/// A message with every path in it replaced by `<folder>`: a word with a `/` in it or starting with
+/// `~`, keeping the punctuation around it. The report Ofolder makes itself leaves folder and file
+/// names out, and so does this one, since a bug report is usually posted in public.
+pub fn without_paths(line: &str) -> String {
+    const OPENING: &str = "(\"'";
+    const CLOSING: &str = ",.;:)\"'";
+    line.split(' ')
+        .map(|word| {
+            if !(word.contains('/') || word.starts_with('~')) {
+                return word.to_owned();
+            }
+            let body = word.trim_start_matches(|c| OPENING.contains(c));
+            let head = &word[..word.len() - body.len()];
+            let core = body.trim_end_matches(|c| CLOSING.contains(c));
+            format!("{head}<folder>{}", &body[core.len()..])
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// What a bug report gets: the versions, then the messages as they were logged, oldest first, with
+/// the paths in them left out.
 pub fn report_text(ofolder_version: &str, beside: &str, lines: &[String]) -> String {
     let mut text = format!("Ofolder {ofolder_version}\n");
     if !beside.is_empty() {
@@ -67,7 +88,7 @@ pub fn report_text(ofolder_version: &str, beside: &str, lines: &[String]) -> Str
         text.push_str("No messages yet.\n");
     }
     for line in lines {
-        text.push_str(line);
+        text.push_str(&without_paths(line));
         text.push('\n');
     }
     text
@@ -1850,6 +1871,10 @@ impl SettingsWindow {
                 .on_click(cx.listener(|this, _, _, cx| this.copy_messages(cx)))
                 .into_any_element(),
         ];
+        out.push(Self::hint(
+            "Folder names in the messages are left out of the copy (shown as <folder>). \
+             Read it before you post it anywhere.",
+        ));
         if let Some(Err(why)) = &self.copied {
             out.push(
                 div()
@@ -2612,6 +2637,23 @@ mod tests {
         let listed: Vec<_> = Pane::ALL.iter().filter(|p| !p.in_corner()).collect();
         assert_eq!(listed.last(), Some(&&Pane::Shortcuts));
         assert_eq!(Pane::ALL.iter().filter(|p| p.in_corner()).count(), 1);
+    }
+
+    #[test]
+    fn a_message_loses_the_folders_it_names_and_keeps_the_rest() {
+        assert_eq!(
+            without_paths("2026-11-07 10:00:00 error go: ~/Clients/Acme: the folder is missing"),
+            "2026-11-07 10:00:00 error go: <folder>: the folder is missing"
+        );
+        assert_eq!(
+            without_paths("did not read back (/home/alex/Projects/a), then \"/srv/b\" failed."),
+            "did not read back (<folder>), then \"<folder>\" failed."
+        );
+        assert_eq!(
+            without_paths("refused: the dialog is not the active window, so nothing was typed"),
+            "refused: the dialog is not the active window, so nothing was typed"
+        );
+        assert_eq!(without_paths("~"), "<folder>");
     }
 
     #[test]

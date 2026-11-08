@@ -15,7 +15,7 @@ Fixes the two problems 1.0.0 had in daily use, and quietens the rails.
   the dialog instead of beside a rail: failures, the first-dialog welcome (without a coloured edge) and
   the note about a backend version nobody tried.
 - **Settings.** Messages now sits above the version, with a button that copies the versions and the
-  messages for a bug report. The version line says what Ofolder sits beside, such as "With Flea v0.4.0".
+  messages for a bug report, with folder names left out. The version line says what Ofolder sits beside, such as "With Flea v0.4.0".
   For the GTK portal the line gives the portal's own version, since GTK's would be the wrong number.
   "Keep the dialog open after opening the file manager" now says what on and off do, and the note under
   "Keep Ofolder working" lines up with its label.
