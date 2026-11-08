@@ -20,6 +20,7 @@ const ALL: &[&str] = &[
     "icons/folder-plus.svg",
     "icons/forward.svg",
     "icons/gear.svg",
+    "icons/github.svg",
     "icons/parent.svg",
     "icons/places.svg",
     "icons/recent.svg",
@@ -44,6 +45,7 @@ fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/folder-plus.svg" => include_bytes!("../assets/icons/folder-plus.svg"),
         "icons/forward.svg" => include_bytes!("../assets/icons/forward.svg"),
         "icons/gear.svg" => include_bytes!("../assets/icons/gear.svg"),
+        "icons/github.svg" => include_bytes!("../assets/icons/github.svg"),
         "icons/parent.svg" => include_bytes!("../assets/icons/parent.svg"),
         "icons/places.svg" => include_bytes!("../assets/icons/places.svg"),
         "icons/recent.svg" => include_bytes!("../assets/icons/recent.svg"),
@@ -84,6 +86,7 @@ mod tests {
         for extra in [
             "icons/star-filled.svg",
             "icons/gear.svg",
+            "icons/github.svg",
             "icons/close.svg",
             "icons/chevron-up.svg",
             "icons/chevron-down.svg",

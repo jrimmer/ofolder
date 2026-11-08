@@ -39,6 +39,8 @@ pub const SIZE: (i32, i32) = (780, 560);
 const SIDEBAR: f32 = 180.;
 /// The width of a row's label, before its control.
 const LABEL: f32 = 160.;
+/// Where the project lives; the logo in the corner opens it.
+const PROJECT_URL: &str = "https://github.com/jrimmer/ofolder";
 /// A switch's width and the gap before its label, so a hint can start where the label does.
 const SWITCH_WIDTH: f32 = 34.;
 const SWITCH_GAP: f32 = 12.;
@@ -1910,6 +1912,25 @@ impl SettingsWindow {
         out
     }
 
+    /// Opens the project page in the browser; a failure is said at the foot of the window.
+    fn open_project(&mut self, cx: &mut Context<Self>) {
+        let actions = self.shared.read(cx).actions();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.open_url(PROJECT_URL) })
+                .await;
+            if let Err(why) = result {
+                this.update(cx, |t, cx| {
+                    t.error = Some(format!("Could not open the project page: {why}"));
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     /// Puts the versions and the kept messages, oldest first, on the clipboard, ready to paste
     /// into a bug report. The button says "Copied" for a moment; a failure is said beside it.
     fn copy_messages(&mut self, cx: &mut Context<Self>) {
@@ -2393,7 +2414,30 @@ impl SettingsWindow {
                             .flex_col()
                             .gap(px(3.))
                             .child(div().font_weight(FontWeight::BOLD).child("Ofolder"))
-                            .child(muted(format!("Version {version}")))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(muted(format!("Version {version}")))
+                                    .child(
+                                        div()
+                                            .id("project-link")
+                                            .flex_none()
+                                            .cursor_pointer()
+                                            .opacity(0.7)
+                                            .hover(|s| s.opacity(1.))
+                                            .child(
+                                                svg()
+                                                    .path("icons/github.svg")
+                                                    .size(px(13.))
+                                                    .text_color(rgb(colors().muted)),
+                                            )
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| this.open_project(cx)),
+                                            ),
+                                    ),
+                            )
                             .when(!beside.is_empty(), |d| d.child(muted(beside.clone())))
                             .child(muted("© 2026 Jason Rimmer".to_owned()))
                             .child(muted("MIT License".to_owned())),

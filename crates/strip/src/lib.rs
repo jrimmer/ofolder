@@ -225,6 +225,10 @@ pub trait StripActions: Send + Sync + 'static {
     /// in force before it maps, or it has closed (`false`). It never takes
     /// the keyboard. Called on the UI thread, so it must return quickly.
     fn place_preview(&self, _open: bool) {}
+    /// Opens a web address in the user's browser. Called from a background thread.
+    fn open_url(&self, _url: &str) -> Result<(), String> {
+        Err("links cannot be opened from here".to_owned())
+    }
     fn copy_text(&self, _text: &str) -> Result<(), String> {
         Err("the clipboard cannot be set from a shortcut here".to_owned())
     }

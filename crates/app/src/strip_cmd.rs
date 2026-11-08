@@ -296,6 +296,18 @@ impl StripActions for Actions {
         self.adapter.lock().ok()?.read_folder()
     }
 
+    fn open_url(&self, url: &str) -> Result<(), String> {
+        // Only a web address: the program that opens it would act on anything else it is given.
+        if !url.starts_with("https://") {
+            return Err(format!("{url} is not a web address"));
+        }
+        spawn_detached(&Command {
+            program: "xdg-open".to_owned(),
+            args: vec![url.to_owned()],
+            cwd: None,
+        })
+    }
+
     fn dialog_width(&self) -> Option<i32> {
         self.dock.lock().ok()?.dialog.map(|d| d.w)
     }
