@@ -66,7 +66,11 @@ pub fn start_probe(backend: String, home: PathBuf, state_dir: PathBuf) {
     if std::env::var_os("OFOLDER_NO_VERSION_PROBE").is_some() {
         return;
     }
-    let Some(program) = program_for(&backend, &home) else {
+    // The GTK portal has no program of its own to ask; its toolkit's launcher reports the GTK
+    // version, which is as near as can be had and is only shown, never judged.
+    let program = program_for(&backend, &home)
+        .or_else(|| (backend == "gtk").then(|| "gtk4-launch".to_owned()));
+    let Some(program) = program else {
         record(&state_dir, &backend, None);
         return;
     };

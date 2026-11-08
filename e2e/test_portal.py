@@ -188,8 +188,7 @@ class Flavour:
 
     def folder_is(self, folder, limit=1.0):
         """True once the rails read `folder` as the dialog's. The rails are asked at a person's pace:
-        each copy-path raises a message window, and asking many times a second is not a use anyone
-        has."""
+        asking many times a second is not a use anyone has."""
         deadline = time.monotonic() + limit
         while True:
             self.s.run([OFOLDER, "do", "copy_path"])
@@ -547,8 +546,8 @@ class Features:
         open(self.data("recents.json"), "w").write(json.dumps(doc))
 
     def open_menu(self, command):
-        # A message ("Path copied") lives in a window of the same class as the menus, so it must
-        # be gone before a menu's window can be told from it.
+        # A message lives in a window of the same class as the menus, so it must be gone before a
+        # menu's window can be told from it.
         self.assertTrue(wait_for(15, lambda: not self.s.client(MENU)), "a message window would not go away")
         self.do(command)
         menu = wait_for(10, lambda: self.s.client(MENU))
@@ -576,7 +575,7 @@ class Features:
         self.assertTrue(os.path.isfile(marker), "the note was shown but not remembered")
         time.sleep(0.5)
         self.shot("welcome")
-        self.assertTrue(self.s.click(MENU, 100, 30), "the click did not land")
+        self.assertTrue(self.s.click(MENU, 100, 20), "the click did not land")
         self.assertTrue(wait_for(8, lambda: not self.s.client(MENU)), "a click did not close the note")
         self.close_dialog()
         self.open_dialog()
@@ -591,6 +590,7 @@ class Features:
         state = os.path.join(self.home(), ".local/state/ofolder")
         version_file = os.path.join(state, "backend-version")
         marker = os.path.join(state, "version-noted-%s-9.9.9" % backend)
+        os.makedirs(state, exist_ok=True)
         for f in (marker,):
             if os.path.exists(f):
                 os.remove(f)
@@ -599,6 +599,13 @@ class Features:
         self.assertTrue(self.strips())
         self.assertTrue(wait_for(10, lambda: self.s.client(MENU)), "no note about the untried version")
         self.assertTrue(os.path.isfile(marker), "the note was shown but not remembered")
+        # The message is a bar as wide as the dialog, over its top edge (or along it when the
+        # monitor has no room above), not a window beside a rail.
+        bar, dialog = self.s.client(MENU), self.s.client(self.picker_class)
+        self.assertTrue(bar and dialog)
+        self.assertLessEqual(abs(bar["at"][0] - dialog["at"][0]), 2, "the bar is not over the dialog")
+        self.assertLessEqual(abs(bar["size"][0] - dialog["size"][0]), 2, "the bar is not as wide as the dialog")
+        self.assertLessEqual(bar["at"][1], dialog["at"][1] + 2, "the bar is not at the dialog's top")
         time.sleep(0.5)
         self.shot("version-note")
         self.assertTrue(self.s.click(MENU, 100, 30))
@@ -792,12 +799,28 @@ class Features:
         made = os.path.join(self.one, "made")
         self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "the prompt did not take the keyboard")
         self.assertTrue(self.s.type_text(MENU, "made"))
+        time.sleep(0.5)
+        self.shot("new-folder-typed")
         self.assertTrue(self.s.type_text(MENU, key="Return"))
         self.assertTrue(wait_for(10, lambda: os.path.isdir(made)), "the folder was not made")
         self.assertTrue(
             self.folder_is(made, 12),
             "the dialog did not go into the new folder; the rails read %r\n%s" % (self.clipboard(1), self.messages()),
         )
+
+    def test_a_long_new_folder_name_keeps_its_end_in_view_and_escape_makes_nothing(self):
+        """A short name starts at the box's left edge; one too long for the box shows its end, so
+        what is being typed stays visible. Judged on the picture kept when E2E_SHOTS is set."""
+        self.start()
+        self.open_menu("new_folder")
+        self.assertTrue(wait_for(5, lambda: self.s.active_class() == MENU), "the prompt did not take the keyboard")
+        name = "a-very-long-folder-name-that-cannot-fit-the-box-ends-here"
+        self.assertTrue(self.s.type_text(MENU, name))
+        time.sleep(0.5)
+        self.shot("new-folder-long")
+        self.assertTrue(self.s.type_text(MENU, key="Escape"))
+        self.assertTrue(wait_for(8, lambda: not self.s.client(MENU)), "Escape did not close the prompt")
+        self.assertFalse(os.path.exists(os.path.join(self.one, name)), "Escape made the folder")
 
     def test_find_ranks_the_folders_it_knows_and_enter_goes_to_the_best(self):
         """The box ranks favorites, recents and places as you type; the search below the folder

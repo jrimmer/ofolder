@@ -178,6 +178,7 @@ pub fn demo_setup(base: &Path, palette: Palette) -> anyhow::Result<(StripOptions
         messages_path: Some(base.join("messages.log")),
         update_state_path: None,
         hint_marker: None,
+        backend_version: None,
         version_note: None,
     };
     Ok((options, base.join("Work/ofolder")))

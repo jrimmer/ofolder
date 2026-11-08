@@ -22,7 +22,8 @@ use crate::naming::validate_new_folder_name;
 use crate::paths;
 use crate::sources::{self, RecentsRead, Sources};
 
-/// How long an informational message stays.
+/// How long a note that is only information stays; a note that says something once uses `HINT_TTL`.
+#[cfg(test)]
 const INFO_TTL: Duration = Duration::from_millis(2500);
 /// What the two rails are, said once on the first dialog. Resting the pointer on it keeps it and
 /// a click dismisses it.
@@ -260,6 +261,19 @@ impl ViewModel {
         });
     }
 
+    /// Takes down the message on screen if it is an error from `context`, such as a failed
+    /// copy that has now worked. Another action's error stays.
+    pub fn clear_error(&mut self, context: &'static str) {
+        if self
+            .message
+            .as_ref()
+            .is_some_and(|m| m.kind == MessageKind::Error && m.context == context)
+        {
+            self.message = None;
+        }
+    }
+
+    #[cfg(test)]
     fn info(&mut self, context: &'static str, text: impl Into<String>) {
         self.say(context, text.into(), MessageKind::Info, INFO_TTL);
     }
@@ -382,7 +396,8 @@ impl ViewModel {
             return None;
         };
         let text = text.to_owned();
-        self.info("copy-path", "Path copied");
+        // A copy is silent when it works; it only clears its own earlier error.
+        self.clear_error("copy-path");
         Some(text)
     }
 
@@ -461,13 +476,14 @@ impl ViewModel {
     /// Adds `path` to the favorites, or removes it when it is one.
     pub fn toggle_favorite(&mut self, path: &Path) {
         if self.favorites.remove_path(path) {
+            // Silent when it works: the favorites list shows the change.
             if self.save_favorites() {
-                self.info("favorite", "Removed from favorites");
+                self.clear_error("favorite");
             }
             return;
         }
         if self.favorites.add(path.to_path_buf()) == AddOutcome::Added && self.save_favorites() {
-            self.info("favorite", "Added to favorites");
+            self.clear_error("favorite");
         }
     }
 
@@ -601,8 +617,9 @@ impl ViewModel {
         match result {
             Ok(created) => {
                 self.mode = Mode::Browse;
-                let shown = paths::shorten_path(&paths::abbreviate(&created, &self.home), 24);
-                self.info("new-folder", format!("Created {shown}"));
+                // Silent when it works: the folder is there in the dialog.
+                let _ = created;
+                self.clear_error("new-folder");
             }
             Err(why) => self.error("new-folder", why),
         }
@@ -699,11 +716,6 @@ impl ViewModel {
 
     pub fn preview_settings(&self) -> ofolder_core::preview::PreviewSettings {
         self.preview
-    }
-
-    /// Shows a note that arose outside the view-model.
-    pub fn show_info(&mut self, context: &'static str, text: &str) {
-        self.info(context, text);
     }
 
     pub fn scope(&self) -> Scope {
@@ -1079,6 +1091,7 @@ mod tests {
             messages_path: None,
             update_state_path: None,
             hint_marker: None,
+            backend_version: None,
             version_note: None,
         }
     }
@@ -1118,12 +1131,12 @@ mod tests {
     }
 
     #[test]
-    fn copying_returns_the_absolute_path_and_confirms() {
+    fn copying_returns_the_absolute_path_and_shows_nothing() {
         let d = Dir::new("copy");
         let mut vm = vm(&d);
         at(&mut vm, "/home/ann/My Docs/é");
         assert_eq!(vm.copy_path().as_deref(), Some("/home/ann/My Docs/é"));
-        assert_eq!(vm.message().unwrap().kind, MessageKind::Info);
+        assert!(vm.message().is_none());
     }
 
     #[test]
@@ -1259,7 +1272,7 @@ mod tests {
         );
         vm.finish_new_folder(Ok(PathBuf::from("/srv/a/b")));
         assert_eq!(vm.mode(), Mode::Browse);
-        assert!(text(&vm).contains("/srv/a/b"));
+        assert!(vm.message().is_none(), "a folder made says nothing");
     }
 
     #[test]
@@ -1276,6 +1289,19 @@ mod tests {
     }
 
     #[test]
+    fn copying_a_path_shows_no_message_and_leaves_another_actions_error() {
+        let d = Dir::new("copy-silent");
+        let mut vm = vm(&d);
+        at(&mut vm, "/srv");
+        assert_eq!(vm.copy_path().as_deref(), Some("/srv"));
+        assert!(vm.message().is_none());
+        assert!(vm.take_shown().is_empty());
+        vm.show_error("favorite", "Could not save");
+        vm.copy_path();
+        assert_eq!(vm.message().map(|m| m.context), Some("favorite"));
+    }
+
+    #[test]
     fn a_long_error_stays_longer_within_a_limit() {
         assert_eq!(error_ttl("short"), Duration::from_secs(10));
         assert!(error_ttl(&"word ".repeat(40)) > Duration::from_secs(10));
@@ -1288,20 +1314,19 @@ mod tests {
         let mut vm = vm(&d);
         vm.copy_path();
         assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Error));
-        at(&mut vm, "/srv");
-        vm.toggle_current_favorite();
+        vm.info("note", "a note");
         assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Error));
-        // The same action succeeding replaces its own error.
+        // The same action succeeding takes its own error down, and says nothing itself.
+        at(&mut vm, "/srv");
         vm.copy_path();
-        assert_eq!(vm.message().map(|m| m.kind), Some(MessageKind::Info));
+        assert!(vm.message().is_none());
         let shown = vm.take_shown();
         let contexts: Vec<_> = shown.iter().map(|m| (m.kind, m.context)).collect();
         assert_eq!(
             contexts,
             [
                 (MessageKind::Error, "copy-path"),
-                (MessageKind::Info, "favorite"),
-                (MessageKind::Info, "copy-path")
+                (MessageKind::Info, "note")
             ]
         );
         assert!(
@@ -1315,7 +1340,7 @@ mod tests {
         let d = Dir::new("hold");
         let mut vm = vm(&d);
         at(&mut vm, "/srv");
-        vm.copy_path();
+        vm.info("test", "a note");
         vm.hold_message(true);
         assert!(!vm.expire_message(Instant::now() + Duration::from_secs(60)));
         vm.hold_message(false);
@@ -1328,7 +1353,7 @@ mod tests {
         let d = Dir::new("expire");
         let mut vm = vm(&d);
         at(&mut vm, "/srv");
-        vm.copy_path();
+        vm.info("test", "a note");
         let now = Instant::now();
         assert!(!vm.expire_message(now));
         assert!(vm.expire_message(now + Duration::from_secs(3)));

@@ -24,11 +24,26 @@ pub fn version_of(output: &str) -> Option<String> {
 
 /// The name a person knows the backend by.
 fn display(backend: &str) -> String {
+    if backend == "gtk" {
+        return "GTK".to_owned();
+    }
     let mut chars = backend.chars();
     chars
         .next()
         .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
         .unwrap_or_default()
+}
+
+/// Says what ofolder sits beside, as far as it could be learned: "With Flea v0.4.0", or "With Flea"
+/// when no version could be had. An empty backend says nothing.
+pub fn describe(backend: &str, version: Option<&str>) -> String {
+    if backend.is_empty() {
+        return String::new();
+    }
+    match version.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => format!("With {} v{}", display(backend), v.trim_start_matches('v')),
+        None => format!("With {}", display(backend)),
+    }
 }
 
 /// One line for a person when `version` of `backend` was not among those tried, else `None`.
@@ -48,6 +63,16 @@ pub fn untested_note(backend: &str, version: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_the_rails_sit_beside_is_said_with_its_version_when_known() {
+        assert_eq!(describe("flea", Some("0.4.0")), "With Flea v0.4.0");
+        assert_eq!(describe("strata", Some("v1.1.1")), "With Strata v1.1.1");
+        assert_eq!(describe("gtk", Some("4.24.1")), "With GTK v4.24.1");
+        assert_eq!(describe("flea", None), "With Flea");
+        assert_eq!(describe("flea", Some("  ")), "With Flea");
+        assert_eq!(describe("", Some("1")), "");
+    }
 
     #[test]
     fn the_number_is_found_in_what_each_program_prints() {

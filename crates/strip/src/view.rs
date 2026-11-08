@@ -124,6 +124,8 @@ pub struct Shared {
     leave_check: u64,
     /// The short backend name, e.g. "flea", for the settings window.
     pub label: String,
+    /// The backend's version, when it could be learned.
+    pub backend_version: Option<String>,
     /// The settings file, which the settings window reads and writes.
     pub settings_path: PathBuf,
     pub home: PathBuf,
@@ -191,6 +193,7 @@ impl Shared {
             active: [false; 3],
             leave_check: 0,
             label: String::new(),
+            backend_version: None,
             settings_path,
             home,
             rails,
@@ -235,7 +238,9 @@ impl Shared {
             MenuKind::RecentFiles => lines(Section::RecentFiles).max(1),
             MenuKind::Find => lines(Section::Ranked) + lines(Section::Found),
             MenuKind::NewFolder => 0,
-            MenuKind::Toast => self.vm.message().map_or(1, |m| rail::toast_lines(&m.text)),
+            MenuKind::Toast => self.vm.message().map_or(1, |m| {
+                rail::toast_lines(&m.text, rail::toast_chars(self.actions.dialog_width()))
+            }),
         }
     }
 
@@ -250,7 +255,7 @@ impl Shared {
             height: size.1,
             takes_keyboard: kind.takes_keyboard(),
             fresh,
-            away_from_dialog: kind == MenuKind::Toast,
+            bar: kind == MenuKind::Toast,
         }
     }
 
@@ -867,7 +872,7 @@ impl Shared {
             Some(text) => self.copy_in_background(
                 text.to_owned(),
                 |t, result| match result {
-                    Ok(()) => t.vm.show_info("preview", "Path copied"),
+                    Ok(()) => t.vm.clear_error("preview"),
                     Err(why) => {
                         t.vm.show_error("preview", &format!("Could not copy: {why}"))
                     }

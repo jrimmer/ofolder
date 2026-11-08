@@ -95,9 +95,9 @@ pub struct MenuRequest {
     /// True when the window is about to open, so a placement rule must be
     /// in force before it appears; false for a size change of an open menu.
     pub fresh: bool,
-    /// Open on the rail's outer side, clear of the dialog: for a message,
-    /// which must not cover the dialog's own buttons.
-    pub away_from_dialog: bool,
+    /// A message: a bar as wide as the dialog, over its top edge. The docker sets the width
+    /// and puts it where it does not cover the dialog's own buttons.
+    pub bar: bool,
 }
 
 /// A rail icon's tooltip about to open beside its rail.
@@ -131,6 +131,11 @@ pub trait StripActions: Send + Sync + 'static {
     /// changes size, `None` once it is closed. Called on the UI thread, so
     /// it must return quickly.
     fn place_menu(&self, menu: Option<MenuRequest>);
+    /// The dialog's width in pixels, when known, so a message bar can be sized to its text.
+    /// Called on the UI thread, so it must return quickly.
+    fn dialog_width(&self) -> Option<i32> {
+        None
+    }
     /// Where a tooltip window goes: `Some` just before one opens, `None`
     /// once it is closed. It must never take the keyboard. Called on the UI
     /// thread, so it must return quickly.
@@ -260,8 +265,10 @@ pub struct StripOptions {
     /// The update state file the settings window reads; `None` shows no update.
     pub update_state_path: Option<PathBuf>,
     /// A file whose absence means this is the first dialog ever: a note saying what the two rails
-    /// hold is shown once and the file is made. `None` shows no note.
+    /// hold is shown once, in the message bar, and the file is made. `None` shows no note.
     pub hint_marker: Option<PathBuf>,
+    /// The backend's version, when it could be learned, for the settings window.
+    pub backend_version: Option<String>,
     /// Said once per version when the backend's version was not among those tried with ofolder.
     pub version_note: Option<OnceNote>,
 }
@@ -349,6 +356,7 @@ pub fn run_strip_preview(
     let mut vm = ViewModel::new(&options);
     let open_first = prepare(&mut vm);
     let label = options.label;
+    let backend_version = options.backend_version.clone();
     let settings_path = options.settings_path.clone();
     let home = options.home.clone();
     let messages_path = options.messages_path.clone();
@@ -358,6 +366,7 @@ pub fn run_strip_preview(
         let shared = cx.new(|cx| {
             let mut shared = Shared::new(vm, actions, settings_path, home, cx);
             shared.label = backend;
+            shared.backend_version = backend_version;
             shared.messages_path = messages_path;
             shared.update_state_path = update_state_path;
             shared

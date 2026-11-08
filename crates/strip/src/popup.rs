@@ -263,8 +263,10 @@ impl MenuWindow {
                 .py_1()
                 .rounded(px(4.))
                 .bg(rgb(colors().panel))
-                .border_l_2()
-                .border_color(rgb(color))
+                // An error keeps its red edge; a note (the welcome, the version) has none.
+                .when(m.kind == MessageKind::Error, |d| {
+                    d.border_l_2().border_color(rgb(color))
+                })
                 .text_size(px(12.))
                 .text_color(rgb(color))
                 .cursor_pointer()

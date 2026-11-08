@@ -11,6 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use ofolder_core::known;
 use ofolder_core::messages;
 use ofolder_core::preview::{MAX_MB_CHOICES, PreviewSettings};
 use ofolder_core::rails::{Item, RailLayout};
@@ -48,6 +49,27 @@ pub const RECENTS_AGE_CHOICES: [(u32, &str); 4] = [
     (0, "never"),
 ];
 
+/// How long the copy button says "Copied".
+const COPIED_FOR: Duration = Duration::from_millis(2500);
+
+/// What a bug report gets: the versions, then the messages as they were logged, oldest first.
+pub fn report_text(ofolder_version: &str, beside: &str, lines: &[String]) -> String {
+    let mut text = format!("ofolder {ofolder_version}\n");
+    if !beside.is_empty() {
+        text.push_str(beside);
+        text.push('\n');
+    }
+    text.push('\n');
+    if lines.is_empty() {
+        text.push_str("No messages yet.\n");
+    }
+    for line in lines {
+        text.push_str(line);
+        text.push('\n');
+    }
+    text
+}
+
 /// Whether a log line records an error: its kind follows the date and time.
 pub fn is_error_line(line: &str) -> bool {
     line.split_whitespace().nth(2) == Some("error")
@@ -64,14 +86,19 @@ pub enum Pane {
 }
 
 impl Pane {
+    /// Every pane, in the order the sidebar lists them.
     const ALL: [Pane; 6] = [
         Pane::General,
         Pane::Rails,
         Pane::Preview,
         Pane::Apps,
-        Pane::Messages,
         Pane::Shortcuts,
+        Pane::Messages,
     ];
+    /// Messages is not a setting: it sits in the sidebar's corner, over the version it goes with.
+    fn in_corner(self) -> bool {
+        self == Pane::Messages
+    }
 
     fn title(self) -> &'static str {
         match self {
@@ -148,6 +175,8 @@ pub struct SettingsWindow {
     update_job: Option<UpdateJob>,
     /// Why an install could not be started.
     update_error: Option<String>,
+    /// The result of the last copy of the messages, shown on the copy button for a moment.
+    copied: Option<Result<(), String>>,
     /// The "forget all recents?" question is showing.
     confirm_forget: bool,
     /// What the last forgetting did, to show under its button.
@@ -287,6 +316,7 @@ impl SettingsWindow {
             update_open: false,
             update_job: None,
             update_error: None,
+            copied: None,
             forget_note: None,
             _subscriptions: subscriptions,
         }
@@ -1768,10 +1798,49 @@ impl SettingsWindow {
             return Vec::new();
         };
         let lines = messages::read_last(&path, RECENT_MESSAGES);
-        let mut out = vec![Self::hint(
-            "What the rails said, newest first. An error stays on screen while the pointer \
-             rests on it; a click dismisses it.",
-        )];
+        let copy_label = match &self.copied {
+            Some(Ok(())) => "Copied",
+            _ => "Copy for a bug report",
+        };
+        let mut out = vec![
+            Self::hint(
+                "What the rails said, newest first. An error stays on screen while the pointer \
+                 rests on it; a click dismisses it.",
+            ),
+            div()
+                .id("copy-messages")
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .px_2()
+                .py(px(3.))
+                .rounded(px(4.))
+                .text_size(px(12.))
+                .whitespace_nowrap()
+                .bg(rgb(colors().raised))
+                .text_color(rgb(colors().text))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(colors().hover)))
+                .child(
+                    svg()
+                        .path("icons/copy.svg")
+                        .size(px(14.))
+                        .text_color(rgb(colors().text)),
+                )
+                .child(copy_label)
+                .on_click(cx.listener(|this, _, _, cx| this.copy_messages(cx)))
+                .into_any_element(),
+        ];
+        if let Some(Err(why)) = &self.copied {
+            out.push(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(colors().red))
+                    .child(format!("Could not copy: {why}"))
+                    .into_any_element(),
+            );
+        }
         if lines.is_empty() {
             out.push(Self::hint("No messages yet."));
         }
@@ -1796,6 +1865,49 @@ impl SettingsWindow {
             abbreviate(&path, &home)
         )));
         out
+    }
+
+    /// Puts the versions and the kept messages, oldest first, on the clipboard, ready to paste
+    /// into a bug report. The button says "Copied" for a moment; a failure is said beside it.
+    fn copy_messages(&mut self, cx: &mut Context<Self>) {
+        let (path, actions, label, backend_version) = {
+            let shared = self.shared.read(cx);
+            (
+                shared.messages_path.clone(),
+                shared.actions(),
+                shared.label.clone(),
+                shared.backend_version.clone(),
+            )
+        };
+        let mut lines = path
+            .map(|p| messages::read_last(&p, messages::KEEP))
+            .unwrap_or_default();
+        lines.reverse();
+        let text = report_text(
+            env!("CARGO_PKG_VERSION"),
+            &known::describe(&label, backend_version.as_deref()),
+            &lines,
+        );
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { actions.copy_text(&text) })
+                .await;
+            this.update(cx, |t, cx| {
+                t.copied = Some(result);
+                cx.notify();
+            })
+            .ok();
+            cx.background_executor().timer(COPIED_FOR).await;
+            this.update(cx, |t, cx| {
+                if matches!(t.copied, Some(Ok(()))) {
+                    t.copied = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn rail_rows(&mut self, side: RailSide, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -2167,7 +2279,7 @@ impl SettingsWindow {
 
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let label = self.shared.read(cx).label.clone();
-        let panes = Pane::ALL.into_iter().enumerate().map(|(i, pane)| {
+        let row = |i: usize, pane: Pane, cx: &mut Context<Self>| {
             let chosen = pane == self.pane;
             div()
                 .id(("settings-pane", i))
@@ -2184,7 +2296,24 @@ impl SettingsWindow {
                     this.pane = pane;
                     cx.notify();
                 }))
-        });
+        };
+        let panes: Vec<_> = Pane::ALL
+            .into_iter()
+            .enumerate()
+            .filter(|(_, pane)| !pane.in_corner())
+            .map(|(i, pane)| row(i, pane, cx))
+            .collect();
+        let corner: Vec<_> = Pane::ALL
+            .into_iter()
+            .enumerate()
+            .filter(|(_, pane)| pane.in_corner())
+            .map(|(i, pane)| row(i, pane, cx))
+            .collect();
+        let (version, backend_version) = {
+            let shared = self.shared.read(cx);
+            (env!("CARGO_PKG_VERSION"), shared.backend_version.clone())
+        };
+        let beside = known::describe(&label, backend_version.as_deref());
         let muted = |text: String| {
             div()
                 .text_size(px(11.))
@@ -2208,20 +2337,24 @@ impl SettingsWindow {
                     .gap(px(2.))
                     .children(panes),
             )
-            // What this is, in the corner.
+            // What this is, in the corner, with the messages that go with a bug report above it.
             .child(
                 div()
-                    .p(px(14.))
                     .flex()
                     .flex_col()
-                    .gap(px(3.))
-                    .child(div().font_weight(FontWeight::BOLD).child("ofolder"))
-                    .child(muted(format!("Version {}", env!("CARGO_PKG_VERSION"))))
-                    .when(!label.is_empty(), |d| {
-                        d.child(muted(format!("Beside the {label} dialog")))
-                    })
-                    .child(muted("© 2026 Jason Rimmer".to_owned()))
-                    .child(muted("MIT License".to_owned())),
+                    .child(div().px_2().flex().flex_col().gap(px(2.)).children(corner))
+                    .child(
+                        div()
+                            .p(px(14.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(div().font_weight(FontWeight::BOLD).child("ofolder"))
+                            .child(muted(format!("Version {version}")))
+                            .when(!beside.is_empty(), |d| d.child(muted(beside.clone())))
+                            .child(muted("© 2026 Jason Rimmer".to_owned()))
+                            .child(muted("MIT License".to_owned())),
+                    ),
             )
     }
 }
@@ -2456,8 +2589,29 @@ mod tests {
     }
 
     #[test]
-    fn every_pane_has_a_title_general_comes_first_and_shortcuts_last() {
-        assert_eq!(Pane::ALL.last(), Some(&Pane::Shortcuts));
+    fn messages_sit_in_the_corner_over_the_version_and_shortcuts_close_the_list() {
+        assert_eq!(Pane::ALL.last(), Some(&Pane::Messages));
+        let listed: Vec<_> = Pane::ALL.iter().filter(|p| !p.in_corner()).collect();
+        assert_eq!(listed.last(), Some(&&Pane::Shortcuts));
+        assert_eq!(Pane::ALL.iter().filter(|p| p.in_corner()).count(), 1);
+    }
+
+    #[test]
+    fn a_bug_report_has_the_versions_then_the_messages_oldest_first() {
+        let lines = vec![
+            "2026-11-07 10:00:00 error go: refused".to_owned(),
+            "2026-11-07 10:00:05 error open: no terminal".to_owned(),
+        ];
+        assert_eq!(
+            report_text("1.0.1", "With Flea v0.4.0", &lines),
+            "ofolder 1.0.1\nWith Flea v0.4.0\n\n\
+             2026-11-07 10:00:00 error go: refused\n\
+             2026-11-07 10:00:05 error open: no terminal\n"
+        );
+        assert_eq!(
+            report_text("1.0.1", "", &[]),
+            "ofolder 1.0.1\n\nNo messages yet.\n"
+        );
     }
 
     #[test]

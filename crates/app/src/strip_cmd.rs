@@ -21,7 +21,7 @@ use ofolder_core::adapter::{Adapter, goto_verified, stable_folder};
 use ofolder_core::dialog_memory;
 use ofolder_core::exec::feed_with_deadline;
 use ofolder_core::geometry::{
-    Panels, Rect, centre_in, place_below, place_menu, place_panels, place_tip,
+    Panels, Rect, centre_in, place_above, place_below, place_menu, place_panels, place_tip,
 };
 use ofolder_core::keybind::taken_by;
 use ofolder_core::launch::{self, Command};
@@ -185,8 +185,22 @@ fn settings_rect(dialog: Rect, bounds: Option<Rect>, settings: &SettingsRequest)
     centre_in(bounds.unwrap_or(dialog), (settings.width, settings.height))
 }
 
+/// Where the message bar goes: over the dialog's top edge, as wide as the dialog. With no room
+/// above, along the top of the dialog itself, where a message is still clear of its buttons.
+fn bar_rect(dialog: Rect, bounds: Option<Rect>, height: i32) -> Rect {
+    place_above(dialog, bounds, GAP, height).unwrap_or(Rect {
+        x: dialog.x,
+        y: dialog.y,
+        w: dialog.w,
+        h: height.min(dialog.h.max(1)),
+    })
+}
+
 /// Where a menu belongs: beside its rail, which stands where the docker puts it.
 fn menu_rect(dialog: Rect, bounds: Option<Rect>, menu: &MenuRequest) -> Rect {
+    if menu.bar {
+        return bar_rect(dialog, bounds, menu.height);
+    }
     let panels = place_panels(dialog, bounds, LEFT_WIDTH as i32, RIGHT_WIDTH as i32, GAP);
     let rail = match menu.side {
         RailSide::Left => panels.left,
@@ -198,7 +212,7 @@ fn menu_rect(dialog: Rect, bounds: Option<Rect>, menu: &MenuRequest) -> Rect {
         bounds,
         menu.anchor_y,
         (menu.width, menu.height),
-        !menu.away_from_dialog,
+        true,
     )
 }
 
@@ -280,6 +294,10 @@ impl Actions {
 impl StripActions for Actions {
     fn current_folder(&self) -> Option<PathBuf> {
         self.adapter.lock().ok()?.read_folder()
+    }
+
+    fn dialog_width(&self) -> Option<i32> {
+        self.dock.lock().ok()?.dialog.map(|d| d.w)
     }
 
     fn go(&self, folder: &Path) -> Result<(), String> {
@@ -1008,6 +1026,9 @@ pub fn run(raw: &[String]) -> anyhow::Result<()> {
             version_note: crate::backend_version::note_for(&args.backend, &state)
                 .map(|(text, marker)| ofolder_strip::OnceNote { text, marker }),
             hint_marker: Some(state.join("ofolder/rails-hint-shown")),
+            backend_version: crate::backend_version::recorded(&state)
+                .filter(|(backend, _)| *backend == args.backend)
+                .map(|(_, version)| version),
             home,
         },
         actions.clone(),
@@ -1057,7 +1078,7 @@ mod tests {
             height: 200,
             takes_keyboard: false,
             fresh: true,
-            away_from_dialog: false,
+            bar: false,
         }
     }
 
@@ -1109,6 +1130,37 @@ mod tests {
         let right = tip_rect(dialog, screen, &tip(RailSide::Right, TipAnchor::Bottom(26)));
         assert_eq!(right.right(), dialog.right() + GAP - TIP_GAP);
         assert_eq!(right.y + right.h / 2, dialog.bottom() - 26);
+    }
+
+    #[test]
+    fn a_message_is_a_bar_over_the_dialog_or_along_its_top_without_room() {
+        let screen = Some(Rect {
+            x: 0,
+            y: 0,
+            w: 4096,
+            h: 1152,
+        });
+        let dialog = Rect {
+            x: 1611,
+            y: 289,
+            w: 875,
+            h: 600,
+        };
+        let message = MenuRequest {
+            bar: true,
+            width: 300,
+            height: 47,
+            ..request(RailSide::Right, 0)
+        };
+        let over = menu_rect(dialog, screen, &message);
+        assert_eq!((over.x, over.w, over.h), (dialog.x, dialog.w, 47));
+        assert_eq!(over.bottom() + GAP, dialog.y);
+        let high = Rect { y: 20, ..dialog };
+        let along = menu_rect(high, screen, &message);
+        assert_eq!(
+            (along.x, along.y, along.w, along.h),
+            (high.x, high.y, high.w, 47)
+        );
     }
 
     #[test]

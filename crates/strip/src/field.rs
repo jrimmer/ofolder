@@ -21,7 +21,13 @@ pub struct TextField {
     text: String,
     placeholder: &'static str,
     focus: FocusHandle,
+    /// The text, with the cursor, is wider than the box, as of the last frame. Then the end of it
+    /// is shown, so what is being typed stays in view; otherwise the text starts at the left edge.
+    overflowing: bool,
 }
+
+/// Room the box's padding takes from the text, left and right together.
+const PADDING_PX: f32 = 16.0;
 
 impl EventEmitter<FieldEvent> for TextField {}
 
@@ -47,6 +53,7 @@ impl TextField {
             text: String::new(),
             placeholder: "",
             focus: cx.focus_handle(),
+            overflowing: false,
         }
     }
 
@@ -122,6 +129,7 @@ impl Render for TextField {
                 .whitespace_nowrap()
                 .child(self.text.clone())
         };
+        let field = cx.entity();
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
@@ -129,11 +137,29 @@ impl Render for TextField {
             .w_full()
             .h(px(26.))
             .px_2()
+            .relative()
             .flex()
             .items_center()
-            // A long name is pushed to the end so the part being typed shows.
-            .when(!self.text.is_empty(), |d| d.justify_end())
+            // Text starts at the left edge. Once it is too long for the box it is pushed to the end,
+            // so the part being typed shows.
+            .when(self.overflowing, |d| d.justify_end())
             .overflow_hidden()
+            // The text is the first child, the cursor (when there is one) the next and the probe,
+            // which is as big as the box, the last.
+            .on_children_prepainted(move |bounds, _, cx| {
+                let (Some(text), Some(probe)) = (bounds.first(), bounds.last()) else {
+                    return;
+                };
+                let cursor = if bounds.len() > 2 { 1.0 } else { 0.0 };
+                let overflowing =
+                    f32::from(text.size.width) + cursor > f32::from(probe.size.width) - PADDING_PX;
+                if field.read(cx).overflowing != overflowing {
+                    field.update(cx, |f, cx| {
+                        f.overflowing = overflowing;
+                        cx.notify();
+                    });
+                }
+            })
             .rounded(px(4.))
             .bg(rgb(colors().field_bg))
             .border_1()
@@ -152,6 +178,7 @@ impl Render for TextField {
                         .bg(rgb(colors().accent)),
                 )
             })
+            .child(div().absolute().top_0().left_0().size_full())
     }
 }
 

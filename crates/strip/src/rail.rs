@@ -281,7 +281,7 @@ impl MenuKind {
             // A message: its rows are lines of wrapped text.
             MenuKind::Toast => {
                 let lines = i32::try_from(rows.max(1)).unwrap_or(i32::MAX / TOAST_LINE);
-                return (TOAST_PAD + lines.saturating_mul(TOAST_LINE)).clamp(64, 260);
+                return (TOAST_PAD + lines.saturating_mul(TOAST_LINE)).clamp(40, 260);
             }
             // The search box, the search button and a status line.
             MenuKind::Find => 144,
@@ -297,18 +297,33 @@ impl MenuKind {
 /// One line of a message, and the space around the lines, in pixels.
 const TOAST_LINE: i32 = 17;
 const TOAST_PAD: i32 = 30;
-/// Characters of a message that fit one line of the message window.
+/// Characters of a message that fit one line of a 300 px window, used when the dialog's width
+/// is not known.
 const TOAST_CHARS: usize = 36;
+/// The width of one character of a message, and the room the bar's frame and padding take.
+const TOAST_CHAR_PX: f32 = 7.4;
+const TOAST_SIDE_PX: i32 = 28;
 
-/// The lines a message takes in the message window, wrapping at spaces,
-/// so the window is tall enough to show all of it.
-pub fn toast_lines(text: &str) -> usize {
+/// Characters of a message that fit one line of a bar over a dialog `width` px wide.
+pub fn toast_chars(width: Option<i32>) -> usize {
+    let Some(width) = width else {
+        return TOAST_CHARS;
+    };
+    // Truncation is the point: part of a character does not fit.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let fits = ((width - TOAST_SIDE_PX).max(0) as f32 / TOAST_CHAR_PX) as usize;
+    fits.clamp(20, 400)
+}
+
+/// The lines a message takes in the message bar, wrapping at spaces at `chars` characters to a
+/// line, so the bar is tall enough to show all of it.
+pub fn toast_lines(text: &str, chars: usize) -> usize {
     let mut lines = 1;
     let mut used = 0;
     for word in text.split_whitespace() {
         let len = word.chars().count();
         let needed = if used == 0 { len } else { used + 1 + len };
-        if needed <= TOAST_CHARS {
+        if needed <= chars {
             used = needed;
             continue;
         }
@@ -316,8 +331,8 @@ pub fn toast_lines(text: &str) -> usize {
             lines += 1;
         }
         // A word longer than a line breaks over several.
-        lines += len.saturating_sub(1) / TOAST_CHARS;
-        used = (len.saturating_sub(1) % TOAST_CHARS) + 1;
+        lines += len.saturating_sub(1) / chars;
+        used = (len.saturating_sub(1) % chars) + 1;
     }
     lines
 }
@@ -597,13 +612,27 @@ mod tests {
 
     #[test]
     fn a_long_message_gets_a_window_tall_enough_to_read_it() {
-        assert_eq!(toast_lines("Path copied"), 1);
+        let narrow = toast_chars(None);
+        assert_eq!(toast_lines("Cannot copy", narrow), 1);
         let long = "Could not move the dialog: the folder /home/alex/Projects/a did not read back within 5 s";
-        assert!(toast_lines(long) >= 3);
-        assert!(MenuKind::Toast.height(toast_lines(long)) > MenuKind::Toast.height(1));
-        assert_eq!(MenuKind::Toast.height(1), 64);
+        assert!(toast_lines(long, narrow) >= 3);
+        assert!(MenuKind::Toast.height(toast_lines(long, narrow)) > MenuKind::Toast.height(1));
+        assert_eq!(MenuKind::Toast.height(1), 47);
         assert_eq!(MenuKind::Toast.height(1_000), 260);
-        assert_eq!(toast_lines(&"x".repeat(100)), 3);
+        assert_eq!(toast_lines(&"x".repeat(100), narrow), 3);
+    }
+
+    #[test]
+    fn a_wide_dialog_takes_a_message_on_fewer_lines() {
+        let long = "Could not move the dialog: the folder /home/alex/Projects/a did not read back within 5 s";
+        let wide = toast_chars(Some(900));
+        assert!(wide > toast_chars(None));
+        assert_eq!(toast_lines(long, wide), 1);
+        assert_eq!(
+            toast_chars(Some(10)),
+            20,
+            "a sliver of a dialog still wraps sensibly"
+        );
     }
 
     #[test]

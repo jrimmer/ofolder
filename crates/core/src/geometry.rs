@@ -254,6 +254,19 @@ pub fn place_below(
     })
 }
 
+/// The message bar's place over `dialog`: same left edge and width, `gap` above its top edge and
+/// `h` tall. `None` when that would leave the monitor's top.
+pub fn place_above(dialog: Rect, bounds: Option<Rect>, gap: i32, h: i32) -> Option<Rect> {
+    let y = dialog.y - gap - h;
+    let fits = bounds.is_none_or(|b| y >= b.y);
+    (fits && dialog.w > 0 && h > 0).then_some(Rect {
+        x: dialog.x,
+        y,
+        w: dialog.w,
+        h,
+    })
+}
+
 /// A window of `size` centred in `area`, kept inside it when it is larger.
 pub fn centre_in(area: Rect, (w, h): (i32, i32)) -> Rect {
     let w = w.min(area.w);
@@ -584,6 +597,25 @@ mod tests {
                 w: 1000,
                 h: 100
             }
+        );
+    }
+
+    #[test]
+    fn the_message_bar_sits_over_the_dialog_as_wide_as_it_and_is_left_out_without_room() {
+        let dialog = Rect {
+            x: 400,
+            y: 300,
+            w: 800,
+            h: 500,
+        };
+        let bar = place_above(dialog, Some(MONITOR), 3, 47).expect("room above");
+        assert_eq!((bar.x, bar.w, bar.h), (400, 800, 47));
+        assert_eq!(bar.bottom() + 3, dialog.y, "a gap above the dialog");
+        let high = Rect { y: 40, ..dialog };
+        assert_eq!(place_above(high, Some(MONITOR), 3, 47), None);
+        assert!(
+            place_above(high, None, 3, 47).is_some(),
+            "no monitor known: placed"
         );
     }
 
