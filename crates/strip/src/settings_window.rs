@@ -39,6 +39,9 @@ pub const SIZE: (i32, i32) = (780, 560);
 const SIDEBAR: f32 = 180.;
 /// The width of a row's label, before its control.
 const LABEL: f32 = 160.;
+/// A switch's width and the gap before its label, so a hint can start where the label does.
+const SWITCH_WIDTH: f32 = 34.;
+const SWITCH_GAP: f32 = 12.;
 /// Messages listed in the Messages pane.
 const RECENT_MESSAGES: usize = 30;
 /// The ages offered for "forget recents older than", in days; zero is never.
@@ -54,7 +57,7 @@ const COPIED_FOR: Duration = Duration::from_millis(2500);
 
 /// What a bug report gets: the versions, then the messages as they were logged, oldest first.
 pub fn report_text(ofolder_version: &str, beside: &str, lines: &[String]) -> String {
-    let mut text = format!("ofolder {ofolder_version}\n");
+    let mut text = format!("Ofolder {ofolder_version}\n");
     if !beside.is_empty() {
         text.push_str(beside);
         text.push('\n');
@@ -411,7 +414,7 @@ impl SettingsWindow {
         }
         if let Some(holder) = self.shared.read(cx).taken_by(&combo) {
             self.notice = Some(format!(
-                "{} is already {holder}, so ofolder leaves it alone. Choose other keys.",
+                "{} is already {holder}, so Ofolder leaves it alone. Choose other keys.",
                 combo.label()
             ));
             cx.notify();
@@ -478,6 +481,16 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    /// A hint under a switch, in line with the switch's label rather than the switch.
+    fn hint_under_switch(text: impl Into<String>) -> AnyElement {
+        div()
+            .pl(px(SWITCH_WIDTH + SWITCH_GAP))
+            .text_size(px(12.))
+            .text_color(rgb(colors().muted))
+            .child(text.into())
+            .into_any_element()
+    }
+
     fn heading(text: &str) -> AnyElement {
         div()
             .pt_3()
@@ -502,7 +515,7 @@ impl SettingsWindow {
         div()
             .relative()
             .flex_none()
-            .w(px(34.))
+            .w(px(SWITCH_WIDTH))
             .h(px(18.))
             .rounded(px(9.))
             .bg(rgb(if on { colors().accent } else { colors().raised }))
@@ -641,7 +654,7 @@ impl SettingsWindow {
             .min_h(px(30.))
             .cursor_pointer()
             .child(Self::switch(on))
-            .child("Keep ofolder working, and keep file dialogs working without it")
+            .child("Keep Ofolder working, and keep file dialogs working without it")
             .on_click(cx.listener(move |this, _, _, cx| {
                 if on {
                     this.confirm_guard_off = true;
@@ -733,9 +746,9 @@ impl SettingsWindow {
                 }
                 Event::Done { restarted } => {
                     job.text = if restarted {
-                        "Restarting ofolder".to_owned()
+                        "Restarting Ofolder".to_owned()
                     } else {
-                        "Updated. Open ofolder to use the new version.".to_owned()
+                        "Updated. Open Ofolder to use the new version.".to_owned()
                     };
                     job.finished = true;
                 }
@@ -782,7 +795,7 @@ impl SettingsWindow {
             Self::heading("Updates"),
             self.toggle(
                 "updates",
-                "Check for a newer release of ofolder",
+                "Check for a newer release of Ofolder",
                 s.updates,
                 cx,
             ),
@@ -800,7 +813,7 @@ impl SettingsWindow {
         };
         if !available {
             rows.push(Self::hint(
-                "praeco, which checks for and installs releases, was not found beside ofolder, so \
+                "praeco, which checks for and installs releases, was not found beside Ofolder, so \
                  nothing is checked or installed.",
             ));
         } else {
@@ -970,7 +983,7 @@ impl SettingsWindow {
             .min_h(px(30.))
             .cursor_pointer()
             .child(Self::switch(on))
-            .child("Let omarchy update also update ofolder")
+            .child("Let omarchy update also update Ofolder")
             .on_click(cx.listener(move |this, _, _, cx| {
                 if on {
                     this.set_registration(false, cx);
@@ -984,7 +997,7 @@ impl SettingsWindow {
             .flex_col()
             .child(row)
             .child(Self::hint(
-                "When on, omarchy update updates ofolder with praeco, as it updates the rest of \
+                "When on, omarchy update updates Ofolder with praeco, as it updates the rest of \
                  the system. Turning it off removes that registration again.",
             ))
             .into_any_element()
@@ -1025,11 +1038,11 @@ impl SettingsWindow {
                         div()
                             .text_size(px(16.))
                             .font_weight(FontWeight::BOLD)
-                            .child("Let omarchy update update ofolder?"),
+                            .child("Let omarchy update update Ofolder?"),
                     )
                     .child(line(
-                        "Each time omarchy update runs, it also looks for a newer ofolder and installs it, \
-                         with praeco, the way ofolder was installed.",
+                        "Each time omarchy update runs, it also looks for a newer Ofolder and installs it, \
+                         with praeco, the way Ofolder was installed.",
                     ))
                     .child(line(
                         "Turning this off again removes that registration (praeco init --remove).",
@@ -1095,12 +1108,12 @@ impl SettingsWindow {
                     )
                     .child(div().child("Without the guard:"))
                     .child(line(
-                        "If another program takes ofolder out of the file-chooser chain (a Flea \
-                         update has done it), ofolder stops working without a word until you run \
+                        "If another program takes Ofolder out of the file-chooser chain (a Flea \
+                         update has done it), Ofolder stops working without a word until you run \
                          `ofolder repair`.",
                     ))
                     .child(line(
-                        "If the ofolder program is deleted or broken, every Open and Save dialog \
+                        "If the Ofolder program is deleted or broken, every Open and Save dialog \
                          in every application stops opening until it is put back.",
                     ))
                     .child(
@@ -1190,7 +1203,7 @@ impl SettingsWindow {
                             .child("Forget all recents?"),
                     )
                     .child(line(
-                        "Every recent folder and file is removed from ofolder's list, in every \
+                        "Every recent folder and file is removed from Ofolder's list, in every \
                          application.",
                     ))
                     .child(line(
@@ -1340,6 +1353,11 @@ impl SettingsWindow {
                 s.keep_dialog_after_file_manager,
                 cx,
             ),
+            Self::hint_under_switch(
+                "On: the Open or Save dialog stays where it is when the file manager starts, so you \
+                 can look around there and come back to it. Off: the dialog closes (it is cancelled) \
+                 as the file manager opens.",
+            ),
             self.toggle(
                 "recents_enabled",
                 "Remember recent folders and files",
@@ -1368,14 +1386,14 @@ impl SettingsWindow {
                 )
                 .into_any_element(),
             Self::hint(self.forget_note.clone().unwrap_or_default()),
-            Self::heading("Keeping ofolder working"),
+            Self::heading("Keeping Ofolder working"),
             self.guard_toggle(s.guard, cx),
-            Self::hint(
-                "On: if another program takes ofolder out of the file-chooser chain, it is put back \
-                 and you get a notification; if the ofolder program is deleted, file dialogs in every \
+            Self::hint_under_switch(
+                "On: if another program takes Ofolder out of the file-chooser chain, it is put back \
+                 and you get a notification; if the Ofolder program is deleted, file dialogs in every \
                  application keep opening with the next backend instead of failing.",
             ),
-            Self::hint(self.guard_note.clone().unwrap_or_default()),
+            Self::hint_under_switch(self.guard_note.clone().unwrap_or_default()),
             self.update_section(&s, cx),
             Self::heading("Programs"),
             Self::row(
@@ -1390,7 +1408,7 @@ impl SettingsWindow {
             Self::hint(format!(
                 "Saved in {file}. Start folders, folders never recorded as recent and \
                  applications left alone are set in the Apps and privacy pane; everything else is \
-                 edited there by hand. Its comments are kept. `ofolder pause` turns ofolder off \
+                 edited there by hand. Its comments are kept. `ofolder pause` turns Ofolder off \
                  for every dialog."
             )),
         ]
@@ -1570,7 +1588,7 @@ impl SettingsWindow {
         let home = self.home(cx);
         let mut out = vec![Self::heading("Applications left alone")];
         out.push(Self::hint(
-            "ofolder shows no rails beside the dialogs of these applications. An application \
+            "Ofolder shows no rails beside the dialogs of these applications. An application \
              is named by its key: its portal id, or class:name for the class of its window \
              (`hyprctl clients` lists them).",
         ));
@@ -2106,7 +2124,7 @@ impl SettingsWindow {
                 .child(reset)
                 .into_any_element(),
             Self::hint(
-                "Shortcuts work while a dialog is open: ofolder adds them to Hyprland for that \
+                "Shortcuts work while a dialog is open: Ofolder adds them to Hyprland for that \
                  time only. A combination your own Hyprland configuration already uses is \
                  refused. Click a shortcut, then press the keys; Escape cancels.",
             ),
@@ -2349,7 +2367,7 @@ impl SettingsWindow {
                             .flex()
                             .flex_col()
                             .gap(px(3.))
-                            .child(div().font_weight(FontWeight::BOLD).child("ofolder"))
+                            .child(div().font_weight(FontWeight::BOLD).child("Ofolder"))
                             .child(muted(format!("Version {version}")))
                             .when(!beside.is_empty(), |d| d.child(muted(beside.clone())))
                             .child(muted("© 2026 Jason Rimmer".to_owned()))
@@ -2501,12 +2519,12 @@ fn checked_text(state: &State, running: &str) -> String {
     };
     let latest = state.latest.as_deref().unwrap_or(running);
     if !state.update_available {
-        return format!("ofolder {running} is the latest release.");
+        return format!("Ofolder {running} is the latest release.");
     }
     if state.skipped.as_deref() == Some(latest) {
         return format!("You skipped {latest}; the release after it is offered.");
     }
-    format!("ofolder {running}; {latest} is the latest release.")
+    format!("Ofolder {running}; {latest} is the latest release.")
 }
 
 /// The start of a release's notes, cut at a character boundary.
@@ -2604,13 +2622,13 @@ mod tests {
         ];
         assert_eq!(
             report_text("1.0.1", "With Flea v0.4.0", &lines),
-            "ofolder 1.0.1\nWith Flea v0.4.0\n\n\
+            "Ofolder 1.0.1\nWith Flea v0.4.0\n\n\
              2026-11-07 10:00:00 error go: refused\n\
              2026-11-07 10:00:05 error open: no terminal\n"
         );
         assert_eq!(
             report_text("1.0.1", "", &[]),
-            "ofolder 1.0.1\n\nNo messages yet.\n"
+            "Ofolder 1.0.1\n\nNo messages yet.\n"
         );
     }
 
@@ -2632,7 +2650,7 @@ mod tests {
         };
         assert_eq!(
             checked_text(&found, "0.1.0"),
-            "ofolder 0.1.0; 0.2.0 is the latest release."
+            "Ofolder 0.1.0; 0.2.0 is the latest release."
         );
         let skipped = State {
             skipped: Some("0.2.0".to_owned()),
@@ -2648,7 +2666,7 @@ mod tests {
         };
         assert_eq!(
             checked_text(&current, "0.2.0"),
-            "ofolder 0.2.0 is the latest release."
+            "Ofolder 0.2.0 is the latest release."
         );
     }
 

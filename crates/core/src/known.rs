@@ -34,15 +34,32 @@ fn display(backend: &str) -> String {
         .unwrap_or_default()
 }
 
+/// The version in what a package manager prints for one package ("xdg-desktop-portal-gtk
+/// 1.15.3-2", or with an epoch, "gtk3 1:3.24.52-2"): the second word without its epoch and its
+/// package release, "1.15.3".
+pub fn package_version_of(output: &str) -> Option<String> {
+    let word = output.lines().next()?.split_whitespace().nth(1)?;
+    let word = word.split_once(':').map_or(word, |(_, rest)| rest);
+    let version = word.rsplit_once('-').map_or(word, |(version, _)| version);
+    (version.starts_with(|c: char| c.is_ascii_digit()) && version.len() <= 32)
+        .then(|| version.to_owned())
+}
+
 /// Says what ofolder sits beside, as far as it could be learned: "With Flea v0.4.0", or "With Flea"
-/// when no version could be had. An empty backend says nothing.
+/// when no version could be had. The GTK portal's number is the portal's own, not GTK's, so it is
+/// named. An empty backend says nothing.
 pub fn describe(backend: &str, version: Option<&str>) -> String {
     if backend.is_empty() {
         return String::new();
     }
-    match version.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(v) => format!("With {} v{}", display(backend), v.trim_start_matches('v')),
-        None => format!("With {}", display(backend)),
+    let version = version
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_start_matches('v'));
+    match (backend, version) {
+        ("gtk", Some(v)) => format!("With xdg-desktop-portal-gtk v{v}"),
+        (_, Some(v)) => format!("With {} v{v}", display(backend)),
+        (_, None) => format!("With {}", display(backend)),
     }
 }
 
@@ -53,7 +70,7 @@ pub fn untested_note(backend: &str, version: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "{} {version} has not been tried with ofolder (tried: {}). If the rails misbehave, \
+        "{} {version} has not been tried with Ofolder (tried: {}). If the rails misbehave, \
          `ofolder pause` turns them off.",
         display(backend),
         tried.join(", ")
@@ -65,10 +82,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_package_version_loses_its_epoch_and_release() {
+        assert_eq!(
+            package_version_of("xdg-desktop-portal-gtk 1.15.3-2\n").as_deref(),
+            Some("1.15.3")
+        );
+        assert_eq!(
+            package_version_of("gtk3 1:3.24.52-2").as_deref(),
+            Some("3.24.52")
+        );
+        assert_eq!(package_version_of("only-one-word"), None);
+        assert_eq!(package_version_of("pkg git-abc"), None);
+        assert_eq!(package_version_of(""), None);
+    }
+
+    #[test]
     fn what_the_rails_sit_beside_is_said_with_its_version_when_known() {
         assert_eq!(describe("flea", Some("0.4.0")), "With Flea v0.4.0");
         assert_eq!(describe("strata", Some("v1.1.1")), "With Strata v1.1.1");
-        assert_eq!(describe("gtk", Some("4.24.1")), "With GTK v4.24.1");
+        assert_eq!(
+            describe("gtk", Some("1.15.3")),
+            "With xdg-desktop-portal-gtk v1.15.3"
+        );
+        assert_eq!(describe("gtk", None), "With GTK");
         assert_eq!(describe("flea", None), "With Flea");
         assert_eq!(describe("flea", Some("  ")), "With Flea");
         assert_eq!(describe("", Some("1")), "");

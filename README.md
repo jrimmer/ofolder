@@ -1,4 +1,4 @@
-# ofolder
+# Ofolder
 
 Favorites, recent folders, "new folder", find and a picture preview, docked beside the save and open
 dialogs on [Omarchy](https://omarchy.org). It decorates Flea, the GTK portal dialog and Strata without
@@ -18,7 +18,7 @@ curl -fsSL https://github.com/jrimmer/ofolder/releases/latest/download/install.s
 ```
 
 It checks each download against its SHA-256, installs under `~/.local` (no root), and then switches
-ofolder on. Read the script first if you like; `--no-setup` installs without switching it on, and
+Ofolder on. Read the script first if you like; `--no-setup` installs without switching it on, and
 `--uninstall` removes it. [What switching on changes](#what-it-changes-and-how-to-undo-it) is below.
 
 **You need** Omarchy (Hyprland on Wayland), a running `xdg-desktop-portal`, and one of Flea, the GTK portal
@@ -36,7 +36,7 @@ stills in the preview. Linux x86_64 only. Built and tested on Arch with Hyprland
 - **Right rail:** new folder, find, add this folder to your favorites, copy its path, open it in your file
   manager or a terminal, and settings.
 - **Favorites** you can rename, reorder and remove. **Recent folders and files**, all apps or just the one
-  asking. **Find** ranks the folders ofolder knows as you type.
+  asking. **Find** ranks the folders Ofolder knows as you type.
 - **Preview** of a selected picture or video, under the dialog.
 - **Shortcuts** for every rail command, set in the settings window.
 
@@ -56,17 +56,17 @@ or in `~/.config/ofolder/settings.toml` (every setting is listed in [packaging/R
 
 ## What it changes, and how to undo it
 
-Switching ofolder on changes how every save and open dialog on the machine is requested, so it is worth
+Switching Ofolder on changes how every save and open dialog on the machine is requested, so it is worth
 knowing exactly what happens. It registers itself as a file-chooser backend that forwards to the real one:
 
 - two small files, `~/.local/share/xdg-desktop-portal/portals/ofolder.portal` and a D-Bus service file for it;
 - one line in your portal configuration (`~/.config/xdg-desktop-portal/hyprland-portals.conf`), which puts
   `ofolder` first in the file-chooser list and leaves every other backend after it; a backup of the file is kept;
 - a small guard (`ofolder-guard.sh` and two systemd user units) that puts that line back if another program
-  removes it, and keeps dialogs working if the ofolder program is ever deleted (turn it off in settings);
+  removes it, and keeps dialogs working if the Ofolder program is ever deleted (turn it off in settings);
 - a restart of the portal frontend so it notices.
 
-If ofolder is missing or broken, your dialogs fall back to the next backend rather than failing.
+If Ofolder is missing or broken, your dialogs fall back to the next backend rather than failing.
 To go back: `ofolder pause` makes every dialog pass through untouched (`ofolder resume` undoes that),
 `ofolder repair --undo` restores the portal configuration, and `ofolder uninstall` undoes the whole setup and keeps your
 settings, favorites and recents (add `--purge` to remove those too). `install.sh --uninstall` runs `ofolder uninstall` and
@@ -77,21 +77,21 @@ then removes the program files.
 - `ofolder doctor` says what is wrong and how to fix it; `ofolder repair` does the fixing.
 - `ofolder doctor --report` prints the same with versions, and with your home folder, user and host name
   hidden, so you can paste it into an issue.
-- ofolder reads interfaces that Flea and Strata do not document, so it records the versions it was tried
+- Ofolder reads interfaces that Flea and Strata do not document, so it records the versions it was tried
   with (Flea 0.4.0 and 0.3.12, xdg-desktop-portal-gtk 1.15, Strata 1.1.1). Any other version is said once, not
   blocked. If the rails misbehave after an update of one of them, please open an issue.
 
 ## Privacy
 
-Everything stays on your machine, in files only you can read. ofolder remembers the folders and files you
+Everything stays on your machine, in files only you can read. Ofolder remembers the folders and files you
 confirm in dialogs, with the application that asked, for 90 days; folders that hold keys, passwords and
 browser profiles are never recorded. `ofolder forget` empties the lists. Nothing is sent anywhere. Once a
-week ofolder asks GitHub whether a newer release exists, and installs one only when you choose; switch that
+week Ofolder asks GitHub whether a newer release exists, and installs one only when you choose; switch that
 off in settings. [packaging/README.md](packaging/README.md) lists what is kept and where.
 
 ## For developers
 
-ofolder cannot embed another process's window, and none of these dialogs has a plugin API, so it reads and
+Ofolder cannot embed another process's window, and none of these dialogs has a plugin API, so it reads and
 drives each dialog from outside, through an adapter that says honestly what it can do.
 
 | Where | What |
@@ -123,5 +123,5 @@ must pass (`bin/e2e` too, for anything that changes what a dialog shows or does)
 
 ## License
 
-MIT, see [LICENSE](LICENSE). ofolder is a separate program: it does not include or modify Flea, Strata or the
+MIT, see [LICENSE](LICENSE). Ofolder is a separate program: it does not include or modify Flea, Strata or the
 GTK portal.

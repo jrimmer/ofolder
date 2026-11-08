@@ -41,6 +41,12 @@ pub fn installed(backend: &str, home: &Path) -> Option<String> {
     ask(&program_for(backend, home)?)
 }
 
+/// The installed version of the package `name`, from pacman (Omarchy is Arch), if it answers.
+fn package_version(name: &str) -> Option<String> {
+    let out = run_with_deadline(Command::new("pacman").args(["-Q", name]), PROBE_LIMIT).ok()?;
+    known::package_version_of(&String::from_utf8_lossy(&out.stdout))
+}
+
 /// What `program --version` says, as a version number, if it answers in time.
 pub fn ask(program: &str) -> Option<String> {
     let out = run_with_deadline(Command::new(program).arg("--version"), PROBE_LIMIT).ok()?;
@@ -66,11 +72,19 @@ pub fn start_probe(backend: String, home: PathBuf, state_dir: PathBuf) {
     if std::env::var_os("OFOLDER_NO_VERSION_PROBE").is_some() {
         return;
     }
-    // The GTK portal has no program of its own to ask; its toolkit's launcher reports the GTK
-    // version, which is as near as can be had and is only shown, never judged.
-    let program = program_for(&backend, &home)
-        .or_else(|| (backend == "gtk").then(|| "gtk4-launch".to_owned()));
-    let Some(program) = program else {
+    if backend == "gtk" {
+        // The GTK portal has no `--version` and is built on GTK 3, so the toolkit's number would
+        // be the wrong one. The package manager knows the portal's own, where there is one.
+        std::thread::spawn(move || {
+            record(
+                &state_dir,
+                &backend,
+                package_version("xdg-desktop-portal-gtk").as_deref(),
+            );
+        });
+        return;
+    }
+    let Some(program) = program_for(&backend, &home) else {
         record(&state_dir, &backend, None);
         return;
     };
