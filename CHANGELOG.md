@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.1 (2026-11-07)
+
+Fixes the two problems 1.0.0 had in daily use, and quietens the rails.
+
+- **Up, Back, Forward and the clock no longer refuse.** On a desktop where the keyboard follows the
+  pointer, a click on a rail used to leave the dialog without the keyboard, and ofolder refused with
+  "the dialog is not the active window". It now takes the keyboard for each group of keys, sends them,
+  and puts the pointer back straight afterwards.
+- **The rails no longer crash after quick repeated clicks.** The graphics library the rails are built
+  on could draw into a window it had already let go of. 1.0.1 carries a small patched copy of it.
+- **Quieter.** The notes that only confirmed something (favorite added or removed, folder made, path
+  copied, opened in a terminal or file manager) are gone. What is left shows in a bar over the top of
+  the dialog instead of beside a rail: failures, the first-dialog welcome (without a coloured edge) and
+  the note about a backend version nobody tried.
+- **Settings.** Messages now sits above the version, with a button that copies the versions and the
+  messages for a bug report. The version line says what ofolder sits beside, such as "With Flea v0.4.0".
+- **New folder.** The name now starts at the left of its box.
+- **Easier to diagnose.** A refused focus check says which window held the keyboard, and a crash of a
+  rail says where it happened, both in the journal.
+
 ## 1.0.0 (2026-11-06)
 
 The first release.

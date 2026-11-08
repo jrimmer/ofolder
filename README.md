@@ -24,7 +24,7 @@ ofolder on. Read the script first if you like; `--no-setup` installs without swi
 **You need** Omarchy (Hyprland on Wayland), a running `xdg-desktop-portal`, and one of Flea, the GTK portal
 (`xdg-desktop-portal-gtk`) or Strata, plus `wtype` and `wl-clipboard` (on Arch: `sudo pacman -S wtype wl-clipboard`; the installer warns if they or `hyprctl` are
 missing and does not install them). `ffmpeg` is optional, for video
-stills in the preview. Linux x86_64 only. Built and tested on Arch with Hyprland 0.57; other setups are untested.
+stills in the preview. Linux x86_64 only. Built and tested on Arch with Hyprland 0.56.2; other setups are untested.
 
 ## What you get
 

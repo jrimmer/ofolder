@@ -3601,7 +3601,7 @@ dependencies = [
 
 [[package]]
 name = "ofolder"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "ofolder-adapters",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "ofolder-adapters"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "atspi",
  "libc",
@@ -3625,7 +3625,7 @@ dependencies = [
 
 [[package]]
 name = "ofolder-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3636,7 +3636,7 @@ dependencies = [
 
 [[package]]
 name = "ofolder-portal"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-io",
  "ofolder-core",
@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "ofolder-strip"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "gpui",
