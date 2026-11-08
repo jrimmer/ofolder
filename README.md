@@ -5,9 +5,9 @@ dialogs on [Omarchy](https://omarchy.org). It decorates Flea, the GTK portal dia
 changing any of them.
 
 <p align="center">
-  <img src="docs/images/flea-0.4.0.png" alt="ofolder beside Flea 0.4.0" width="32%">
-  <img src="docs/images/strata.png" alt="ofolder beside Strata" width="32%">
-  <img src="docs/images/gtk.png" alt="ofolder beside the GTK dialog" width="32%">
+  <img src="docs/images/flea-0.4.0.png" alt="Ofolder beside Flea 0.4.0" width="32%">
+  <img src="docs/images/strata.png" alt="Ofolder beside Strata" width="32%">
+  <img src="docs/images/gtk.png" alt="Ofolder beside the GTK dialog" width="32%">
 </p>
 <p align="center"><sub>Flea 0.4.0, Strata and the GTK portal dialog. Two slim rails of icons sit beside the dialog; the preview sits under it.</sub></p>
 

@@ -855,6 +855,7 @@ class Features:
         self.do("settings")
         self.assertTrue(wait_for(10, lambda: self.s.client(self.SETTINGS)), "no settings window")
         time.sleep(1.0)
+        self.settings_shot("settings-general")
 
     def click_settings(self, x, y):
         self.assertTrue(self.s.click(self.SETTINGS, x, y), "the click did not land")
@@ -866,7 +867,7 @@ class Features:
         if folder and win:
             self.s.run(["grim", "-g", "%d,%d %dx%d" % (*win["at"], *win["size"]), os.path.join(folder, name + ".png")])
 
-    # The guard: a switch in the General pane at (300, 409); turning it off asks first, with
+    # The guard: a switch in the General pane at (300, 473); turning it off asks first, with
     # "Keep it on" at (475, 390) and "Turn it off" at (555, 390).
     def guard_files(self):
         data = os.path.join(self.home(), ".local/share/ofolder/ofolder-guard.sh")
@@ -889,7 +890,7 @@ class Features:
     def test_turning_the_guard_off_asks_first_and_keeping_it_on_changes_nothing(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 409)  # the guard's switch: this asks
+        self.click_settings(300, 473)  # the guard's switch: this asks
         time.sleep(0.8)
         self.assertNotIn("guard = false", self.settings_text(), "it turned off without asking")
         self.click_settings(475, 390)  # Keep it on
@@ -900,7 +901,7 @@ class Features:
     def test_escape_in_the_question_keeps_the_guard_on_and_leaves_the_settings_open(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 409)
+        self.click_settings(300, 473)
         time.sleep(0.8)
         self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
         time.sleep(1.0)
@@ -911,8 +912,9 @@ class Features:
     def test_the_guard_is_turned_off_after_confirming_and_back_on_with_one_click(self):
         self.open_settings()
         self.assertTrue(wait_for(15, self.guard_files))
-        self.click_settings(300, 409)
+        self.click_settings(300, 473)
         time.sleep(0.8)
+        self.settings_shot("guard-question")
         self.click_settings(555, 390)  # Turn it off
         self.assertTrue(wait_for(10, lambda: "guard = false" in self.settings_text()), self.settings_text())
         self.assertTrue(wait_for(10, lambda: not self.guard_files()), "the guard was not taken away")
@@ -920,12 +922,12 @@ class Features:
         report = self.s.run([OFOLDER, "doctor"]).stdout
         self.assertIn("the guard is turned off in the settings, as chosen", report)
         # Turning it back on needs no question.
-        self.click_settings(300, 409)
+        self.click_settings(300, 473)
         self.assertTrue(wait_for(10, lambda: "guard = true" in self.settings_text()), self.settings_text())
         self.assertTrue(wait_for(10, self.guard_files), "the guard was not put back")
 
-    # The recents controls in the General pane: age chips at y 213 (30 days x 406, 90 days x 472,
-    # 1 year x 531, never x 586) and "Forget all recents..." at (266, 311); its question has
+    # The recents controls in the General pane: age chips at y 277 (30 days x 406, 90 days x 472,
+    # 1 year x 531, never x 586) and "Forget all recents..." at (266, 375); its question has
     # "Keep them" at (459, 343) and "Forget them" at (547, 343).
     def recents_doc(self):
         try:
@@ -935,28 +937,29 @@ class Features:
 
     def test_the_age_after_which_recents_are_forgotten_is_chosen_with_chips(self):
         self.open_settings()
-        self.click_settings(406, 213)  # 30 days
+        self.click_settings(406, 277)  # 30 days
         self.assertTrue(wait_for(8, lambda: "recents_days = 30" in self.settings_text()), self.settings_text())
-        self.click_settings(586, 213)  # never
+        self.click_settings(586, 277)  # never
         self.assertTrue(wait_for(8, lambda: "recents_days = 0" in self.settings_text()), self.settings_text())
 
     def test_forgetting_all_recents_asks_first_and_then_empties_them_and_keeps_the_favorites(self):
         self.seed_recents(folders=[self.one, self.two], files=[os.path.join(self.two, "a.txt")])
         self.seed_favorites({"path": self.one})
         self.open_settings()
-        self.click_settings(266, 311)  # Forget all recents...
+        self.click_settings(266, 375)  # Forget all recents...
         time.sleep(0.8)
+        self.settings_shot("forget-question")
         self.click_settings(459, 343)  # Keep them
         time.sleep(1.0)
         doc = self.recents_doc()
         self.assertTrue(doc and len(doc["folders"]) == 2 and len(doc["files"]) == 1, "keeping them changed the recents: %s" % doc)
-        self.click_settings(266, 311)
+        self.click_settings(266, 375)
         time.sleep(0.8)
         self.assertTrue(self.s.press(self.SETTINGS, "Escape"))
         time.sleep(0.8)
         self.assertTrue(self.s.client(self.SETTINGS), "Escape closed the window instead of the question")
         self.assertEqual(len(self.recents_doc()["folders"]), 2, "Escape forgot the recents")
-        self.click_settings(266, 311)
+        self.click_settings(266, 375)
         time.sleep(0.8)
         self.click_settings(547, 343)  # Forget them
         self.assertTrue(
@@ -996,12 +999,12 @@ class Features:
     def test_a_general_setting_is_saved_when_it_is_switched(self):
         self.open_settings()
         self.assertNotIn("recents_enabled = false", self.settings_text())
-        self.click_settings(221, 115)  # Remember recent folders and files
+        self.click_settings(221, 179)  # Remember recent folders and files
         self.assertTrue(
             wait_for(8, lambda: "recents_enabled = false" in self.settings_text()),
             "switching it off was not saved:\n" + self.settings_text(),
         )
-        self.click_settings(221, 115)
+        self.click_settings(221, 179)
         self.assertTrue(
             wait_for(8, lambda: "recents_enabled = true" in self.settings_text()),
             "switching it on again was not saved:\n" + self.settings_text(),
@@ -1009,7 +1012,7 @@ class Features:
 
     def test_the_recents_count_is_stepped_down_and_saved(self):
         self.open_settings()
-        self.click_settings(388, 152)  # the minus beside "Recent items kept"
+        self.click_settings(388, 216)  # the minus beside "Recent items kept"
         self.assertTrue(
             wait_for(8, lambda: "recents_max" in self.settings_text() and "recents_max = 20" not in self.settings_text()),
             "the count was not lowered:\n" + self.settings_text(),
